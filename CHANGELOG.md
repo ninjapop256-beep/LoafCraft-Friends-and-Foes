@@ -14,6 +14,18 @@ Newest changes first. Existing worlds keep working; new structures only appear i
   - Characters won't walk or drop into small enclosed pools with no edge to climb out of.
   - Anyone who still ends up stuck in water swims up, and after 5 seconds steps out onto the nearest dry block.
 
+### FelixSyn: quieter, and peaceful in villages
+- **He talks a lot less.**
+  - Idle lines every 1.5-3 minutes (was every 20-40 seconds).
+  - At least 15 seconds between any two lines.
+  - Only about 1 in 4 hits plays an "ow" line; the rest use the normal hurt sound.
+  - Config: `felixIdleLineMinSeconds`, `felixIdleLineMaxSeconds`, `felixVoiceGapSeconds`, `felixHurtVoiceChance`.
+- **No fights in villages.** He doesn't start fights in or next to a village, and a rival fight that moves into one stops. He still fights back if he or Harley gets hit.
+- **The rivalry is only with geared ItzBreadLoafs.** He only fights ItzBreadLoafs wearing armor or holding a weapon, and ItzBreadLoafs without gear don't go after him either.
+
+### Mace smashes work again
+- FelixSyn, Harley and Master BreadLoaf jumped with a wind charge but never swung the mace on the way down. Switching to the mace in mid-air resets the attack charge, and they waited for a full charge, which a mace can't reach before landing. They now smash as soon as they're in range while falling.
+
 ### Harley rebalance
 - Full **diamond** armor with Protection II (no more netherite), a plain shield and a plain mace.
 - **Harley's Blade** is now a diamond sword with Sharpness II only.

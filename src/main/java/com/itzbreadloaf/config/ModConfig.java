@@ -47,9 +47,16 @@ public final class ModConfig {
 	// ---------------------------------------------------------------- FelixSyn's voice
 	/** Volume of FelixSyn's recorded voice lines (1.0 = normal). */
 	public double felixVoiceVolume = 1.0;
-	/** Seconds between his idle lines while he wanders (a random time between min and max). */
-	public int felixIdleVoiceMinSeconds = 20;
-	public int felixIdleVoiceMaxSeconds = 40;
+	/**
+	 * Seconds between his idle lines while he wanders (a random time between min and max). New names, so config files
+	 * saved with the old, chattier 20-40 second setting don't keep it.
+	 */
+	public int felixIdleLineMinSeconds = 90;
+	public int felixIdleLineMaxSeconds = 180;
+	/** He never says two lines closer together than this many seconds (fights, smashes, getting hit...). */
+	public int felixVoiceGapSeconds = 15;
+	/** Chance that getting hit plays one of his "ow" lines (when he hasn't just spoken); otherwise the normal hurt sound. */
+	public double felixHurtVoiceChance = 0.25;
 
 	// ---------------------------------------------------------------- taming and health
 	/** Taming chance: 1 in this many steaks for ItzBreadLoaf. */

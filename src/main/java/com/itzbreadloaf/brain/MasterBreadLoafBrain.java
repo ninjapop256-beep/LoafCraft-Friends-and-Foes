@@ -495,8 +495,8 @@ public class MasterBreadLoafBrain extends LoafBrain {
 		if (this.player.fallDistance > preset().maxSmashFall) {
 			this.player.fallDistance = preset().maxSmashFall;
 		}
-		if (falling && distance <= this.combat.reach() - 0.1 && this.player.fallDistance > 1.5
-				&& this.player.getAttackStrengthScale(0.5F) >= 0.9F) {
+		// No full-charge wait: switching to a mace mid-air resets the charge, which then can't refill before landing.
+		if (falling && distance <= this.combat.reach() - 0.1 && this.player.fallDistance > 1.5) {
 			this.controls.attackOnce();
 			this.smashChain++;
 			this.telegraphed = false;

@@ -131,7 +131,7 @@ loader_version=0.19.5
 loom_version=1.18-SNAPSHOT
 
 # Mod Properties
-version=1.0.0
+version=1.1.0-alpha.1
 group=com.itzbreadloaf
 
 # Dependencies
@@ -1972,6 +1972,12 @@ public class BreadLoafBrain extends LoafBrain {
 		if (target == null) {
 			return;
 		}
+		// The FelixSyn rivalry stops in villages and needs gear on this ItzBreadLoaf, unless FelixSyn just hit it.
+		if (com.itzbreadloaf.character.LoafIds.kind(target.getUUID()) == com.itzbreadloaf.character.CharacterKind.FELIXSYN
+				&& !(target == this.lastAttacker && this.ticks - this.lastHurtTick < 200) && !FelixBrain.rivalryAllowed(target, this.player)) {
+			this.setTarget(null);
+			return;
+		}
 		double distance = this.player.distanceTo(target);
 		if (this.player.hasLineOfSight(target)) {
 			this.lostSightTicks = 0;
@@ -3403,7 +3409,6 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.npc.villager.AbstractVillager;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -3415,8 +3420,8 @@ import org.jetbrains.annotations.Nullable;
  * FelixSyn: a homeless mace fighter who drifts around villages with his partner Harley. He hangs out at the bell and
  * the well, curls up on a hay bale (or the ground) at night, and trades nothing.
  *
- * Neutral to players: he only goes after players who attack him, Harley, or villagers. But he and every ItzBreadLoaf
- * (wild or tamed) are sworn rivals: whenever they see each other within 24 blocks, they fight.
+ * Neutral to players: he only goes after whoever attacks him or Harley. He and ItzBreadLoafs that have gear (armor
+ * or a weapon) are sworn rivals: when they see each other within 24 blocks they fight, but never in a village.
  *
  * Fights like a PvP mace player: wind charge at his feet, Density + Wind Burst mace smash on the way down, a sword
  * on the ground in between, golden apples when low.
@@ -3431,7 +3436,9 @@ public class FelixBrain extends LoafBrain {
 	private int nextRivalMessage;
 	private int nextDrifterCheck;
 	// Voice lines (see FelixVoices for which recording plays when).
-	private int nextIdleVoice = 200;
+	private int nextIdleVoice = 1200;
+	/** No line of any kind before this tick (the gap between lines). */
+	private int nextVoiceTick;
 	private int nextSpotVoice;
 	private int nextVillageVoice;
 	private int harleyApartSince;
@@ -3533,16 +3540,29 @@ public class FelixBrain extends LoafBrain {
 
 	// ---------------------------------------------------------------- voice
 
+	/** Plays a line for the moment, unless he spoke in the last felixVoiceGapSeconds (so lines never pile up). */
 	private void voice(com.itzbreadloaf.sound.FelixVoices.Moment moment) {
+		if (this.ticks < this.nextVoiceTick) {
+			return;
+		}
 		net.minecraft.sounds.SoundEvent sound = com.itzbreadloaf.sound.FelixVoices.random(moment, this.random);
 		if (sound != null) {
 			this.playSound(sound, (float) com.itzbreadloaf.config.ModConfig.get().felixVoiceVolume, 1.0F);
+			this.nextVoiceTick = this.ticks + 20 * Math.max(1, com.itzbreadloaf.config.ModConfig.get().felixVoiceGapSeconds);
 		}
 	}
 
 	@Override
 	public @Nullable net.minecraft.sounds.SoundEvent hurtSound() {
-		return com.itzbreadloaf.sound.FelixVoices.random(com.itzbreadloaf.sound.FelixVoices.Moment.HURT, this.random);
+		// Only now and then, and not right after another line; otherwise the normal hurt sound.
+		if (this.ticks < this.nextVoiceTick || this.random.nextDouble() >= com.itzbreadloaf.config.ModConfig.get().felixHurtVoiceChance) {
+			return null;
+		}
+		net.minecraft.sounds.SoundEvent sound = com.itzbreadloaf.sound.FelixVoices.random(com.itzbreadloaf.sound.FelixVoices.Moment.HURT, this.random);
+		if (sound != null) {
+			this.nextVoiceTick = this.ticks + 20 * Math.max(1, com.itzbreadloaf.config.ModConfig.get().felixVoiceGapSeconds);
+		}
+		return sound;
 	}
 
 	@Override
@@ -3654,8 +3674,8 @@ public class FelixBrain extends LoafBrain {
 		this.controls.setSneaking(false);
 		this.sleepVoiced = false;
 		if (this.ticks >= this.nextIdleVoice) {
-			int min = Math.max(5, com.itzbreadloaf.config.ModConfig.get().felixIdleVoiceMinSeconds);
-			int max = Math.max(min, com.itzbreadloaf.config.ModConfig.get().felixIdleVoiceMaxSeconds);
+			int min = Math.max(5, com.itzbreadloaf.config.ModConfig.get().felixIdleLineMinSeconds);
+			int max = Math.max(min, com.itzbreadloaf.config.ModConfig.get().felixIdleLineMaxSeconds);
 			this.nextIdleVoice = this.ticks + 20 * (min + this.random.nextInt(max - min + 1));
 			this.voice(com.itzbreadloaf.sound.FelixVoices.Moment.IDLE);
 		}
@@ -3683,15 +3703,8 @@ public class FelixBrain extends LoafBrain {
 			this.targetWithVoice(harley.lastAttacker, com.itzbreadloaf.sound.FelixVoices.Moment.DEFEND);
 			return;
 		}
-		// Players who attack villagers.
-		for (AbstractVillager villager : this.player.level().getEntitiesOfClass(AbstractVillager.class, this.player.getBoundingBox().inflate(16.0))) {
-			if (villager.getLastHurtByMob() instanceof Player bully && LoafIds.isRealPlayer(bully) && !bully.isCreative()
-					&& villager.tickCount - villager.getLastHurtByMobTimestamp() < 100) {
-				this.targetWithVoice(bully, com.itzbreadloaf.sound.FelixVoices.Moment.DEFEND);
-				return;
-			}
-		}
-		// Sworn rivals: any ItzBreadLoaf he can see within 24 blocks (but not a tamed one sitting on its owner's orders).
+		// Sworn rivals: an ItzBreadLoaf with gear he can see within 24 blocks, outside villages (see findRival).
+		// In a village he starts no fights at all; he only fights back if he or Harley gets hit.
 		LivingEntity rival = findRival(this.player, CharacterKind.BREADLOAF);
 		if (rival != null) {
 			this.targetWithVoice(rival, com.itzbreadloaf.sound.FelixVoices.Moment.SPOT_RIVAL);
@@ -3701,12 +3714,19 @@ public class FelixBrain extends LoafBrain {
 		}
 	}
 
-	/** The closest character of that kind within 24 blocks in sight (skipping babies and ones ordered to sit). */
+	/**
+	 * The closest rival of that kind within 24 blocks in sight (skipping babies and ones ordered to sit). The rivalry
+	 * is only between FelixSyn and ItzBreadLoafs that have gear, and never inside a village.
+	 */
 	public static @Nullable LivingEntity findRival(Player self, CharacterKind kind) {
+		if (inVillage(self) || kind == CharacterKind.FELIXSYN && !hasGear(self)) {
+			return null;
+		}
 		LivingEntity best = null;
 		for (LoafCharacter other : CharacterManager.active()) {
 			if (other.kind() != kind || other.brain == null || other.player.level() != self.level() || other.brain.isBaby()
-					|| other.brain.isSitting() || other.player.distanceTo(self) > RIVAL_RANGE || !self.hasLineOfSight(other.player)) {
+					|| other.brain.isSitting() || other.player.distanceTo(self) > RIVAL_RANGE || !self.hasLineOfSight(other.player)
+					|| kind == CharacterKind.BREADLOAF && !hasGear(other.player) || inVillage(other.player)) {
 				continue;
 			}
 			if (best == null || other.player.distanceTo(self) < best.distanceTo(self)) {
@@ -3714,6 +3734,36 @@ public class FelixBrain extends LoafBrain {
 			}
 		}
 		return best;
+	}
+
+	/** In or right next to a village: vanilla villages (bells, beds, workstations nearby) or a LoafCraft Village. */
+	public static boolean inVillage(LivingEntity entity) {
+		if (!(entity.level() instanceof ServerLevel level)) {
+			return false;
+		}
+		BlockPos pos = entity.blockPosition();
+		return level.isVillage(pos) || level.structureManager().getStructureWithPieceAt(pos, holder -> holder.is(net.minecraft.tags.StructureTags.VILLAGE)
+				|| holder.unwrapKey().map(key -> key.identifier().getNamespace().equals("itzbreadloaf")
+						&& key.identifier().getPath().equals("village")).orElse(false)).isValid();
+	}
+
+	/** Wearing any armor, or holding a weapon (sword, axe, mace, trident, spear, bow or crossbow). */
+	public static boolean hasGear(LivingEntity entity) {
+		for (EquipmentSlot slot : new EquipmentSlot[]{EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET}) {
+			if (!entity.getItemBySlot(slot).isEmpty()) {
+				return true;
+			}
+		}
+		ItemStack hand = entity.getMainHandItem();
+		return hand.has(net.minecraft.core.component.DataComponents.WEAPON) || hand.is(Items.BOW) || hand.is(Items.CROSSBOW);
+	}
+
+	/**
+	 * Whether a rival fight between FelixSyn and an ItzBreadLoaf may go on: not in a village, and the ItzBreadLoaf
+	 * has gear. (Fighting back after being hit is always allowed; callers check that.)
+	 */
+	public static boolean rivalryAllowed(LivingEntity felix, LivingEntity bread) {
+		return hasGear(bread) && !inVillage(felix) && !inVillage(bread);
 	}
 
 	/** "FelixSyn and ItzBreadLoaf are fighting!" for everyone watching (and the Rival Showdown advancement). */
@@ -3727,6 +3777,13 @@ public class FelixBrain extends LoafBrain {
 	}
 
 	private void fight(LivingEntity target) {
+		// A rival fight stops once it moves into a village (or the ItzBreadLoaf has no gear), unless it hit him just now.
+		boolean selfDefense = target == this.lastAttacker && this.ticks - this.lastHurtTick < 200;
+		if (LoafIds.kind(target.getUUID()) == CharacterKind.BREADLOAF && !selfDefense && !rivalryAllowed(this.player, target)) {
+			this.setTarget(null);
+			this.rivalTarget = null;
+			return;
+		}
 		if (LoafIds.kind(target.getUUID()) == CharacterKind.BREADLOAF && this.ticks >= this.nextRivalMessage) {
 			this.nextRivalMessage = this.ticks + 200;
 			announceRivalry(this.player.level(), this.player.position());
@@ -7208,9 +7265,10 @@ public final class MaceJump {
 		if (this.player.fallDistance > maxSmashFall) {
 			this.player.fallDistance = maxSmashFall;
 		}
+		// No waiting for a full attack charge: switching to the mace mid-air resets it, and a mace needs ~1.7 s to
+		// charge, longer than the fall, so the smash never came. The smash bonus isn't scaled by the charge anyway.
 		boolean falling = this.player.getDeltaMovement().y < 0.0 && !this.player.onGround();
-		if (falling && this.player.getEyePosition().distanceTo(aim) <= this.combat.reach() - 0.1
-				&& this.player.fallDistance > 1.5 && this.player.getAttackStrengthScale(0.5F) >= 0.9F) {
+		if (falling && this.player.getEyePosition().distanceTo(aim) <= this.combat.reach() - 0.1 && this.player.fallDistance > 1.5) {
 			this.controls.attackOnce();
 		}
 		if (this.ticks > 12 && this.player.onGround() || this.ticks > 120) {
@@ -8436,8 +8494,8 @@ public class MasterBreadLoafBrain extends LoafBrain {
 		if (this.player.fallDistance > preset().maxSmashFall) {
 			this.player.fallDistance = preset().maxSmashFall;
 		}
-		if (falling && distance <= this.combat.reach() - 0.1 && this.player.fallDistance > 1.5
-				&& this.player.getAttackStrengthScale(0.5F) >= 0.9F) {
+		// No full-charge wait: switching to a mace mid-air resets the charge, which then can't refill before landing.
+		if (falling && distance <= this.combat.reach() - 0.1 && this.player.fallDistance > 1.5) {
 			this.controls.attackOnce();
 			this.smashChain++;
 			this.telegraphed = false;
@@ -11478,9 +11536,16 @@ public final class ModConfig {
 	// ---------------------------------------------------------------- FelixSyn's voice
 	/** Volume of FelixSyn's recorded voice lines (1.0 = normal). */
 	public double felixVoiceVolume = 1.0;
-	/** Seconds between his idle lines while he wanders (a random time between min and max). */
-	public int felixIdleVoiceMinSeconds = 20;
-	public int felixIdleVoiceMaxSeconds = 40;
+	/**
+	 * Seconds between his idle lines while he wanders (a random time between min and max). New names, so config files
+	 * saved with the old, chattier 20-40 second setting don't keep it.
+	 */
+	public int felixIdleLineMinSeconds = 90;
+	public int felixIdleLineMaxSeconds = 180;
+	/** He never says two lines closer together than this many seconds (fights, smashes, getting hit...). */
+	public int felixVoiceGapSeconds = 15;
+	/** Chance that getting hit plays one of his "ow" lines (when he hasn't just spoken); otherwise the normal hurt sound. */
+	public double felixHurtVoiceChance = 0.25;
 
 	// ---------------------------------------------------------------- taming and health
 	/** Taming chance: 1 in this many steaks for ItzBreadLoaf. */

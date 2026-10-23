@@ -83,9 +83,10 @@ public final class MaceJump {
 		if (this.player.fallDistance > maxSmashFall) {
 			this.player.fallDistance = maxSmashFall;
 		}
+		// No waiting for a full attack charge: switching to the mace mid-air resets it, and a mace needs ~1.7 s to
+		// charge, longer than the fall, so the smash never came. The smash bonus isn't scaled by the charge anyway.
 		boolean falling = this.player.getDeltaMovement().y < 0.0 && !this.player.onGround();
-		if (falling && this.player.getEyePosition().distanceTo(aim) <= this.combat.reach() - 0.1
-				&& this.player.fallDistance > 1.5 && this.player.getAttackStrengthScale(0.5F) >= 0.9F) {
+		if (falling && this.player.getEyePosition().distanceTo(aim) <= this.combat.reach() - 0.1 && this.player.fallDistance > 1.5) {
 			this.controls.attackOnce();
 		}
 		if (this.ticks > 12 && this.player.onGround() || this.ticks > 120) {

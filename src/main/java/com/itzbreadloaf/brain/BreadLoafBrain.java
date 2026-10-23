@@ -432,6 +432,12 @@ public class BreadLoafBrain extends LoafBrain {
 		if (target == null) {
 			return;
 		}
+		// The FelixSyn rivalry stops in villages and needs gear on this ItzBreadLoaf, unless FelixSyn just hit it.
+		if (com.itzbreadloaf.character.LoafIds.kind(target.getUUID()) == com.itzbreadloaf.character.CharacterKind.FELIXSYN
+				&& !(target == this.lastAttacker && this.ticks - this.lastHurtTick < 200) && !FelixBrain.rivalryAllowed(target, this.player)) {
+			this.setTarget(null);
+			return;
+		}
 		double distance = this.player.distanceTo(target);
 		if (this.player.hasLineOfSight(target)) {
 			this.lostSightTicks = 0;
