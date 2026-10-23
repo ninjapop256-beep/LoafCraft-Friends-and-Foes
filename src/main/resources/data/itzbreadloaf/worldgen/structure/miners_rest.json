@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "miners_rest",
+  "biomes": "#itzbreadloaf:has_structure/miners_rest",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}

@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "giant_mace",
+  "biomes": "#itzbreadloaf:has_structure/giant_mace",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}

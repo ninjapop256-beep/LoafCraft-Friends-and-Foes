@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "pie_shop",
+  "biomes": "#itzbreadloaf:has_structure/pie_shop",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}

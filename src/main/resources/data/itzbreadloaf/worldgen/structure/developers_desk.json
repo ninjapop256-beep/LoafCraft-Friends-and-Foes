@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "developers_desk",
+  "biomes": "#itzbreadloaf:has_structure/developers_desk",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}

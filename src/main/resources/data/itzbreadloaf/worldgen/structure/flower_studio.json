@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "flower_studio",
+  "biomes": "#itzbreadloaf:has_structure/flower_studio",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}

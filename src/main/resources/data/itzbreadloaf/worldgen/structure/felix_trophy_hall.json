@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "felix_trophy_hall",
+  "biomes": "#itzbreadloaf:has_structure/felix_trophy_hall",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}

@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "rose_arch_garden",
+  "biomes": "#itzbreadloaf:has_structure/rose_arch_garden",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}

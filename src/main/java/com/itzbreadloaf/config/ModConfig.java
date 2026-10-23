@@ -65,6 +65,8 @@ public final class ModConfig {
 	public int breadTameChance = 3;
 	/** Taming chance: 1 in this many golden apples for Harley (her best friend always tames her on the first). */
 	public int harleyTameChance = 5;
+	/** Taming chance: 1 in this many cooked porkchops for FelixSyn (wild ones too). */
+	public int felixTameChance = 4;
 	/** Multiplies every ItzBreadLoaf type's health (Knight 30, Captain 40, normal 20...). */
 	public double breadHealthMultiplier = 1.0;
 	public double lilyHealth = 30.0;

@@ -72,6 +72,8 @@ public final class StructureCatalog {
 	static {
 		// ---- remade with the blueprint system (ids kept, so old worlds keep their structures)
 		CatalogEntries.addAll();
+		// ---- new in update 2
+		NewCatalogEntries.addAll();
 	}
 
 	private StructureCatalog() {

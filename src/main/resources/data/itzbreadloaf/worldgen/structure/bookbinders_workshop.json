@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "bookbinders_workshop",
+  "biomes": "#itzbreadloaf:has_structure/bookbinders_workshop",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}

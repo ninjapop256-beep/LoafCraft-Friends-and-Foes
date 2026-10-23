@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "void_fishing_platform",
+  "biomes": "#itzbreadloaf:has_structure/void_fishing_platform",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}

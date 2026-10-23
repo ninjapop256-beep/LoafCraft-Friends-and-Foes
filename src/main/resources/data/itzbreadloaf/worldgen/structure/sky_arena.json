@@ -1,6 +1,6 @@
 {
-  "type": "itzbreadloaf:home",
-  "kind": "sky_arena",
+  "type": "itzbreadloaf:blueprint",
+  "id": "sky_arena",
   "biomes": "#itzbreadloaf:has_structure/sky_arena",
   "step": "surface_structures",
   "spawn_overrides": {},

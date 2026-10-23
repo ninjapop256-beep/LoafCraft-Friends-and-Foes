@@ -1,8 +1,8 @@
 {
-  "type": "itzbreadloaf:home",
-  "kind": "bakery",
+  "type": "itzbreadloaf:blueprint",
+  "id": "bakery",
   "biomes": "#itzbreadloaf:has_structure/bakery",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }

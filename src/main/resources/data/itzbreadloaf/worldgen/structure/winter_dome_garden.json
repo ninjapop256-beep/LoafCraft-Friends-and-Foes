@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "winter_dome_garden",
+  "biomes": "#itzbreadloaf:has_structure/winter_dome_garden",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}

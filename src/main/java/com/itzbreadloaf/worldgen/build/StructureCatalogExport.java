@@ -16,11 +16,17 @@ import java.util.stream.Collectors;
 public final class StructureCatalogExport {
 	/** Structure sets whose file had another name before the remake (kept, so there is one set per structure). */
 	private static final Map<String, String> OLD_SET_NAMES = Map.ofEntries(
+			Map.entry("bakery", "bakeries"),
 			Map.entry("bandit_camp", "bandit_camps"),
 			Map.entry("fort", "forts"),
 			Map.entry("house", "houses"),
+			Map.entry("lily_house", "lily_houses"),
+			Map.entry("madison_house", "madison_houses"),
 			Map.entry("pirate_ship", "pirate_ships"),
+			Map.entry("sky_arena", "sky_arenas"),
 			Map.entry("tent", "tents"),
+			Map.entry("treehouse", "treehouses"),
+			Map.entry("village", "villages"),
 			Map.entry("watchtower", "watchtowers"));
 
 	private StructureCatalogExport() {

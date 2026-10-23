@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "fishermens_wharf",
+  "biomes": "#itzbreadloaf:has_structure/fishermens_wharf",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}

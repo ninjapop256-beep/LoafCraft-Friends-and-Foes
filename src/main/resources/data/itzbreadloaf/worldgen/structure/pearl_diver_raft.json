@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "pearl_diver_raft",
+  "biomes": "#itzbreadloaf:has_structure/pearl_diver_raft",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}

@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "breeze_hunter_camp",
+  "biomes": "#itzbreadloaf:has_structure/breeze_hunter_camp",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}

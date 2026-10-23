@@ -28,8 +28,10 @@ import org.jetbrains.annotations.Nullable;
  * FelixSyn: a homeless mace fighter who drifts around villages with his partner Harley. He hangs out at the bell and
  * the well, curls up on a hay bale (or the ground) at night, and trades nothing.
  *
- * Neutral to players: he only goes after whoever attacks him or Harley. He and ItzBreadLoafs that have gear (armor
- * or a weapon) are sworn rivals: when they see each other within 24 blocks they fight, but never in a village.
+ * Neutral to players: he only goes after whoever attacks him or Harley. He never starts a fight with an ItzBreadLoaf,
+ * but geared ItzBreadLoafs (armor or a weapon) still pick fights with him outside villages, and then he fights back.
+ * Tameable with cooked porkchops (1 in felixTameChance): then he follows and defends his owner like the others, and
+ * ItzBreadLoafs leave him alone.
  *
  * Fights like a PvP mace player: wind charge at his feet, Density + Wind Burst mace smash on the way down, a sword
  * on the ground in between, golden apples when low.
@@ -282,6 +284,14 @@ public class FelixBrain extends LoafBrain {
 		if (this.tryEat() || this.tickLove()) {
 			return;
 		}
+		if (this.isTame()) {
+			// Tamed: he goes where his owner goes (an empty-hand right-click makes him sit or stand).
+			this.idleVoice();
+			if (!this.followOwner()) {
+				this.lookAround(8.0);
+			}
+			return;
+		}
 		if (this.player.level().isDarkOutside()) {
 			// Wild ones have a bed at home; the drifter sleeps rough.
 			if (this.goToBed()) {
@@ -292,24 +302,32 @@ public class FelixBrain extends LoafBrain {
 		}
 		this.controls.setSneaking(false);
 		this.sleepVoiced = false;
-		if (this.ticks >= this.nextIdleVoice) {
-			int min = Math.max(5, com.itzbreadloaf.config.ModConfig.get().felixIdleLineMinSeconds);
-			int max = Math.max(min, com.itzbreadloaf.config.ModConfig.get().felixIdleLineMaxSeconds);
-			this.nextIdleVoice = this.ticks + 20 * (min + this.random.nextInt(max - min + 1));
-			this.voice(com.itzbreadloaf.sound.FelixVoices.Moment.IDLE);
-		}
+		this.idleVoice();
 		if (this.returnHome()) {
 			return;
 		}
 		this.hangOut();
 	}
 
+	/** Now and then, one of his idle lines. */
+	private void idleVoice() {
+		if (this.ticks >= this.nextIdleVoice) {
+			int min = Math.max(5, com.itzbreadloaf.config.ModConfig.get().felixIdleLineMinSeconds);
+			int max = Math.max(min, com.itzbreadloaf.config.ModConfig.get().felixIdleLineMaxSeconds);
+			this.nextIdleVoice = this.ticks + 20 * (min + this.random.nextInt(max - min + 1));
+			this.voice(com.itzbreadloaf.sound.FelixVoices.Moment.IDLE);
+		}
+	}
+
 	private void chooseTarget() {
-		// Whoever hit him (and isn't Harley).
+		// Whoever hit him (not Harley, and not his owner or the owner's friends if he's tamed).
 		LivingEntity attacker = this.lastAttacker;
 		if (attacker != null && attacker.isAlive() && this.ticks - this.lastHurtTick < 200 && !this.isPartner(attacker)
-				&& !(attacker instanceof Player p && (p.isCreative() || p.isSpectator()))) {
+				&& !this.isFriendlyWith(attacker) && !(attacker instanceof Player p && (p.isCreative() || p.isSpectator()))) {
 			this.setTarget(attacker);
+			if (this.target == attacker && LoafIds.kind(attacker.getUUID()) == CharacterKind.BREADLOAF) {
+				this.rivalTarget = attacker;
+			}
 			return;
 		}
 		if (this.target != null) {
@@ -322,14 +340,10 @@ public class FelixBrain extends LoafBrain {
 			this.targetWithVoice(harley.lastAttacker, com.itzbreadloaf.sound.FelixVoices.Moment.DEFEND);
 			return;
 		}
-		// Sworn rivals: an ItzBreadLoaf with gear he can see within 24 blocks, outside villages (see findRival).
-		// In a village he starts no fights at all; he only fights back if he or Harley gets hit.
-		LivingEntity rival = findRival(this.player, CharacterKind.BREADLOAF);
-		if (rival != null) {
-			this.targetWithVoice(rival, com.itzbreadloaf.sound.FelixVoices.Moment.SPOT_RIVAL);
-			if (this.target == rival) {
-				this.rivalTarget = rival;
-			}
+		// He never starts a fight with an ItzBreadLoaf: only when one attacks him (above) or Harley. Tamed, he also
+		// stands up for his owner.
+		if (this.isTame()) {
+			this.protectOwner(true);
 		}
 	}
 
@@ -345,7 +359,8 @@ public class FelixBrain extends LoafBrain {
 		for (LoafCharacter other : CharacterManager.active()) {
 			if (other.kind() != kind || other.brain == null || other.player.level() != self.level() || other.brain.isBaby()
 					|| other.brain.isSitting() || other.player.distanceTo(self) > RIVAL_RANGE || !self.hasLineOfSight(other.player)
-					|| kind == CharacterKind.BREADLOAF && !hasGear(other.player) || inVillage(other.player)) {
+					|| kind == CharacterKind.BREADLOAF && !hasGear(other.player) || inVillage(other.player)
+					|| kind == CharacterKind.FELIXSYN && other.brain.isTame()) {
 				continue;
 			}
 			if (best == null || other.player.distanceTo(self) < best.distanceTo(self)) {
@@ -527,12 +542,46 @@ public class FelixBrain extends LoafBrain {
 
 	// ---------------------------------------------------------------- death and drops
 
-	/** Drops some of his loot (not his whole kit), and lets Harley know who did it. */
+	/**
+	 * Taming: cooked porkchops (his favorite), 1 in felixTameChance, only while he isn't fighting. Tamed, an
+	 * empty-hand right-click from his owner makes him sit or stand.
+	 */
+	@Override
+	protected @Nullable net.minecraft.world.InteractionResult interact(ServerPlayer clicker, ItemStack stack) {
+		if (!this.isTame()) {
+			if (stack.is(Items.COOKED_PORKCHOP) && this.target == null && !this.baby) {
+				ItemStack food = stack.copyWithCount(1);
+				stack.consume(1, clicker);
+				Inv.give(this.player, food);
+				if (this.random.nextInt(Math.max(1, com.itzbreadloaf.config.ModConfig.get().felixTameChance)) == 0) {
+					this.setOwner(clicker);
+					this.setTarget(null);
+					this.particles(net.minecraft.core.particles.ParticleTypes.HEART, 8);
+					this.say(clicker, "alright, alright. you're cool. I'm with you now");
+				} else {
+					this.particles(net.minecraft.core.particles.ParticleTypes.SMOKE, 6);
+				}
+				return net.minecraft.world.InteractionResult.SUCCESS;
+			}
+			return null;
+		}
+		if (this.isOwnedBy(clicker) && stack.isEmpty()) {
+			this.setSitting(!this.sitting);
+			this.setTarget(null);
+			return net.minecraft.world.InteractionResult.SUCCESS;
+		}
+		return null;
+	}
+
+	/** Drops some of his loot (not his whole kit), and lets Harley know who did it. Tamed, he drops his inventory. */
 	@Override
 	public boolean onDeath(DamageSource source) {
 		HarleyBrain harley = this.partnerBrain();
 		if (harley != null && source.getEntity() instanceof LivingEntity killer) {
 			harley.onPartnerKilled(killer);
+		}
+		if (this.isTame()) {
+			return super.onDeath(source);
 		}
 		ServerLevel level = this.player.level();
 		// Loot rarity system: his drop table + tier rolls, armor 8.5% each. Sometimes some of his wind charges

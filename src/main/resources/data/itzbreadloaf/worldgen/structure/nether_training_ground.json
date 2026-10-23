@@ -1,6 +1,6 @@
 {
-  "type": "itzbreadloaf:home",
-  "kind": "nether_training_ground",
+  "type": "itzbreadloaf:blueprint",
+  "id": "nether_training_ground",
   "biomes": "#itzbreadloaf:has_structure/nether_training_ground",
   "step": "surface_structures",
   "spawn_overrides": {},

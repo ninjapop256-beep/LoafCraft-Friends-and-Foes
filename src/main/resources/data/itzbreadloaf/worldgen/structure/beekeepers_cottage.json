@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "beekeepers_cottage",
+  "biomes": "#itzbreadloaf:has_structure/beekeepers_cottage",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}

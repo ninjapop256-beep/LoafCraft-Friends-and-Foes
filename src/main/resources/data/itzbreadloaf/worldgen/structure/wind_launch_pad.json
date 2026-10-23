@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "wind_launch_pad",
+  "biomes": "#itzbreadloaf:has_structure/wind_launch_pad",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}

@@ -54,7 +54,7 @@ public final class Blueprint {
 			@Nullable BlockPos bed, @Nullable BlockPos pantry, boolean group) {
 	}
 
-	/** An animal or a training dummy: "cow", "sheep", "chicken", "pig", "horse", "dummy" (armor stand). */
+	/** An animal or a training dummy: "cow", "sheep", "chicken", "pig", "horse", "strider", "dummy" (armor stand). */
 	public record Mob(int x, int y, int z, String type) {
 	}
 
@@ -150,6 +150,12 @@ public final class Blueprint {
 	/** A dispenser facing {@code facing}, loaded from a loot table (for traps use one outside chests/). */
 	public void dispenser(int x, int y, int z, net.minecraft.core.Direction facing, String loot) {
 		this.set(x, y, z, Blocks.DISPENSER.defaultBlockState().setValue(net.minecraft.world.level.block.DispenserBlock.FACING, facing));
+		this.containers.add(new Container(x, y, z, loot, true));
+	}
+
+	/** Any loot container block (a shulker box, a dispenser...) with this state, filled from a loot table. */
+	public void container(int x, int y, int z, BlockState state, String loot) {
+		this.set(x, y, z, state);
 		this.containers.add(new Container(x, y, z, loot, true));
 	}
 

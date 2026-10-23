@@ -1,8 +1,8 @@
 {
-  "type": "itzbreadloaf:home",
-  "kind": "lily_snowy_cabin",
+  "type": "itzbreadloaf:blueprint",
+  "id": "lily_snowy_cabin",
   "biomes": "#itzbreadloaf:has_structure/lily_snowy_cabin",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }

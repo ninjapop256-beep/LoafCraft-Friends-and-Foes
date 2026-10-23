@@ -1,8 +1,8 @@
 {
-  "type": "itzbreadloaf:home",
-  "kind": "orchard",
+  "type": "itzbreadloaf:blueprint",
+  "id": "orchard",
   "biomes": "#itzbreadloaf:has_structure/orchard",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }

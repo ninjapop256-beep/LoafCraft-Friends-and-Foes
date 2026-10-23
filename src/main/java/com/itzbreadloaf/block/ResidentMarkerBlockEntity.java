@@ -86,7 +86,7 @@ public class ResidentMarkerBlockEntity extends BlockEntity {
 				// A wild FelixSyn at his own home (Harley sometimes).
 				com.itzbreadloaf.brain.FelixBrain.spawnWild(serverLevel, Vec3.atBottomCenterOf(spawn), home, radius, bed);
 			} else if (variant.kind == CharacterKind.FELIXSYN) {
-				// The village drifter never comes alone: Harley is with him.
+				// A FelixSyn in a village or structure: Harley only sometimes (felixHarleyChance).
 				com.itzbreadloaf.brain.FelixBrain.spawnDuo(serverLevel, Vec3.atBottomCenterOf(spawn), home, true);
 			} else if (variant.kind == CharacterKind.MASTER) {
 				// The boss makes an entrance (sound and message).

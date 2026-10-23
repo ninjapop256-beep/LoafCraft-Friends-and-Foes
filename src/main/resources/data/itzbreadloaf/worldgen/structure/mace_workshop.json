@@ -1,8 +1,8 @@
 {
-  "type": "itzbreadloaf:home",
-  "kind": "mace_workshop",
+  "type": "itzbreadloaf:blueprint",
+  "id": "mace_workshop",
   "biomes": "#itzbreadloaf:has_structure/mace_workshop",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }

@@ -1,8 +1,8 @@
 {
-  "type": "itzbreadloaf:home",
-  "kind": "giant_loaf",
+  "type": "itzbreadloaf:blueprint",
+  "id": "giant_loaf",
   "biomes": "#itzbreadloaf:has_structure/giant_loaf",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }

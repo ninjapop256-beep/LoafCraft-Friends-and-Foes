@@ -1,0 +1,14 @@
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:void_fishing_platform",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 88,
+    "separation": 28,
+    "salt": 1023087
+  }
+}

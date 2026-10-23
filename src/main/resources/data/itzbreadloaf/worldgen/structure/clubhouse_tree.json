@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "clubhouse_tree",
+  "biomes": "#itzbreadloaf:has_structure/clubhouse_tree",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}

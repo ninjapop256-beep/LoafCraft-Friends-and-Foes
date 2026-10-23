@@ -1,8 +1,8 @@
 {
-  "type": "itzbreadloaf:home",
-  "kind": "greenhouse",
+  "type": "itzbreadloaf:blueprint",
+  "id": "greenhouse",
   "biomes": "#itzbreadloaf:has_structure/greenhouse",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }

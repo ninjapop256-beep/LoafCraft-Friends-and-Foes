@@ -1,0 +1,14 @@
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:dragon_lookout",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 88,
+    "separation": 28,
+    "salt": 1023086
+  }
+}

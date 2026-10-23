@@ -1,8 +1,8 @@
 {
-  "type": "itzbreadloaf:home",
-  "kind": "lily_meadow_cottage",
+  "type": "itzbreadloaf:blueprint",
+  "id": "lily_meadow_cottage",
   "biomes": "#itzbreadloaf:has_structure/lily_meadow_cottage",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }

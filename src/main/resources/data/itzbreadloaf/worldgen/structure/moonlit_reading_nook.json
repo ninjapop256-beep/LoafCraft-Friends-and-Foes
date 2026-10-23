@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "moonlit_reading_nook",
+  "biomes": "#itzbreadloaf:has_structure/moonlit_reading_nook",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}

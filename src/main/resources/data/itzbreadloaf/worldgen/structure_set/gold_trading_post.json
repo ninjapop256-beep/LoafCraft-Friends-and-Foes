@@ -1,0 +1,14 @@
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:gold_trading_post",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 88,
+    "separation": 28,
+    "salt": 1023080
+  }
+}

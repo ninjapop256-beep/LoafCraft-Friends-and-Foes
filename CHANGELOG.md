@@ -14,6 +14,141 @@ Newest changes first. Existing worlds keep working; new structures only appear i
   - Characters won't walk or drop into small enclosed pools with no edge to climb out of.
   - Anyone who still ends up stuck in water swims up, and after 5 seconds steps out onto the nearest dry block.
 
+### FelixSyn can be tamed, and stops picking fights
+- **Tameable:** feed him cooked porkchops (1 in 4, `felixTameChance`), only while he isn't fighting. This works for wild FelixSyns too.
+  - Tamed, he follows you, defends you and helps fight what you attack, like the other tamed characters.
+  - An empty-hand right-click makes him sit or stand.
+  - If he dies tamed, he drops his inventory (any mace only 0.8% of the time).
+- **He never starts fights with ItzBreadLoafs any more.** He only fights one that attacks him (or Harley).
+  - Geared ItzBreadLoafs can still pick a fight with a wild FelixSyn outside villages, but they leave a tamed one alone.
+
+### New structures (part 8, batch 6: Nether 8, End 6)
+- **Nether** (on the Nether floor; no beds, since they explode there):
+  - **Hellfire Bakery:** a lava oven behind glass.
+  - **Crimson Outpost:** a palisade and a watchtower.
+  - **Witchy Lily's Nether Garden:** nether wart and a brewing gazebo.
+  - **Lava Fishing Spot:** a railed dock over lava.
+  - **Basalt Watchtower**
+  - **Soul Camp:** soul campfires and a bone fossil.
+  - **Gold Trading Post**
+  - **Strider Stables:** striders in a lava channel.
+- **End** (outer islands):
+  - **Void Observatory**
+  - **Chorus Garden**
+  - **The Last Loaf:** a golden loaf shrine where Master BreadLoaf meditates.
+  - **Purpur Vault:** shulker boxes of loot and a dragon head.
+  - **Dragon Lookout**
+  - **Void Fishing Platform**
+- Structures can now include striders, and loot containers other than chests and barrels (shulker boxes).
+
+### New structures (part 8, batch 5: shared 10, ocean, river and beach 6)
+- **Shared** (the friends together):
+  - **Friends' Picnic:** three blankets in their colors.
+  - **Campfire Story Circle:** three tents around a big fire.
+  - **Movie Night Screen:** rows of seats, a projector booth and popcorn.
+  - **Friends' Winter Lodge:** three beds, a long table, a fireplace and a snowman outside.
+  - **Obstacle Course:** hay hurdles, a balance beam, a climbing wall and a podium.
+  - **Treehouse Clubhouse:** a secret clubhouse in a big tree, reached through a hatch.
+  - **Harvest Fair:** a prize-winning giant pumpkin, stalls and a hay-ride wagon.
+  - **Community Garden:** crop plots, a safe well and a tool shed.
+  - **Mini Golf Course:** three holes with a windmill, a ramp and slime bumpers.
+  - **The Truce Pavilion:** where FelixSyn and ItzBreadLoaf signed a truce, with a red-and-blue table and the treaty on a lectern.
+- **Ocean, river and beach:**
+  - **Beach Snack Hut:** with umbrellas and a sand castle.
+  - **Lifeguard Tower**
+  - **River Ferry Landing:** a dock with a bell and a ferry raft.
+  - **Pearl Diver's Raft:** floats on warm oceans, with a ladder down into the sea.
+  - **Sea Glass Cove:** a rock pool with sea glass.
+  - **Fishermen's Wharf:** a long pier with a net shed and nets drying on the rails.
+
+### New structures (part 8, batch 4: Madison, 12)
+- **Dairy Barn:** three cow stalls behind gated fences and "milk" cauldrons.
+- **Madison's Pie Shop:** a big display window, a counter of cakes and stacks of pumpkins.
+- **Fish Smokehouse:** smokers, a smoking chimney, dried-kelp racks and a fishing pond.
+- **Chicken Coop Farm:** a fenced run with chickens and a raised coop with a ramp and hay nests.
+- **Beekeeper's Cottage:** hives over campfires along the wall, honeycomb shelves and beeswax candles.
+- **Horse Stables:** gated stalls with horses and a fenced paddock.
+- **Farmers' Market:** three striped stalls (produce, cakes, flowers) and a little fountain.
+- **Grain Silo:** a round silo half full of hay "grain", with a ladder up to a lookout under its cap.
+- **Melon & Berry Farm:** melons on their stems, ripe berry bushes, a scarecrow and a farm stand.
+- **Cookie Cottage:** cookie-dough walls with chocolate chips, and cocoa pods growing on a jungle log.
+- **Sheep Ranch:** a pasture with sheep and a shearing shed with looms and wool.
+- **Merchant Caravan:** a covered wagon on wheels with a step up the back, a hitched horse and a campfire.
+
+### New structures (part 8, batch 3: ImLilyLol, 15)
+- **Witchy Potion Shop:** brewing stands on the counter, shelves of potted mushrooms and a bubbling cauldron out back.
+- **Moonlit Reading Nook:** a round stone tower with bookshelves and a ladder up to a loft bed, a telescope and a glass skylight.
+- **Tulip Terrace:** three stepped terraces of tulips with stairs up the middle and a gazebo on top.
+- **Willow Swing Pond:** a willow with hanging vines over a lily pond, a swing and a picnic.
+- **Archer Lily's Glade:** targets on the tree trunks, a raised tree stand up a ladder, and her tent.
+- **Pressed Flower Studio:** looms, an easel and flower "paintings" set into the wall.
+- **Herbalist's Stilt Hut:** a hut on stilts over the swamp, with a cauldron, brewing stand and composter.
+- **Stargazing Hill:** a grassy mound with a blanket and a telescope on top, and Big Dipper star stones at its foot.
+- **Amethyst Garden:** amethyst clusters around a pool and a tinted-glass pavilion.
+- **Lily's Letter Post:** a wall of mailbox barrels, a counter with a bell, and a mailbox out front.
+- **Fairy Ring:** a ring of mushrooms, standing stones and a candle-lit pedestal.
+- **Winter Dome Garden:** a glass dome over a warm garden in the snow.
+- **Cherry Tea House:** a raised tea room with paper walls, cushions and a koi pond.
+- **Bookbinder's Workshop:** bookshelves, lecterns and an anvil "press".
+- **Rose Arch Garden:** a tunnel of leafy arches lined with roses, leading to a safe wishing well.
+
+### New structures (part 8, batch 2: FelixSyn 10, easter eggs 5)
+- **FelixSyn** (wild FelixSyns live here, Harley sometimes):
+  - **Wind Charge Launch Pad:** a bullseye pad to land wind-charge jumps on, with targets up on posts.
+  - **Smash Crater:** a crater from a huge mace smash, with cracked stone in the middle.
+  - **FelixSyn's Trophy Hall:** trophies on pedestals, a red-vs-blue banner scoreboard and a gold podium.
+  - **FelixSyn & Harley's Cabin:** a black bed and a pink bed, and a porch with two chairs.
+  - **Parkour Tower:** a rainbow parkour course around a tower, with hay to land on.
+  - **Sparring Ring:** a raised ring with rope fences and red and blue corners.
+  - **Mace Drop Tower:** three jump boards out over a deep pool.
+  - **The Rivalry Wall:** a giant "F vs B" with the win tally (FelixSyn is winning).
+  - **Breeze Hunter's Camp:** a drying rack of breeze "rods" and a map table.
+  - **Harley's Training Grove:** her pink tent in a clearing of petals under blossom trees.
+- **Easter eggs** (very rare, nobody home):
+  - **The Giant Mace:** half-buried in a cracked crater.
+  - **The Tiny House:** with a mailbox.
+  - **The Upside-Down House:** standing on its roof, the furniture on the ceiling and the garden on top.
+  - **Portal to the Bread Dimension**
+  - **The Developer's Desk:** a huge monitor, a whiteboard and a messy bin.
+
+### New structures (part 8, batch 1: ItzBreadLoaf, 15)
+- **Roadside Bread Stand:** a little stall under a bread-colored awning.
+- **Toaster House:** a giant toaster with two slices sticking out of the top and a lever on the side, and you can live in it.
+- **Baguette Tower:** a golden tower with score marks and a ladder through four floors to a lookout in its tip (Archer).
+- **Crumb Trail Camp:** a hay-crumb trail to a walk-in tent, with a picnic blanket.
+- **Knight Training Yard:** dummies, targets, banners and the knights' armory.
+- **Bread Bank:** a stone bank with a teller counter, and a vault behind an iron door (the button is beside it). A Captain guards it.
+- **Sweaty Gym:** a parkour course, anvil weights and a locker room.
+- **Hay Bale Maze:** a real maze, different every time, with the prize in the far corner.
+- **Miner's Rest Stop:** a cabin, ore piles and rails into a little tunnel.
+- **Bandit Lookout:** a hut on a stilted platform up a ladder, with stolen goods stashed below.
+- **Statue of ItzBreadLoaf:** a loaf with a face and a raised sword, on a plinth in a garden.
+- **Archery Range:** a covered shooting line and lanes to targets.
+- **Desert Oasis Camp:** a pond with reeds under palms, and a tent.
+- **Snowy Bakehouse:** a stone bakehouse with a brick oven and a smoking chimney.
+- **Captain's Manor:** two floors, with a hall, fireplace, railed stairs, bedrooms and a study.
+- Every new structure has its own chest loot plus the rarity tiers, and passes the reachability check. New structures are spaced further apart than the old ones (64-96 chunks), so the world doesn't fill up.
+
+### Remade structures (batch 3: shared places, FelixSyn's homes, Master BreadLoaf's arenas)
+- **15 structures rebuilt**, which finishes the remake: all 64 LoafCraft structures now use the new system. See `REMAKE.md`.
+  - LoafCraft Village, Cousins' Camp, PvP Arena, Friendship Festival, Giant Loaf and Ruined Portal Hideout.
+  - FelixSyn's Mace Workshop, Cliff Hut, Wind Tower and Rival Camp.
+  - Master BreadLoaf's Sky Arena, Nether Mace Training Ground, Nether Mace Arena, End Mace Tower and End Sky Platform.
+- **Village well is safe:** it's fenced and roofed, so nobody can fall in.
+- **Sky Arena and End Sky Platform:** stairs wind up around the pillar instead of a long ladder, with a rail around the stairwell at the top.
+- **Nether Mace Arena:** four bridges cross the lava ring, and a rim keeps the lava from spreading.
+- **Giant Loaf:** shaped like a real loaf, with a hidden treasure room under a carpet-covered trapdoor.
+- **PvP Arena:** its ItzBreadLoaf now has gear, so the FelixSyn rivalry actually starts there.
+- All 64 structures pass the reachability check in 12 test builds each.
+
+### Remade structures (batch 2: ImLilyLol's and Madison's places)
+- **23 structures rebuilt** with the same ids, rarity and biomes. See `REMAKE.md` for each one.
+  - Lily: her House, the Meadow, Flower Forest, Reading, Snowy and Mushroom cottages, the Treehouse, Greenhouse, Lakeside Gazebo, Flower Shrine, Floating Island Cottage, Lantern Garden, Treetop Library and Starwatch Observatory.
+  - Madison: her House, the Bakery, Farmstead, Orchard, Market Stall, Pumpkin Patch Farm, Riverside Mill, Bee Sanctuary and Sweet Berry Cabin.
+- **Every high place has a way up:** stairs wind around the treehouse trunk, spiral stairs go up to the Treetop Library and the Floating Island, and ladders lead to the lofts and the observatory dome. Stairwells have rails.
+- **More detail:** fireplaces with chimneys, a mill wheel in its own water channel, a scarecrow, animals in the farmstead pen, beehives with campfires, lily ponds, and lamp posts.
+- All 49 remade structures pass the reachability check in 12 test builds each.
+
 ### FelixSyn: quieter, and peaceful in villages
 - **He talks a lot less.**
   - Idle lines every 1.5-3 minutes (was every 20-40 seconds).

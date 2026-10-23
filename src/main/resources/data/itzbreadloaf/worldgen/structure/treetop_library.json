@@ -1,6 +1,6 @@
 {
-  "type": "itzbreadloaf:home",
-  "kind": "treetop_library",
+  "type": "itzbreadloaf:blueprint",
+  "id": "treetop_library",
   "biomes": "#itzbreadloaf:has_structure/treetop_library",
   "step": "surface_structures",
   "spawn_overrides": {},

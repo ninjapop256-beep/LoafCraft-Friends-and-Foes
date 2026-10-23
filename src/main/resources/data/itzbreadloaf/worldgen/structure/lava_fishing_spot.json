@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "lava_fishing_spot",
+  "biomes": "#itzbreadloaf:has_structure/lava_fishing_spot",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}

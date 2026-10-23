@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "snowy_bakehouse",
+  "biomes": "#itzbreadloaf:has_structure/snowy_bakehouse",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}

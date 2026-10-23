@@ -1,0 +1,14 @@
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:void_observatory",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 88,
+    "separation": 28,
+    "salt": 1023082
+  }
+}

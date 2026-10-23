@@ -1,8 +1,8 @@
 {
-  "type": "itzbreadloaf:home",
-  "kind": "ruined_portal_hideout",
+  "type": "itzbreadloaf:blueprint",
+  "id": "ruined_portal_hideout",
   "biomes": "#itzbreadloaf:has_structure/ruined_portal_hideout",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }

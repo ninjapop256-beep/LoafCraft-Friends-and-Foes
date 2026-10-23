@@ -300,6 +300,43 @@ public final class Pieces {
 	}
 
 	/**
+	 * Stairs winding up around the outside of a rectangle (a thick tree trunk, a pillar): one step per block along the
+	 * ring just outside x0..x1, z0..z1, clockwise from its north-west corner, starting at y0, {@code steps} steps.
+	 * Headroom is cleared over every step, which also cuts the stairwell through any floor above (build floors first).
+	 */
+	public static java.util.List<int[]> ringStairs(Blueprint b, int x0, int z0, int x1, int z1, int y0, int steps) {
+		return ringStairs(b, x0, z0, x1, z1, y0, steps, b.palette.stairs());
+	}
+
+	/** {@link #ringStairs} with a given stair block. Returns the ring of cells (step k is on cell k % size). */
+	public static java.util.List<int[]> ringStairs(Blueprint b, int x0, int z0, int x1, int z1, int y0, int steps, BlockState stair) {
+		java.util.List<int[]> ring = new java.util.ArrayList<>();
+		for (int x = x0 - 1; x <= x1 + 1; x++) {
+			ring.add(new int[]{x, z0 - 1});
+		}
+		for (int z = z0; z <= z1 + 1; z++) {
+			ring.add(new int[]{x1 + 1, z});
+		}
+		for (int x = x1; x >= x0 - 1; x--) {
+			ring.add(new int[]{x, z1 + 1});
+		}
+		for (int z = z1; z >= z0; z--) {
+			ring.add(new int[]{x0 - 1, z});
+		}
+		for (int k = 0; k < steps; k++) {
+			int[] cell = ring.get(k % ring.size());
+			int[] next = ring.get((k + 1) % ring.size());
+			int dx = next[0] - cell[0];
+			int dz = next[1] - cell[1];
+			Direction dir = dx > 0 ? Direction.EAST : dx < 0 ? Direction.WEST : dz > 0 ? Direction.SOUTH : Direction.NORTH;
+			int y = y0 + k;
+			b.set(cell[0], y, cell[1], stairs(stair, dir));
+			b.clear(cell[0], y + 1, cell[1], cell[0], y + 3, cell[1]);
+		}
+		return ring;
+	}
+
+	/**
 	 * A square tower with walls x0..x0+size-1, z0..z0+size-1 from y0 up to the top floor at y0 + height. Floors every
 	 * {@code floorEvery} blocks, a ladder up the inside of the back wall through every floor, a window on each side of
 	 * every floor, a lantern on each floor. Every floor and the top are declared for the reachability check.

@@ -1,8 +1,8 @@
 {
-  "type": "itzbreadloaf:home",
-  "kind": "lantern_garden",
+  "type": "itzbreadloaf:blueprint",
+  "id": "lantern_garden",
   "biomes": "#itzbreadloaf:has_structure/lantern_garden",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }

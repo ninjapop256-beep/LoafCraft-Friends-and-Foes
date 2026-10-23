@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "witchy_potion_shop",
+  "biomes": "#itzbreadloaf:has_structure/witchy_potion_shop",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}

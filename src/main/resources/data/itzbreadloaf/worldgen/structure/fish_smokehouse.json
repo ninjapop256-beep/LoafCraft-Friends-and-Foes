@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "fish_smokehouse",
+  "biomes": "#itzbreadloaf:has_structure/fish_smokehouse",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}

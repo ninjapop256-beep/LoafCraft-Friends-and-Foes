@@ -327,6 +327,7 @@ public class BlueprintPiece extends ScatteredFeaturePiece {
 			case "chicken" -> net.minecraft.world.entity.EntityType.CHICKEN;
 			case "pig" -> net.minecraft.world.entity.EntityType.PIG;
 			case "horse" -> net.minecraft.world.entity.EntityType.HORSE;
+			case "strider" -> net.minecraft.world.entity.EntityType.STRIDER;
 			default -> net.minecraft.world.entity.EntityType.ARMOR_STAND;
 		};
 		net.minecraft.world.entity.Entity entity = type.create(level.getLevel(), net.minecraft.world.entity.EntitySpawnReason.STRUCTURE);
