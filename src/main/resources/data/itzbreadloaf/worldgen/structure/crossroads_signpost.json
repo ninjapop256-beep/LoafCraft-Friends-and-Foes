@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "crossroads_signpost",
+  "biomes": "#itzbreadloaf:has_structure/crossroads_signpost",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}

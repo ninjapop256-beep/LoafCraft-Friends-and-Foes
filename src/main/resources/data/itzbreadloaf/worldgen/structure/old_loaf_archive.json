@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "old_loaf_archive",
+  "biomes": "#itzbreadloaf:has_structure/old_loaf_archive",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}

@@ -131,7 +131,7 @@ loader_version=0.19.5
 loom_version=1.18-SNAPSHOT
 
 # Mod Properties
-version=1.1.0-alpha.3
+version=1.1.0-alpha.5
 group=com.itzbreadloaf
 
 # Dependencies
@@ -18245,68 +18245,68 @@ final class CatalogEntries {
 	}
 
 	static void addAll() {
-		StructureCatalog.add(StructureCatalog.def("house", "House", "ItzBreadLoaf", 1, 40, 14, 1022001, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "#minecraft:is_forest", "#minecraft:is_taiga", "#minecraft:is_savanna", "minecraft:snowy_plains", "minecraft:snowy_taiga", "minecraft:desert"), "ItzBreadLoaf", 9, 9, 12));
-		StructureCatalog.add(StructureCatalog.def("tent", "Tent", "ItzBreadLoaf", 1, 50, 16, 1022002, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "#minecraft:is_forest", "#minecraft:is_taiga", "#minecraft:is_savanna", "minecraft:snowy_plains", "minecraft:snowy_taiga", "minecraft:desert"), "2-4 ItzBreadLoafs", 11, 11, 7));
-		StructureCatalog.add(StructureCatalog.def("fort", "Bread Fort", "ItzBreadLoaf", 3, 68, 22, 1022006, List.of("minecraft:plains", "minecraft:meadow", "#minecraft:is_forest", "#minecraft:is_taiga", "#minecraft:is_savanna", "minecraft:windswept_hills", "minecraft:snowy_plains"), "3 Knights + Captain", 21, 21, 14));
-		StructureCatalog.add(StructureCatalog.def("watchtower", "Watchtower", "ItzBreadLoaf", 2, 48, 16, 1022007, List.of("minecraft:plains", "minecraft:sunflower_plains", "#minecraft:is_forest", "#minecraft:is_taiga", "#minecraft:is_savanna", "minecraft:desert", "minecraft:snowy_plains", "minecraft:meadow"), "Archer", 7, 7, 22));
-		StructureCatalog.add(StructureCatalog.def("bandit_camp", "Bandit Camp", "ItzBreadLoaf", 2, 60, 18, 1022008, List.of("#minecraft:is_forest", "#minecraft:is_taiga", "minecraft:dark_forest", "#minecraft:is_badlands", "#minecraft:is_savanna"), "3-4 Bandits", 15, 15, 7));
-		StructureCatalog.add(StructureCatalog.def("bread_bakery", "Bread Bakery", "ItzBreadLoaf", 1, 52, 16, 1022201, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow"), "ItzBreadLoaf", 11, 11, 12));
-		StructureCatalog.add(StructureCatalog.def("mining_camp", "Mining Camp", "ItzBreadLoaf", 2, 64, 20, 1022203, List.of("#minecraft:is_overworld"), "Miner", 13, 13, 8));
-		StructureCatalog.add(StructureCatalog.def("jungle_treehouse", "Jungle Treehouse", "ItzBreadLoaf", 2, 48, 16, 1022204, List.of("#minecraft:is_jungle", "minecraft:dark_forest"), "ItzBreadLoaf", 13, 13, 24));
-		StructureCatalog.add(StructureCatalog.def("desert_bunker", "Desert Bunker", "ItzBreadLoaf", 2, 52, 16, 1022205, List.of("minecraft:desert", "#minecraft:is_badlands"), "ItzBreadLoaf", 11, 11, 6));
-		StructureCatalog.add(StructureCatalog.def("igloo_hideout", "Igloo Hideout", "ItzBreadLoaf", 1, 48, 16, 1022206, List.of("minecraft:snowy_plains", "minecraft:snowy_taiga", "minecraft:ice_spikes", "minecraft:snowy_slopes"), "ItzBreadLoaf", 9, 9, 7));
-		StructureCatalog.add(StructureCatalog.def("ruined_loaf_castle", "Ruined Loaf Castle", "ItzBreadLoaf", 3, 72, 24, 1022208, List.of("minecraft:plains", "minecraft:sunflower_plains", "#minecraft:is_savanna"), "Captain, Knights, ItzBreadLoafs (3-5)", 27, 27, 16));
-		StructureCatalog.add(StructureCatalog.def("sweaty_dojo", "Sweaty Dojo", "ItzBreadLoaf", 2, 64, 20, 1022314, List.of("minecraft:bamboo_jungle", "minecraft:jungle", "minecraft:cherry_grove", "minecraft:savanna", "minecraft:plains"), "Sweaty", 13, 13, 10));
-		StructureCatalog.add(StructureCatalog.def("windmill", "Bread Mill", "ItzBreadLoaf", 1, 56, 18, 1022307, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow"), "ItzBreadLoaf + Farmer Madison", 15, 15, 18));
-		StructureCatalog.add(StructureCatalog.def("swamp_hut", "Swamp Hut", "ItzBreadLoaf", 1, 48, 16, 1022401, List.of("minecraft:swamp", "minecraft:mangrove_swamp"), "ItzBreadLoaf", 11, 11, 12).placement(StructureCatalog.Placement.ANY_SURFACE));
-		StructureCatalog.add(StructureCatalog.def("mountain_outpost", "Mountain Outpost", "ItzBreadLoaf", 2, 48, 16, 1022402, List.of("minecraft:jagged_peaks", "minecraft:frozen_peaks", "minecraft:stony_peaks", "minecraft:snowy_slopes"), "Archer + Knight", 9, 9, 14));
-		StructureCatalog.add(StructureCatalog.def("badlands_saloon", "Badlands Mineshaft Saloon", "ItzBreadLoaf", 2, 52, 16, 1022403, List.of("#minecraft:is_badlands"), "Miner + ItzBreadLoaf", 15, 13, 10));
-		StructureCatalog.add(StructureCatalog.def("cliffside_base", "Cliffside Cave Base", "ItzBreadLoaf", 2, 52, 16, 1022404, List.of("minecraft:windswept_hills", "minecraft:windswept_gravelly_hills", "minecraft:windswept_forest", "minecraft:meadow", "minecraft:stony_shore"), "ItzBreadLoaf", 13, 13, 4));
-		StructureCatalog.add(StructureCatalog.def("snowball_fort", "Snowball Fort", "ItzBreadLoaf", 1, 52, 16, 1022418, List.of("minecraft:snowy_plains", "minecraft:ice_spikes", "minecraft:snowy_taiga", "minecraft:grove"), "ItzBreadLoaf + Village Bread", 19, 13, 5));
-		StructureCatalog.add(StructureCatalog.def("lookout_tower", "Lookout Tower", "ItzBreadLoaf", 2, 48, 16, 1022202, List.of("#minecraft:is_forest", "#minecraft:is_taiga", "minecraft:dark_forest", "minecraft:old_growth_pine_taiga", "minecraft:old_growth_spruce_taiga"), "Archer", 7, 7, 23));
-		StructureCatalog.add(StructureCatalog.def("pirate_ship", "Pirate Ship", "ItzBreadLoaf", 2, 56, 16, 1022012, List.of("#minecraft:is_ocean"), "2-3 Pirates", 9, 23, 15).placement(StructureCatalog.Placement.WATER));
-		StructureCatalog.add(StructureCatalog.def("fishing_dock", "Fishing Dock", "ItzBreadLoaf", 1, 40, 12, 1022207, List.of("minecraft:river", "minecraft:beach", "minecraft:snowy_beach"), "Fisherman", 7, 17, 7).placement(StructureCatalog.Placement.ANY_SURFACE));
-		StructureCatalog.add(StructureCatalog.def("loaf_lighthouse", "Loaf Lighthouse", "ItzBreadLoaf", 1, 52, 16, 1022414, List.of("#minecraft:is_beach", "minecraft:stony_shore"), "Fisherman", 9, 9, 23).placement(StructureCatalog.Placement.ANY_SURFACE));
-		StructureCatalog.add(StructureCatalog.def("smugglers_cove", "Smugglers' Cove", "Ocean/beach", 2, 60, 20, 1022315, List.of("#minecraft:is_beach", "minecraft:stony_shore"), "Pirate + Bandit", 13, 17, 8).placement(StructureCatalog.Placement.ANY_SURFACE));
-		StructureCatalog.add(StructureCatalog.def("shipwreck_camp", "Shipwreck Camp", "Ocean/beach", 2, 56, 18, 1022417, List.of("#minecraft:is_beach"), "2 Pirates", 17, 11, 8).placement(StructureCatalog.Placement.ANY_SURFACE));
-		StructureCatalog.add(StructureCatalog.def("lily_house", "Lily's House", "ImLilyLol", 1, 32, 10, 1022003, List.of("minecraft:cherry_grove"), "Lily / Gardener / Witchy Lily", 11, 13, 9));
-		StructureCatalog.add(StructureCatalog.def("lily_meadow_cottage", "Meadow Cottage", "ImLilyLol", 1, 32, 12, 1022101, List.of("minecraft:meadow"), "Lily / Gardener", 11, 11, 8));
-		StructureCatalog.add(StructureCatalog.def("lily_flower_cottage", "Flower Forest Cottage", "ImLilyLol", 1, 32, 12, 1022102, List.of("minecraft:flower_forest"), "Lily / Gardener / Witchy", 11, 11, 9));
-		StructureCatalog.add(StructureCatalog.def("lily_reading_cabin", "Reading Cabin", "ImLilyLol", 1, 32, 12, 1022103, List.of("minecraft:birch_forest", "minecraft:old_growth_birch_forest"), "Bookworm / Lily", 11, 11, 10));
-		StructureCatalog.add(StructureCatalog.def("lily_snowy_cabin", "Snowy Spruce Cabin", "ImLilyLol", 1, 32, 12, 1022104, List.of("minecraft:snowy_taiga"), "Lily / Witchy / Bookworm", 11, 11, 10));
-		StructureCatalog.add(StructureCatalog.def("lily_mushroom_house", "Mushroom House", "ImLilyLol", 1, 40, 14, 1022105, List.of("minecraft:mushroom_fields"), "Lily / Witchy", 13, 13, 9));
-		StructureCatalog.add(StructureCatalog.def("treehouse", "Lily's Treehouse", "ImLilyLol", 1, 56, 16, 1022009, List.of("minecraft:cherry_grove", "minecraft:forest", "minecraft:birch_forest", "minecraft:flower_forest", "minecraft:old_growth_birch_forest", "minecraft:meadow"), "Bookworm Lily", 15, 15, 20));
-		StructureCatalog.add(StructureCatalog.def("greenhouse", "Greenhouse", "ImLilyLol", 1, 56, 18, 1022301, List.of("minecraft:flower_forest", "minecraft:meadow", "minecraft:cherry_grove", "minecraft:plains"), "Gardener Lily", 11, 13, 8));
-		StructureCatalog.add(StructureCatalog.def("lakeside_gazebo", "Lakeside Gazebo", "ImLilyLol", 1, 56, 18, 1022302, List.of("minecraft:birch_forest", "minecraft:old_growth_birch_forest", "minecraft:flower_forest", "minecraft:forest", "minecraft:cherry_grove"), "Bookworm or Lily", 15, 13, 9));
-		StructureCatalog.add(StructureCatalog.def("flower_shrine", "Flower Shrine", "ImLilyLol", 1, 60, 20, 1022303, List.of("minecraft:flower_forest", "minecraft:cherry_grove", "minecraft:meadow", "minecraft:sunflower_plains"), "Gardener Lily", 11, 11, 7));
-		StructureCatalog.add(StructureCatalog.def("floating_island_cottage", "Floating Island Cottage", "ImLilyLol", 2, 40, 14, 1022405, List.of("minecraft:cherry_grove"), "ImLilyLol", 15, 15, 28));
-		StructureCatalog.add(StructureCatalog.def("lantern_garden", "Lantern Garden", "ImLilyLol", 1, 52, 16, 1022406, List.of("minecraft:flower_forest", "minecraft:cherry_grove", "minecraft:meadow", "minecraft:birch_forest"), "Gardener Lily", 13, 13, 5));
-		StructureCatalog.add(StructureCatalog.def("treetop_library", "Treetop Library", "ImLilyLol", 1, 44, 14, 1022407, List.of("minecraft:birch_forest", "minecraft:old_growth_birch_forest"), "Bookworm Lily", 15, 15, 24));
-		StructureCatalog.add(StructureCatalog.def("starwatch_observatory", "Starwatch Observatory", "ImLilyLol", 1, 56, 18, 1022415, List.of("minecraft:meadow", "minecraft:snowy_slopes", "minecraft:windswept_hills", "minecraft:snowy_plains"), "Bookworm Lily", 11, 11, 14));
-		StructureCatalog.add(StructureCatalog.def("madison_house", "Madison's House", "Madison", 1, 36, 12, 1022004, List.of("minecraft:plains", "minecraft:meadow", "minecraft:sunflower_plains", "minecraft:flower_forest"), "Madison / Farmer / Beekeeper", 13, 15, 9));
-		StructureCatalog.add(StructureCatalog.def("bakery", "Madison's Bakery", "Madison", 1, 60, 18, 1022010, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:flower_forest", "minecraft:forest"), "Baker Madison", 13, 11, 11));
-		StructureCatalog.add(StructureCatalog.def("farmstead", "Farmstead", "Madison", 1, 68, 22, 1022304, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:savanna"), "Farmer Madison + farm animals", 25, 21, 12));
-		StructureCatalog.add(StructureCatalog.def("orchard", "Orchard", "Madison", 1, 60, 20, 1022305, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:flower_forest", "minecraft:meadow"), "Beekeeper Madison", 19, 19, 9));
-		StructureCatalog.add(StructureCatalog.def("market_stall", "Market Stall", "Madison", 1, 48, 16, 1022306, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:savanna", "minecraft:meadow", "minecraft:forest"), "Merchant Madison", 11, 9, 6));
-		StructureCatalog.add(StructureCatalog.def("pumpkin_patch", "Pumpkin Patch Farm", "Madison", 1, 56, 18, 1022308, List.of("minecraft:plains", "minecraft:forest", "minecraft:taiga", "minecraft:dark_forest"), "Farmer Madison", 17, 15, 8));
-		StructureCatalog.add(StructureCatalog.def("riverside_mill", "Riverside Mill", "Madison", 1, 44, 14, 1022408, List.of("minecraft:river"), "Madison", 15, 13, 13).placement(StructureCatalog.Placement.ANY_SURFACE));
-		StructureCatalog.add(StructureCatalog.def("bee_sanctuary", "Bee Sanctuary", "Madison", 1, 52, 16, 1022409, List.of("minecraft:flower_forest", "minecraft:meadow", "minecraft:sunflower_plains", "minecraft:cherry_grove", "minecraft:plains"), "Beekeeper Madison", 17, 17, 8));
-		StructureCatalog.add(StructureCatalog.def("berry_cabin", "Sweet Berry Cabin", "Madison", 1, 48, 16, 1022416, List.of("minecraft:taiga", "minecraft:snowy_taiga", "minecraft:old_growth_pine_taiga", "minecraft:old_growth_spruce_taiga"), "Madison", 13, 13, 9));
-		StructureCatalog.add(StructureCatalog.def("village", "LoafCraft Village", "Shared", 1, 72, 24, 1022005, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "#minecraft:is_forest", "#minecraft:is_savanna", "minecraft:snowy_plains"), "Village Breads, Archer Lily, Farmer, Fisher and Baker Madison (+40% FelixSyn & Harley)", 31, 31, 10));
-		StructureCatalog.add(StructureCatalog.def("cousins_camp", "Cousins' Camp", "Shared", 1, 52, 18, 1022309, List.of("minecraft:forest", "minecraft:birch_forest", "minecraft:flower_forest", "minecraft:meadow", "minecraft:cherry_grove", "minecraft:plains"), "Lily + Madison", 15, 13, 6));
-		StructureCatalog.add(StructureCatalog.def("pvp_arena", "PvP Arena", "Shared", 2, 60, 20, 1022310, List.of("minecraft:plains", "minecraft:savanna", "minecraft:desert", "minecraft:badlands"), "ItzBreadLoaf vs FelixSyn & Harley", 25, 25, 6));
-		StructureCatalog.add(StructureCatalog.def("friendship_festival", "Friendship Festival", "Shared", 1, 60, 20, 1022413, List.of("minecraft:plains", "minecraft:meadow", "minecraft:flower_forest", "minecraft:sunflower_plains", "minecraft:cherry_grove"), "ItzBreadLoaf, Lily, Madison", 23, 19, 8));
-		StructureCatalog.add(StructureCatalog.def("giant_loaf", "Giant Loaf", "Easter egg", 3, 80, 28, 1022311, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow"), "nobody (treasure)", 27, 17, 11));
-		StructureCatalog.add(StructureCatalog.def("ruined_portal_hideout", "Ruined Portal Hideout", "FelixSyn", 2, 60, 20, 1022410, List.of("minecraft:plains", "minecraft:forest", "minecraft:taiga", "minecraft:savanna", "minecraft:desert", "minecraft:birch_forest", "minecraft:dark_forest", "minecraft:snowy_plains"), "FelixSyn & Harley", 15, 13, 9));
-		StructureCatalog.add(StructureCatalog.def("mace_workshop", "Mace Workshop", "FelixSyn", 2, 56, 18, 1022501, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:savanna", "minecraft:savanna_plateau"), "Wild FelixSyn (30% Harley)", 13, 11, 10));
-		StructureCatalog.add(StructureCatalog.def("cliff_hut", "Cliff Hut", "FelixSyn", 2, 48, 16, 1022502, List.of("minecraft:windswept_hills", "minecraft:windswept_gravelly_hills", "minecraft:windswept_forest", "minecraft:stony_peaks", "minecraft:jagged_peaks", "minecraft:meadow"), "Wild FelixSyn (30% Harley)", 11, 11, 9));
-		StructureCatalog.add(StructureCatalog.def("wind_tower", "Wind Tower", "FelixSyn", 2, 60, 20, 1022503, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:savanna", "minecraft:meadow", "minecraft:snowy_plains", "minecraft:desert", "minecraft:badlands"), "Wild FelixSyn (30% Harley)", 9, 9, 27));
-		StructureCatalog.add(StructureCatalog.def("rival_camp", "Rival Camp (near ItzBreadLoaf houses)", "FelixSyn", 2, 48, 16, 1022504, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:forest", "minecraft:birch_forest", "minecraft:taiga", "minecraft:snowy_taiga", "minecraft:savanna", "minecraft:snowy_plains", "minecraft:desert"), "Wild FelixSyn (30% Harley)", 11, 9, 5).near("house", "tent"));
-		StructureCatalog.add(StructureCatalog.def("sky_arena", "Sky Arena", "Master BreadLoaf", 4, 80, 28, 1022011, List.of("minecraft:plains", "minecraft:desert", "minecraft:snowy_plains", "#minecraft:is_savanna", "#minecraft:is_badlands", "minecraft:meadow"), "Master BreadLoaf", 21, 21, 34));
-		StructureCatalog.add(StructureCatalog.def("nether_training_ground", "Nether Mace Training Ground", "Nether", 4, 24, 8, 1022312, List.of("#minecraft:is_nether"), "Master BreadLoaf", 21, 21, 23).placement(StructureCatalog.Placement.NETHER_FLOOR));
-		StructureCatalog.add(StructureCatalog.def("nether_mace_arena", "Nether Mace Arena", "Nether", 4, 26, 8, 1022411, List.of("#minecraft:is_nether"), "Master BreadLoaf", 25, 25, 26).placement(StructureCatalog.Placement.NETHER_FLOOR));
-		StructureCatalog.add(StructureCatalog.def("end_mace_tower", "End Mace Tower", "End", 4, 20, 7, 1022313, List.of("minecraft:end_highlands", "minecraft:end_midlands"), "Master BreadLoaf", 11, 11, 32).placement(StructureCatalog.Placement.ISLAND));
-		StructureCatalog.add(StructureCatalog.def("end_sky_platform", "End Sky Platform", "End", 4, 22, 7, 1022412, List.of("minecraft:end_highlands", "minecraft:end_midlands"), "Master BreadLoaf", 15, 15, 20).placement(StructureCatalog.Placement.ISLAND));
+		StructureCatalog.add(StructureCatalog.def("house", "House", "ItzBreadLoaf", 1, 24, 8, 1022001, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "#minecraft:is_forest", "#minecraft:is_taiga", "#minecraft:is_savanna", "minecraft:snowy_plains", "minecraft:snowy_taiga", "minecraft:desert"), "ItzBreadLoaf", 9, 9, 12));
+		StructureCatalog.add(StructureCatalog.def("tent", "Tent", "ItzBreadLoaf", 1, 30, 10, 1022002, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "#minecraft:is_forest", "#minecraft:is_taiga", "#minecraft:is_savanna", "minecraft:snowy_plains", "minecraft:snowy_taiga", "minecraft:desert"), "2-4 ItzBreadLoafs", 11, 11, 7));
+		StructureCatalog.add(StructureCatalog.def("fort", "Bread Fort", "ItzBreadLoaf", 3, 41, 13, 1022006, List.of("minecraft:plains", "minecraft:meadow", "#minecraft:is_forest", "#minecraft:is_taiga", "#minecraft:is_savanna", "minecraft:windswept_hills", "minecraft:snowy_plains"), "3 Knights + Captain", 21, 21, 14));
+		StructureCatalog.add(StructureCatalog.def("watchtower", "Watchtower", "ItzBreadLoaf", 2, 29, 10, 1022007, List.of("minecraft:plains", "minecraft:sunflower_plains", "#minecraft:is_forest", "#minecraft:is_taiga", "#minecraft:is_savanna", "minecraft:desert", "minecraft:snowy_plains", "minecraft:meadow"), "Archer", 7, 7, 22));
+		StructureCatalog.add(StructureCatalog.def("bandit_camp", "Bandit Camp", "ItzBreadLoaf", 2, 36, 11, 1022008, List.of("#minecraft:is_forest", "#minecraft:is_taiga", "minecraft:dark_forest", "#minecraft:is_badlands", "#minecraft:is_savanna"), "3-4 Bandits", 15, 15, 7));
+		StructureCatalog.add(StructureCatalog.def("bread_bakery", "Bread Bakery", "ItzBreadLoaf", 1, 31, 10, 1022201, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow"), "ItzBreadLoaf", 11, 11, 12));
+		StructureCatalog.add(StructureCatalog.def("mining_camp", "Mining Camp", "ItzBreadLoaf", 2, 38, 12, 1022203, List.of("#minecraft:is_overworld"), "Miner", 13, 13, 8));
+		StructureCatalog.add(StructureCatalog.def("jungle_treehouse", "Jungle Treehouse", "ItzBreadLoaf", 2, 29, 10, 1022204, List.of("#minecraft:is_jungle", "minecraft:dark_forest"), "ItzBreadLoaf", 13, 13, 24));
+		StructureCatalog.add(StructureCatalog.def("desert_bunker", "Desert Bunker", "ItzBreadLoaf", 2, 31, 10, 1022205, List.of("minecraft:desert", "#minecraft:is_badlands"), "ItzBreadLoaf", 11, 11, 6));
+		StructureCatalog.add(StructureCatalog.def("igloo_hideout", "Igloo Hideout", "ItzBreadLoaf", 1, 29, 10, 1022206, List.of("minecraft:snowy_plains", "minecraft:snowy_taiga", "minecraft:ice_spikes", "minecraft:snowy_slopes"), "ItzBreadLoaf", 9, 9, 7));
+		StructureCatalog.add(StructureCatalog.def("ruined_loaf_castle", "Ruined Loaf Castle", "ItzBreadLoaf", 3, 43, 14, 1022208, List.of("minecraft:plains", "minecraft:sunflower_plains", "#minecraft:is_savanna"), "Captain, Knights, ItzBreadLoafs (3-5)", 27, 27, 16));
+		StructureCatalog.add(StructureCatalog.def("sweaty_dojo", "Sweaty Dojo", "ItzBreadLoaf", 2, 38, 12, 1022314, List.of("minecraft:bamboo_jungle", "minecraft:jungle", "minecraft:cherry_grove", "minecraft:savanna", "minecraft:plains"), "Sweaty", 13, 13, 10));
+		StructureCatalog.add(StructureCatalog.def("windmill", "Bread Mill", "ItzBreadLoaf", 1, 34, 11, 1022307, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow"), "ItzBreadLoaf + Farmer Madison", 15, 15, 18));
+		StructureCatalog.add(StructureCatalog.def("swamp_hut", "Swamp Hut", "ItzBreadLoaf", 1, 29, 10, 1022401, List.of("minecraft:swamp", "minecraft:mangrove_swamp"), "ItzBreadLoaf", 11, 11, 12).placement(StructureCatalog.Placement.ANY_SURFACE));
+		StructureCatalog.add(StructureCatalog.def("mountain_outpost", "Mountain Outpost", "ItzBreadLoaf", 2, 29, 10, 1022402, List.of("minecraft:jagged_peaks", "minecraft:frozen_peaks", "minecraft:stony_peaks", "minecraft:snowy_slopes"), "Archer + Knight", 9, 9, 14));
+		StructureCatalog.add(StructureCatalog.def("badlands_saloon", "Badlands Mineshaft Saloon", "ItzBreadLoaf", 2, 31, 10, 1022403, List.of("#minecraft:is_badlands"), "Miner + ItzBreadLoaf", 15, 13, 10));
+		StructureCatalog.add(StructureCatalog.def("cliffside_base", "Cliffside Cave Base", "ItzBreadLoaf", 2, 31, 10, 1022404, List.of("minecraft:windswept_hills", "minecraft:windswept_gravelly_hills", "minecraft:windswept_forest", "minecraft:meadow", "minecraft:stony_shore"), "ItzBreadLoaf", 13, 13, 4));
+		StructureCatalog.add(StructureCatalog.def("snowball_fort", "Snowball Fort", "ItzBreadLoaf", 1, 31, 10, 1022418, List.of("minecraft:snowy_plains", "minecraft:ice_spikes", "minecraft:snowy_taiga", "minecraft:grove"), "ItzBreadLoaf + Village Bread", 19, 13, 5));
+		StructureCatalog.add(StructureCatalog.def("lookout_tower", "Lookout Tower", "ItzBreadLoaf", 2, 29, 10, 1022202, List.of("#minecraft:is_forest", "#minecraft:is_taiga", "minecraft:dark_forest", "minecraft:old_growth_pine_taiga", "minecraft:old_growth_spruce_taiga"), "Archer", 7, 7, 23));
+		StructureCatalog.add(StructureCatalog.def("pirate_ship", "Pirate Ship", "ItzBreadLoaf", 2, 34, 10, 1022012, List.of("#minecraft:is_ocean"), "2-3 Pirates", 9, 23, 15).placement(StructureCatalog.Placement.WATER));
+		StructureCatalog.add(StructureCatalog.def("fishing_dock", "Fishing Dock", "ItzBreadLoaf", 1, 24, 7, 1022207, List.of("minecraft:river", "minecraft:beach", "minecraft:snowy_beach"), "Fisherman", 7, 17, 7).placement(StructureCatalog.Placement.ANY_SURFACE));
+		StructureCatalog.add(StructureCatalog.def("loaf_lighthouse", "Loaf Lighthouse", "ItzBreadLoaf", 1, 31, 10, 1022414, List.of("#minecraft:is_beach", "minecraft:stony_shore"), "Fisherman", 9, 9, 23).placement(StructureCatalog.Placement.ANY_SURFACE));
+		StructureCatalog.add(StructureCatalog.def("smugglers_cove", "Smugglers' Cove", "Ocean/beach", 2, 36, 12, 1022315, List.of("#minecraft:is_beach", "minecraft:stony_shore"), "Pirate + Bandit", 13, 17, 8).placement(StructureCatalog.Placement.ANY_SURFACE));
+		StructureCatalog.add(StructureCatalog.def("shipwreck_camp", "Shipwreck Camp", "Ocean/beach", 2, 34, 11, 1022417, List.of("#minecraft:is_beach"), "2 Pirates", 17, 11, 8).placement(StructureCatalog.Placement.ANY_SURFACE));
+		StructureCatalog.add(StructureCatalog.def("lily_house", "Lily's House", "ImLilyLol", 1, 19, 6, 1022003, List.of("minecraft:cherry_grove"), "Lily / Gardener / Witchy Lily", 11, 13, 9));
+		StructureCatalog.add(StructureCatalog.def("lily_meadow_cottage", "Meadow Cottage", "ImLilyLol", 1, 19, 7, 1022101, List.of("minecraft:meadow"), "Lily / Gardener", 11, 11, 8));
+		StructureCatalog.add(StructureCatalog.def("lily_flower_cottage", "Flower Forest Cottage", "ImLilyLol", 1, 19, 7, 1022102, List.of("minecraft:flower_forest"), "Lily / Gardener / Witchy", 11, 11, 9));
+		StructureCatalog.add(StructureCatalog.def("lily_reading_cabin", "Reading Cabin", "ImLilyLol", 1, 19, 7, 1022103, List.of("minecraft:birch_forest", "minecraft:old_growth_birch_forest"), "Bookworm / Lily", 11, 11, 10));
+		StructureCatalog.add(StructureCatalog.def("lily_snowy_cabin", "Snowy Spruce Cabin", "ImLilyLol", 1, 19, 7, 1022104, List.of("minecraft:snowy_taiga"), "Lily / Witchy / Bookworm", 11, 11, 10));
+		StructureCatalog.add(StructureCatalog.def("lily_mushroom_house", "Mushroom House", "ImLilyLol", 1, 24, 8, 1022105, List.of("minecraft:mushroom_fields"), "Lily / Witchy", 13, 13, 9));
+		StructureCatalog.add(StructureCatalog.def("treehouse", "Lily's Treehouse", "ImLilyLol", 1, 34, 10, 1022009, List.of("minecraft:cherry_grove", "minecraft:forest", "minecraft:birch_forest", "minecraft:flower_forest", "minecraft:old_growth_birch_forest", "minecraft:meadow"), "Bookworm Lily", 15, 15, 20));
+		StructureCatalog.add(StructureCatalog.def("greenhouse", "Greenhouse", "ImLilyLol", 1, 34, 11, 1022301, List.of("minecraft:flower_forest", "minecraft:meadow", "minecraft:cherry_grove", "minecraft:plains"), "Gardener Lily", 11, 13, 8));
+		StructureCatalog.add(StructureCatalog.def("lakeside_gazebo", "Lakeside Gazebo", "ImLilyLol", 1, 34, 11, 1022302, List.of("minecraft:birch_forest", "minecraft:old_growth_birch_forest", "minecraft:flower_forest", "minecraft:forest", "minecraft:cherry_grove"), "Bookworm or Lily", 15, 13, 9));
+		StructureCatalog.add(StructureCatalog.def("flower_shrine", "Flower Shrine", "ImLilyLol", 1, 36, 12, 1022303, List.of("minecraft:flower_forest", "minecraft:cherry_grove", "minecraft:meadow", "minecraft:sunflower_plains"), "Gardener Lily", 11, 11, 7));
+		StructureCatalog.add(StructureCatalog.def("floating_island_cottage", "Floating Island Cottage", "ImLilyLol", 2, 24, 8, 1022405, List.of("minecraft:cherry_grove"), "ImLilyLol", 15, 15, 28));
+		StructureCatalog.add(StructureCatalog.def("lantern_garden", "Lantern Garden", "ImLilyLol", 1, 31, 10, 1022406, List.of("minecraft:flower_forest", "minecraft:cherry_grove", "minecraft:meadow", "minecraft:birch_forest"), "Gardener Lily", 13, 13, 5));
+		StructureCatalog.add(StructureCatalog.def("treetop_library", "Treetop Library", "ImLilyLol", 1, 26, 8, 1022407, List.of("minecraft:birch_forest", "minecraft:old_growth_birch_forest"), "Bookworm Lily", 15, 15, 24));
+		StructureCatalog.add(StructureCatalog.def("starwatch_observatory", "Starwatch Observatory", "ImLilyLol", 1, 34, 11, 1022415, List.of("minecraft:meadow", "minecraft:snowy_slopes", "minecraft:windswept_hills", "minecraft:snowy_plains"), "Bookworm Lily", 11, 11, 14));
+		StructureCatalog.add(StructureCatalog.def("madison_house", "Madison's House", "Madison", 1, 22, 7, 1022004, List.of("minecraft:plains", "minecraft:meadow", "minecraft:sunflower_plains", "minecraft:flower_forest"), "Madison / Farmer / Beekeeper", 13, 15, 9));
+		StructureCatalog.add(StructureCatalog.def("bakery", "Madison's Bakery", "Madison", 1, 36, 11, 1022010, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:flower_forest", "minecraft:forest"), "Baker Madison", 13, 11, 11));
+		StructureCatalog.add(StructureCatalog.def("farmstead", "Farmstead", "Madison", 1, 41, 13, 1022304, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:savanna"), "Farmer Madison + farm animals", 25, 21, 12));
+		StructureCatalog.add(StructureCatalog.def("orchard", "Orchard", "Madison", 1, 36, 12, 1022305, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:flower_forest", "minecraft:meadow"), "Beekeeper Madison", 19, 19, 9));
+		StructureCatalog.add(StructureCatalog.def("market_stall", "Market Stall", "Madison", 1, 29, 10, 1022306, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:savanna", "minecraft:meadow", "minecraft:forest"), "Merchant Madison", 11, 9, 6));
+		StructureCatalog.add(StructureCatalog.def("pumpkin_patch", "Pumpkin Patch Farm", "Madison", 1, 34, 11, 1022308, List.of("minecraft:plains", "minecraft:forest", "minecraft:taiga", "minecraft:dark_forest"), "Farmer Madison", 17, 15, 8));
+		StructureCatalog.add(StructureCatalog.def("riverside_mill", "Riverside Mill", "Madison", 1, 26, 8, 1022408, List.of("minecraft:river"), "Madison", 15, 13, 13).placement(StructureCatalog.Placement.ANY_SURFACE));
+		StructureCatalog.add(StructureCatalog.def("bee_sanctuary", "Bee Sanctuary", "Madison", 1, 31, 10, 1022409, List.of("minecraft:flower_forest", "minecraft:meadow", "minecraft:sunflower_plains", "minecraft:cherry_grove", "minecraft:plains"), "Beekeeper Madison", 17, 17, 8));
+		StructureCatalog.add(StructureCatalog.def("berry_cabin", "Sweet Berry Cabin", "Madison", 1, 29, 10, 1022416, List.of("minecraft:taiga", "minecraft:snowy_taiga", "minecraft:old_growth_pine_taiga", "minecraft:old_growth_spruce_taiga"), "Madison", 13, 13, 9));
+		StructureCatalog.add(StructureCatalog.def("village", "LoafCraft Village", "Shared", 1, 43, 14, 1022005, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "#minecraft:is_forest", "#minecraft:is_savanna", "minecraft:snowy_plains"), "Village Breads, Archer Lily, Farmer, Fisher and Baker Madison (+40% FelixSyn & Harley)", 31, 31, 10));
+		StructureCatalog.add(StructureCatalog.def("cousins_camp", "Cousins' Camp", "Shared", 1, 31, 11, 1022309, List.of("minecraft:forest", "minecraft:birch_forest", "minecraft:flower_forest", "minecraft:meadow", "minecraft:cherry_grove", "minecraft:plains"), "Lily + Madison", 15, 13, 6));
+		StructureCatalog.add(StructureCatalog.def("pvp_arena", "PvP Arena", "Shared", 2, 36, 12, 1022310, List.of("minecraft:plains", "minecraft:savanna", "minecraft:desert", "minecraft:badlands"), "ItzBreadLoaf vs FelixSyn & Harley", 25, 25, 6));
+		StructureCatalog.add(StructureCatalog.def("friendship_festival", "Friendship Festival", "Shared", 1, 36, 12, 1022413, List.of("minecraft:plains", "minecraft:meadow", "minecraft:flower_forest", "minecraft:sunflower_plains", "minecraft:cherry_grove"), "ItzBreadLoaf, Lily, Madison", 23, 19, 8));
+		StructureCatalog.add(StructureCatalog.def("giant_loaf", "Giant Loaf", "Easter egg", 3, 48, 17, 1022311, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow"), "nobody (treasure)", 27, 17, 11));
+		StructureCatalog.add(StructureCatalog.def("ruined_portal_hideout", "Ruined Portal Hideout", "FelixSyn", 2, 36, 12, 1022410, List.of("minecraft:plains", "minecraft:forest", "minecraft:taiga", "minecraft:savanna", "minecraft:desert", "minecraft:birch_forest", "minecraft:dark_forest", "minecraft:snowy_plains"), "FelixSyn & Harley", 15, 13, 9));
+		StructureCatalog.add(StructureCatalog.def("mace_workshop", "Mace Workshop", "FelixSyn", 2, 34, 11, 1022501, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:savanna", "minecraft:savanna_plateau"), "Wild FelixSyn (30% Harley)", 13, 11, 10));
+		StructureCatalog.add(StructureCatalog.def("cliff_hut", "Cliff Hut", "FelixSyn", 2, 29, 10, 1022502, List.of("minecraft:windswept_hills", "minecraft:windswept_gravelly_hills", "minecraft:windswept_forest", "minecraft:stony_peaks", "minecraft:jagged_peaks", "minecraft:meadow"), "Wild FelixSyn (30% Harley)", 11, 11, 9));
+		StructureCatalog.add(StructureCatalog.def("wind_tower", "Wind Tower", "FelixSyn", 2, 36, 12, 1022503, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:savanna", "minecraft:meadow", "minecraft:snowy_plains", "minecraft:desert", "minecraft:badlands"), "Wild FelixSyn (30% Harley)", 9, 9, 27));
+		StructureCatalog.add(StructureCatalog.def("rival_camp", "Rival Camp (near ItzBreadLoaf houses)", "FelixSyn", 2, 29, 10, 1022504, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:forest", "minecraft:birch_forest", "minecraft:taiga", "minecraft:snowy_taiga", "minecraft:savanna", "minecraft:snowy_plains", "minecraft:desert"), "Wild FelixSyn (30% Harley)", 11, 9, 5).near("house", "tent"));
+		StructureCatalog.add(StructureCatalog.def("sky_arena", "Sky Arena", "Master BreadLoaf", 4, 48, 17, 1022011, List.of("minecraft:plains", "minecraft:desert", "minecraft:snowy_plains", "#minecraft:is_savanna", "#minecraft:is_badlands", "minecraft:meadow"), "Master BreadLoaf", 21, 21, 34));
+		StructureCatalog.add(StructureCatalog.def("nether_training_ground", "Nether Mace Training Ground", "Nether", 4, 16, 5, 1022312, List.of("#minecraft:is_nether"), "Master BreadLoaf", 21, 21, 23).placement(StructureCatalog.Placement.NETHER_FLOOR));
+		StructureCatalog.add(StructureCatalog.def("nether_mace_arena", "Nether Mace Arena", "Nether", 4, 16, 5, 1022411, List.of("#minecraft:is_nether"), "Master BreadLoaf", 25, 25, 26).placement(StructureCatalog.Placement.NETHER_FLOOR));
+		StructureCatalog.add(StructureCatalog.def("end_mace_tower", "End Mace Tower", "End", 4, 16, 4, 1022313, List.of("minecraft:end_highlands", "minecraft:end_midlands"), "Master BreadLoaf", 11, 11, 32).placement(StructureCatalog.Placement.ISLAND));
+		StructureCatalog.add(StructureCatalog.def("end_sky_platform", "End Sky Platform", "End", 4, 16, 4, 1022412, List.of("minecraft:end_highlands", "minecraft:end_midlands"), "Master BreadLoaf", 15, 15, 20).placement(StructureCatalog.Placement.ISLAND));
 		StructureCatalog.add(StructureCatalog.def("village_campsite", "Village Campsite", "FelixSyn", 2, 2, 1, 0, List.of(), "FelixSyn & Harley", 13, 11, 7).placement(StructureCatalog.Placement.RUNTIME));
 		StructureCatalog.add(StructureCatalog.def("bastion_throne_room", "Bastion Throne Room", "Nether", 4, 2, 1, 0, List.of(), "Master BreadLoaf", 13, 13, 9).placement(StructureCatalog.Placement.RUNTIME));
 	}
@@ -19397,6 +19397,506 @@ final class LilyBlueprints {
 		b.chest(11, 1, 11, "chests/lantern_garden");
 		b.floor(1, 1, 11, 11, 1, "garden");
 		b.resident(CharacterVariant.GARDENER, 6, 1, 1, 6, 6, 10);
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/worldgen/build/LoreBlueprints.java
+
+```java
+package com.itzbreadloaf.worldgen.build;
+
+import net.minecraft.core.Direction;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.CampfireBlock;
+import net.minecraft.world.level.block.CandleBlock;
+import net.minecraft.world.level.block.EndPortalFrameBlock;
+import net.minecraft.world.level.block.VineBlock;
+import net.minecraft.world.level.block.state.BlockState;
+
+/**
+ * Update 2's lore structures (part 8, batch 8): quiet, mostly abandoned places from the characters' past. Each has a
+ * lectern and a chest where Lily's books go (part 9), and the books point the way to the others.
+ */
+final class LoreBlueprints {
+	private LoreBlueprints() {
+	}
+
+	private static double dist(int x, int z, double cx, double cz) {
+		return Math.sqrt((x - cx) * (x - cx) + (z - cz) * (z - cz));
+	}
+
+	private static BlockState coldCampfire() {
+		return Blocks.CAMPFIRE.defaultBlockState().setValue(CampfireBlock.LIT, false);
+	}
+
+	private static BlockState candles(Block candle, int count) {
+		return candle.defaultBlockState().setValue(CandleBlock.CANDLES, count).setValue(CandleBlock.LIT, true);
+	}
+
+	private static void lampPost(Blueprint b, int x, int z) {
+		b.set(x, 1, z, b.palette.fence());
+		Pieces.lantern(b, x, 2, z, false);
+	}
+
+	/** A small blossoming tree. */
+	private static void blossom(Blueprint b, int x, int z) {
+		b.fill(x, 1, z, x, 3, z, b.palette.log());
+		BlockState leaves = LilyBlueprints.leaves(Blocks.FLOWERING_AZALEA_LEAVES);
+		for (int y = 3; y <= 4; y++) {
+			int r = y == 4 ? 1 : 2;
+			for (int dx = -r; dx <= r; dx++) {
+				for (int dz = -r; dz <= r; dz++) {
+					int lx = x + dx;
+					int lz = z + dz;
+					if (Math.abs(dx) + Math.abs(dz) <= r + 1 && lx >= 0 && lz >= 0 && lx < b.width && lz < b.depth && !b.isSet(lx, y, lz)) {
+						b.set(lx, y, lz, leaves);
+					}
+				}
+			}
+		}
+	}
+
+	/** Lily's Abandoned Writing Cabin: her old cabin, door gone, windows broken, moss and cobwebs, her desk and lectern. */
+	static void lilyWritingCabin(Blueprint b) {
+		Palette p = b.palette;
+		int door = Pieces.cottage(b, 2, 2, 8, 8, 0, 3, Pieces.Roof.GABLE_X, "writing cabin");
+		b.clear(door, 1, 2, door, 2, 2);
+		b.clear(4, 2, 2, 4, 2, 2);
+		b.clear(8, 2, 6, 8, 2, 6);
+		for (int y = 1; y <= 3; y++) {
+			for (int i = 3; i <= 7; i++) {
+				for (int[] c : new int[][]{{i, 2}, {i, 8}, {2, i}, {8, i}}) {
+					if (b.get(c[0], y, c[1]) == p.planks() && b.random.nextInt(5) == 0) {
+						b.set(c[0], y, c[1], Blocks.MOSSY_COBBLESTONE);
+					}
+				}
+			}
+		}
+		for (int z = 3; z <= 7; z += 2) {
+			b.set(1, 2, z, Blocks.VINE.defaultBlockState().setValue(VineBlock.EAST, true));
+		}
+		b.set(3, 3, 3, Blocks.COBWEB);
+		b.set(7, 3, 7, Blocks.COBWEB);
+		b.set(4, 1, 7, Blocks.LECTERN);
+		b.set(5, 1, 7, Pieces.topSlab(p.slab()));
+		b.set(6, 1, 7, Pieces.topSlab(p.slab()));
+		b.set(5, 2, 7, candles(Blocks.WHITE_CANDLE, 1));
+		b.set(5, 1, 5, Blocks.WHITE_CARPET);
+		b.set(6, 1, 4, Blocks.WHITE_CARPET);
+		b.set(4, 1, 4, Blocks.MOSS_CARPET);
+		b.chest(7, 1, 6, "chests/lily_writing_cabin");
+		b.bed(3, 1, 5, p.bed());
+		Pieces.path(b, door, 0, door, 1, 0);
+	}
+
+	/** Ruins of the First Bakery: crumbling brick walls, a cold oven, spilled hay, the counter's remains. */
+	static void firstBakeryRuins(Blueprint b) {
+		Palette p = b.palette;
+		for (int x = 1; x <= 11; x++) {
+			for (int z = 1; z <= 9; z++) {
+				b.set(x, 0, z, b.random.nextInt(4) == 0 ? Blocks.COARSE_DIRT.defaultBlockState() : p.stoneFloor());
+				boolean wall = x == 1 || x == 11 || z == 1 || z == 9;
+				if (wall && !(x == 6 && z == 1)) {
+					int h = z == 1 ? b.random.nextInt(2) : b.random.nextInt(4);
+					for (int y = 1; y <= h; y++) {
+						b.set(x, y, z, b.random.nextInt(3) == 0 ? Blocks.CRACKED_STONE_BRICKS : Blocks.BRICKS);
+					}
+				}
+			}
+		}
+		// The old oven against the back wall, long cold.
+		b.fill(5, 1, 8, 7, 2, 8, Blocks.BRICKS);
+		b.set(6, 1, 8, coldCampfire());
+		b.set(6, 3, 8, Blocks.BRICKS);
+		b.set(3, 1, 4, Pieces.topSlab(p.slab()));
+		b.set(4, 1, 4, Pieces.topSlab(p.slab()));
+		b.set(9, 1, 3, Blocks.HAY_BLOCK);
+		b.set(9, 2, 3, Blocks.ORANGE_TERRACOTTA);
+		b.set(8, 1, 2, Blocks.HAY_BLOCK);
+		b.set(4, 1, 7, Blocks.LECTERN);
+		b.chest(9, 1, 7, "chests/first_bakery_ruins");
+		b.floor(4, 5, 8, 6, 1, "ruins");
+	}
+
+	/** The Memorial Grove: blossom trees in a ring, lily of the valley, a stone stele with candles, benches, a lectern. */
+	static void memorialGrove(Blueprint b) {
+		Palette p = b.palette;
+		for (int i = 0; i < 6; i++) {
+			double a = Math.PI * 2 * i / 6;
+			blossom(b, (int) Math.round(7 + 5 * Math.cos(a)), (int) Math.round(7 + 5 * Math.sin(a)));
+		}
+		for (int x = 0; x < b.width; x++) {
+			for (int z = 0; z < b.depth; z++) {
+				double d = dist(x, z, 7, 7);
+				if (d >= 2.6 && d <= 3.5 && !b.isSet(x, 1, z)) {
+					b.set(x, 1, z, Blocks.LILY_OF_THE_VALLEY);
+				}
+			}
+		}
+		b.fill(6, 0, 6, 8, 0, 8, Blocks.POLISHED_ANDESITE);
+		b.fill(7, 1, 8, 7, 2, 8, Blocks.POLISHED_ANDESITE);
+		b.set(7, 3, 8, candles(Blocks.WHITE_CANDLE, 3));
+		b.set(7, 1, 6, Blocks.LECTERN);
+		b.chest(8, 1, 8, "chests/memorial_grove");
+		b.set(4, 1, 7, Pieces.stairs(p.stairs(), Direction.WEST));
+		b.set(10, 1, 7, Pieces.stairs(p.stairs(), Direction.EAST));
+		b.clear(7, 1, 1, 7, 1, 5);
+		Pieces.path(b, 7, 0, 7, 5, 0);
+		b.floor(6, 4, 8, 5, 1, "grove");
+	}
+
+	/** The Old Battle Site: where the rivalry began. Scorched ground, craters, broken maces, swords stuck in the ground, the two banners. */
+	static void rivalryBattleSite(Blueprint b) {
+		Palette p = b.palette;
+		for (int x = 0; x < b.width; x++) {
+			for (int z = 0; z < b.depth; z++) {
+				int roll = b.random.nextInt(5);
+				if (roll == 0) {
+					b.set(x, 0, z, Blocks.COARSE_DIRT);
+				} else if (roll == 1) {
+					b.set(x, 0, z, Blocks.GRAVEL);
+				}
+			}
+		}
+		for (int[] c : new int[][]{{4, 3}, {12, 8}, {7, 9}}) {
+			b.clear(c[0], 0, c[1], c[0] + 1, 0, c[1] + 1);
+			b.fill(c[0], -1, c[1], c[0] + 1, -1, c[1] + 1, Blocks.CRACKED_STONE_BRICKS);
+		}
+		// Broken maces lying on the ground, swords stuck in it.
+		for (int[] m : new int[][]{{3, 9}, {13, 3}}) {
+			b.set(m[0], 1, m[1], Blocks.POLISHED_DEEPSLATE);
+			b.set(m[0] + 1, 1, m[1], Pieces.logAlong(Blocks.STRIPPED_DARK_OAK_LOG.defaultBlockState(), Direction.Axis.X));
+		}
+		for (int[] s : new int[][]{{6, 4}, {10, 6}, {9, 2}, {14, 10}}) {
+			b.set(s[0], 1, s[1], Blocks.IRON_BARS);
+			b.set(s[0], 2, s[1], Blocks.DARK_OAK_FENCE);
+		}
+		b.fill(2, 1, 6, 2, 3, 6, p.fence());
+		b.set(2, 4, 6, Blocks.RED_BANNER);
+		b.fill(14, 1, 6, 14, 3, 6, p.fence());
+		b.set(14, 4, 6, Blocks.BLUE_BANNER);
+		b.set(8, 1, 11, Blocks.CRACKED_STONE_BRICKS);
+		b.set(8, 1, 10, Blocks.LECTERN);
+		b.chest(9, 1, 11, "chests/rivalry_battle_site");
+		b.floor(6, 6, 8, 7, 1, "battlefield");
+	}
+
+	/**
+	 * The Sealed Library: a stone library with no door and barred windows. The way in is hidden: a hatch in a bush
+	 * out front, a ladder down, a tunnel under the wall and a ladder up through a trapdoor in the library floor.
+	 */
+	static void sealedLibrary(Blueprint b) {
+		Palette p = b.palette;
+		BlockState wall = p.bricks();
+		b.fill(2, 0, 3, 10, 0, 11, p.stoneFloor());
+		b.walls(2, 3, 10, 11, 1, 6, wall);
+		b.fill(2, 7, 3, 10, 7, 11, wall);
+		b.clear(3, 1, 4, 9, 6, 10);
+		for (int[] w : new int[][]{{2, 3, 7}, {10, 3, 7}, {6, 3, 11}, {4, 3, 3}, {8, 3, 3}}) {
+			b.set(w[0], w[1], w[2], Blocks.IRON_BARS);
+		}
+		// The secret way in.
+		BlockState leaves = LilyBlueprints.leaves(p.wood().leaves());
+		for (int[] l : new int[][]{{5, 0}, {7, 0}, {5, 1}, {7, 1}, {5, 2}, {7, 2}, {6, 2}}) {
+			b.set(l[0], 1, l[1], leaves);
+		}
+		b.fill(5, -4, 0, 7, -1, 7, wall);
+		b.clear(6, -3, 1, 6, -2, 6);
+		Pieces.ladder(b, 6, -3, -1, 1, Direction.SOUTH);
+		b.set(6, 0, 1, p.wood().trapdoor().defaultBlockState().setValue(net.minecraft.world.level.block.TrapDoorBlock.HALF,
+				net.minecraft.world.level.block.state.properties.Half.TOP));
+		Pieces.ladder(b, 6, -3, -1, 6, Direction.NORTH);
+		b.set(6, 0, 6, p.wood().trapdoor().defaultBlockState().setValue(net.minecraft.world.level.block.TrapDoorBlock.HALF,
+				net.minecraft.world.level.block.state.properties.Half.TOP));
+		// The library.
+		b.fill(3, 1, 4, 3, 3, 10, Blocks.BOOKSHELF);
+		b.fill(9, 1, 4, 9, 3, 10, Blocks.BOOKSHELF);
+		b.fill(4, 1, 10, 8, 2, 10, Blocks.BOOKSHELF);
+		b.set(5, 1, 9, Blocks.LECTERN);
+		b.set(7, 1, 9, Blocks.LECTERN);
+		b.chest(6, 1, 9, "chests/sealed_library");
+		b.set(6, 1, 4, candles(Blocks.WHITE_CANDLE, 2));
+		Pieces.lantern(b, 6, 6, 7, true);
+		b.floor(4, 5, 8, 8, 1, "library");
+	}
+
+	/** The Cartographer's Tent: a striped pavilion over a floor "map" of colored carpets, a map table, rolled maps in barrels. */
+	static void cartographersTent(Blueprint b) {
+		Palette p = b.palette;
+		for (int[] c : new int[][]{{1, 1}, {11, 1}, {1, 9}, {11, 9}}) {
+			b.fill(c[0], 1, c[1], c[0], 3, c[1], p.fence());
+		}
+		for (int x = 1; x <= 11; x++) {
+			b.fill(x, 4, 1, x, 4, 9, x % 2 == 0 ? Blocks.WHITE_WOOL : Blocks.LIGHT_BLUE_WOOL);
+		}
+		b.fill(1, 5, 5, 11, 5, 5, Blocks.WHITE_WOOL);
+		b.fill(2, 1, 9, 10, 3, 9, Blocks.WHITE_WOOL);
+		b.fill(1, 1, 2, 1, 3, 8, Blocks.WHITE_WOOL);
+		b.fill(11, 1, 2, 11, 3, 8, Blocks.WHITE_WOOL);
+		Block[] land = {Blocks.GREEN_CARPET, Blocks.LIME_CARPET, Blocks.BLUE_CARPET, Blocks.YELLOW_CARPET, Blocks.BROWN_CARPET};
+		for (int x = 4; x <= 8; x++) {
+			for (int z = 4; z <= 7; z++) {
+				b.set(x, 1, z, land[(x * 3 + z * 5 + b.random.nextInt(2)) % land.length]);
+			}
+		}
+		b.set(3, 1, 7, Blocks.CARTOGRAPHY_TABLE);
+		b.set(9, 1, 7, Blocks.LECTERN);
+		b.set(2, 1, 8, Blocks.BARREL);
+		b.set(10, 1, 8, Blocks.BARREL);
+		b.chest(9, 1, 3, "chests/cartographers_tent");
+		Pieces.lantern(b, 6, 3, 5, true);
+		b.floor(3, 2, 9, 3, 1, "tent");
+	}
+
+	/** Master BreadLoaf's Old Home: a dusty cottage with his training dummy, a gold-trimmed chair, his diary, sketches of the portals. */
+	static void mastersOldHome(Blueprint b) {
+		Palette p = b.palette;
+		int door = Pieces.cottage(b, 2, 2, 10, 8, 0, 3, Pieces.Roof.GABLE_X, "master's old home");
+		b.walls(2, 2, 10, 8, 1, 1, p.bricks());
+		Pieces.door(b, door, 1, 2, Direction.NORTH);
+		b.mob(8, 1, 4, "dummy");
+		b.set(6, 1, 7, Pieces.stairs(p.stairs(), Direction.SOUTH));
+		b.set(5, 1, 7, Blocks.GOLD_BLOCK);
+		b.set(7, 1, 7, Blocks.GOLD_BLOCK);
+		b.set(3, 1, 4, Blocks.LECTERN);
+		b.fill(3, 1, 6, 3, 2, 7, Blocks.BOOKSHELF);
+		b.chest(9, 1, 7, "chests/masters_old_home");
+		// Sketches on the back wall: a Nether portal and the End.
+		b.set(4, 2, 8, Blocks.OBSIDIAN);
+		b.set(4, 3, 8, Blocks.PURPLE_STAINED_GLASS);
+		b.set(8, 2, 8, Blocks.END_STONE);
+		b.set(8, 3, 8, Blocks.PURPUR_BLOCK);
+		b.set(4, 3, 3, Blocks.COBWEB);
+		b.set(9, 3, 6, Blocks.COBWEB);
+		Pieces.path(b, door, 0, door, 1, 0);
+	}
+
+	/** The loaf's shape: below 1 is inside, {@code inset} blocks in from the crust. */
+	private static double loaf(int x, int y, int z, double cx, double cz, int inset) {
+		double ax = (x - cx) / (6.5 - inset);
+		double az = (z - cz) / (4.8 - inset);
+		double ay = y / (5.5 - inset);
+		return ax * ax + az * az + ay * ay;
+	}
+
+	/**
+	 * The Archive Under the Old Loaf: the crumbling crust of an older, smaller giant loaf, and under it (down a ladder from
+	 * a trapdoor hidden under a carpet) a hidden archive of bookshelves, lecterns and chests.
+	 */
+	static void oldLoafArchive(Blueprint b) {
+		Palette p = b.palette;
+		for (int x = 0; x < b.width; x++) {
+			for (int z = 0; z < b.depth; z++) {
+				for (int y = 1; y <= 5; y++) {
+					double e = loaf(x, y, z, 7, 6, 0);
+					if (e > 1.0) {
+						continue;
+					}
+					boolean crust = loaf(x, y, z, 7, 6, 1) > 1.0;
+					if (crust && b.random.nextInt(10) < 7 && !(x == 7 && z <= 2)) {
+						b.set(x, y, z, y >= 4 ? Blocks.BROWN_TERRACOTTA : Blocks.TERRACOTTA);
+					} else {
+						b.set(x, y, z, Blocks.AIR);
+					}
+				}
+			}
+		}
+		b.clear(6, 1, 0, 8, 3, 2);
+		int floor = -7;
+		UndergroundBlueprints.vault(b, 3, 3, 11, 9, floor, 3, "archive");
+		UndergroundBlueprints.ladderShaft(b, 7, 4, floor + 1, -1, Direction.SOUTH, true);
+		b.set(7, 1, 4, Blocks.RED_CARPET);
+		int y = floor + 1;
+		b.fill(4, y, 5, 4, y + 1, 8, Blocks.BOOKSHELF);
+		b.fill(10, y, 5, 10, y + 1, 8, Blocks.BOOKSHELF);
+		b.set(6, y, 8, Blocks.LECTERN);
+		b.set(8, y, 8, Blocks.LECTERN);
+		b.chest(7, y, 8, "chests/old_loaf_archive");
+		b.chest(5, y, 5, "chests/old_loaf_archive");
+		b.set(9, y, 5, candles(Blocks.YELLOW_CANDLE, 3));
+		Pieces.lantern(b, 7, floor + 3, 6, true);
+		b.floor(7, 3, 7, 4, 1, "inside the old loaf");
+	}
+
+	/** The Cousins' Old Treehouse: where Lily and Madison played as kids. A hut up a big tree, two little beds, their banners, a note block. */
+	static void cousinsOldTreehouse(Blueprint b) {
+		Palette p = b.palette;
+		int deck = 7;
+		Pieces.room(b, 4, 4, 9, 9, deck, 3, "cousins' treehouse");
+		Pieces.windowsAround(b, 4, 4, 9, 9, deck + 2, -1);
+		Pieces.roof(b, Pieces.Roof.FLAT, 4, 4, 9, 9, deck + 3);
+		b.fill(6, 1, 6, 7, deck + 5, 7, p.log());
+		Pieces.ladder(b, 6, 1, deck, 5, Direction.NORTH);
+		BlockState leaves = LilyBlueprints.leaves(p.wood().leaves());
+		for (int x = 1; x <= 12; x++) {
+			for (int z = 1; z <= 12; z++) {
+				for (int y = deck + 5; y <= deck + 7; y++) {
+					double d = dist(x, z, 6.5, 6.5);
+					if (d <= (y == deck + 7 ? 3.0 : 5.5) && !b.isSet(x, y, z)) {
+						b.set(x, y, z, leaves);
+					}
+				}
+			}
+		}
+		int y = deck + 1;
+		b.bed(5, y, 6, Blocks.PINK_BED);
+		b.bed(8, y, 6, Blocks.YELLOW_BED);
+		b.chest(5, y, 5, "chests/cousins_old_treehouse");
+		b.set(8, y, 5, Blocks.NOTE_BLOCK);
+		b.set(6, y, 8, Blocks.PINK_BANNER);
+		b.set(7, y, 8, Blocks.YELLOW_BANNER);
+		// Height marks on the trunk: one candle for each of them, at different heights.
+		b.set(8, 2, 6, Blocks.PINK_WOOL);
+		b.set(8, 3, 7, Blocks.YELLOW_WOOL);
+	}
+
+	/** The Drifters' Rest: FelixSyn and Harley's old roadside camp. Two bedrolls, a cold campfire, their banners on a stump, scorch marks. */
+	static void driftersRest(Blueprint b) {
+		Palette p = b.palette;
+		Pieces.path(b, 0, 5, 12, 5, 0);
+		b.bed(3, 1, 7, Blocks.BLACK_BED);
+		b.bed(5, 1, 7, Blocks.PINK_BED);
+		b.set(4, 1, 3, coldCampfire());
+		b.set(2, 1, 3, Pieces.logAlong(p.log(), Direction.Axis.Z));
+		b.set(6, 1, 3, Pieces.logAlong(p.log(), Direction.Axis.Z));
+		b.set(9, 1, 8, p.log());
+		b.set(9, 2, 8, Blocks.BLACK_BANNER);
+		b.set(10, 1, 8, Blocks.PINK_BANNER);
+		for (int[] s : new int[][]{{10, 2}, {11, 3}, {9, 1}}) {
+			b.set(s[0], 0, s[1], Blocks.COAL_BLOCK);
+		}
+		b.chest(7, 1, 9, "chests/drifters_rest");
+		b.set(8, 1, 9, Blocks.LECTERN);
+		b.floor(2, 6, 8, 6, 1, "camp");
+	}
+
+	/** Lily's Naturalist Camp: her field tent and a shelf of specimens under an awning, a lectern with her notes. */
+	static void naturalistCamp(Blueprint b) {
+		Palette p = b.palette;
+		Pieces.tent(b, 1, 5, 6, Blocks.GREEN_WOOL.defaultBlockState());
+		b.chest(4, 1, 9, "chests/naturalist_camp");
+		for (int[] c : new int[][]{{7, 2}, {11, 2}, {7, 4}, {11, 4}}) {
+			b.fill(c[0], 1, c[1], c[0], 3, c[1], p.fence());
+		}
+		b.fill(7, 4, 2, 11, 4, 4, p.slab());
+		for (int x = 8; x <= 10; x++) {
+			b.set(x, 1, 4, Pieces.topSlab(p.slab()));
+		}
+		b.set(8, 2, 4, Blocks.POTTED_CACTUS);
+		b.set(9, 2, 4, Blocks.CREEPER_HEAD);
+		b.set(10, 2, 4, Blocks.POTTED_FERN);
+		b.set(9, 1, 6, Blocks.LECTERN);
+		b.set(12, 1, 7, p.fence());
+		b.set(12, 2, 7, Blocks.WHITE_WOOL);
+		b.set(8, 1, 8, coldCampfire());
+		b.floor(8, 2, 10, 3, 1, "under the awning");
+	}
+
+	/**
+	 * Master's Departure Point: where Master BreadLoaf left for the Nether and the End. A ruined Nether portal, and a
+	 * broken ring of End portal frames (too broken to ever light), a lectern with his last note.
+	 */
+	static void mastersDeparture(Blueprint b) {
+		Palette p = b.palette;
+		b.fill(2, 0, 2, 12, 0, 12, p.stoneFloor());
+		for (int x = 4; x <= 8; x++) {
+			for (int y = 0; y <= 5; y++) {
+				boolean frame = x == 4 || x == 8 || y == 0 || y == 5;
+				if (frame && (y == 0 || b.random.nextInt(4) != 0)) {
+					b.set(x, y, 3, b.random.nextInt(4) == 0 ? Blocks.CRYING_OBSIDIAN : Blocks.OBSIDIAN);
+				}
+			}
+		}
+		// A broken ring of End portal frames facing in: three are missing, so it can never become a portal.
+		int[][] frames = {{6, 7, 0}, {7, 7, 0}, {8, 7, 0}, {6, 11, 1}, {8, 11, 1}, {5, 8, 2}, {5, 10, 2}, {9, 9, 3}, {9, 10, 3}};
+		Direction[] facing = {Direction.SOUTH, Direction.NORTH, Direction.EAST, Direction.WEST};
+		for (int[] f : frames) {
+			b.set(f[0], 1, f[1], Blocks.END_PORTAL_FRAME.defaultBlockState().setValue(EndPortalFrameBlock.FACING, facing[f[2]])
+					.setValue(EndPortalFrameBlock.HAS_EYE, f[0] == 7 && f[1] == 7));
+		}
+		for (int z = 4; z <= 6; z++) {
+			b.set(6, 0, z, Blocks.CRACKED_STONE_BRICKS);
+		}
+		b.set(11, 1, 5, Blocks.LECTERN);
+		b.chest(3, 1, 11, "chests/masters_departure");
+		b.floor(10, 6, 11, 8, 1, "platform");
+	}
+
+	/** The Whispering Stones: a circle of mossy standing stones around a candle-lit altar, a lectern of strange notes. */
+	static void whisperingStones(Blueprint b) {
+		for (int x = 0; x < b.width; x++) {
+			for (int z = 0; z < b.depth; z++) {
+				if (b.random.nextInt(4) == 0) {
+					b.set(x, 0, z, Blocks.MOSS_BLOCK);
+				}
+			}
+		}
+		for (int i = 0; i < 8; i++) {
+			double a = Math.PI * 2 * i / 8;
+			int x = (int) Math.round(6 + 5 * Math.cos(a));
+			int z = (int) Math.round(6 + 5 * Math.sin(a));
+			int h = 2 + (i % 2);
+			b.fill(x, 1, z, x, h, z, Blocks.MOSSY_STONE_BRICKS);
+		}
+		b.set(6, 1, 6, Blocks.CHISELED_STONE_BRICKS);
+		b.set(6, 2, 6, candles(Blocks.WHITE_CANDLE, 4));
+		b.set(6, 1, 4, Blocks.LECTERN);
+		b.chest(6, 1, 8, "chests/whispering_stones");
+		b.floor(4, 5, 5, 7, 1, "circle");
+	}
+
+	/** The Crossroads Signpost: paths crossing at an old signpost with colored banners pointing four ways, a box of notes. */
+	static void crossroadsSignpost(Blueprint b) {
+		Palette p = b.palette;
+		Pieces.path(b, 5, 0, 5, 10, 0);
+		Pieces.path(b, 0, 5, 10, 5, 0);
+		b.fill(5, 1, 5, 5, 3, 5, p.fence());
+		b.set(4, 3, 5, p.fence());
+		b.set(6, 3, 5, p.fence());
+		b.set(5, 3, 4, p.fence());
+		b.set(5, 3, 6, p.fence());
+		b.set(4, 4, 5, Blocks.RED_BANNER);
+		b.set(6, 4, 5, Blocks.BLUE_BANNER);
+		b.set(5, 4, 4, Blocks.PINK_BANNER);
+		b.set(5, 4, 6, Blocks.YELLOW_BANNER);
+		b.barrel(8, 1, 8, "chests/crossroads_signpost");
+		b.set(8, 1, 2, Pieces.stairs(p.stairs(), Direction.EAST));
+		lampPost(b, 3, 3);
+		lampPost(b, 7, 7);
+		b.set(2, 1, 8, Blocks.LECTERN);
+	}
+
+	/** The Lost Loaf Wagon: the giant wagon that once hauled the Giant Loaf, broken down, its cargo spilled. */
+	static void lostLoafWagon(Blueprint b) {
+		Palette p = b.palette;
+		BlockState wheel = Pieces.logAlong(Blocks.DARK_OAK_LOG.defaultBlockState(), Direction.Axis.Z);
+		for (int[] w : new int[][]{{4, 2}, {4, 8}, {9, 2}}) {
+			for (int dx = -1; dx <= 1; dx++) {
+				for (int dy = 0; dy <= 2; dy++) {
+					if (dx != 0 || dy != 1) {
+						b.set(w[0] + dx, 1 + dy, w[1], wheel);
+					}
+				}
+			}
+			b.set(w[0], 2, w[1], Blocks.STRIPPED_DARK_OAK_LOG);
+		}
+		// The fourth wheel fell off and lies flat.
+		b.fill(11, 1, 9, 13, 1, 9, Pieces.logAlong(Blocks.DARK_OAK_LOG.defaultBlockState(), Direction.Axis.X));
+		b.fill(11, 1, 10, 13, 1, 10, Pieces.logAlong(Blocks.DARK_OAK_LOG.defaultBlockState(), Direction.Axis.X));
+		// The bed sags down where the wheel is missing.
+		b.fill(3, 2, 3, 8, 2, 7, p.planks());
+		b.fill(9, 1, 3, 11, 1, 7, p.planks());
+		b.fill(5, 3, 4, 7, 4, 6, Blocks.ORANGE_TERRACOTTA);
+		b.fill(5, 5, 4, 7, 5, 6, Blocks.BROWN_TERRACOTTA);
+		for (int[] h : new int[][]{{12, 4}, {13, 5}, {12, 6}, {1, 8}}) {
+			b.set(h[0], 1, h[1], Blocks.HAY_BLOCK);
+		}
+		b.set(3, 3, 3, Blocks.BARREL);
+		b.chest(2, 1, 9, "chests/lost_loaf_wagon");
+		b.set(1, 1, 9, Blocks.LECTERN);
+		b.floor(1, 1, 13, 1, 1, "road");
 	}
 }
 ```
@@ -20713,93 +21213,116 @@ final class NewCatalogEntries {
 	}
 
 	static void addAll() {
-		StructureCatalog.add(StructureCatalog.def("bread_stand", "Roadside Bread Stand", "ItzBreadLoaf", 1, 64, 20, 1023001, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:forest"), "ItzBreadLoaf", 9, 7, 6));
-		StructureCatalog.add(StructureCatalog.def("toaster_house", "Toaster House", "ItzBreadLoaf", 1, 64, 20, 1023002, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "#minecraft:is_forest"), "ItzBreadLoaf", 11, 9, 9));
-		StructureCatalog.add(StructureCatalog.def("baguette_tower", "Baguette Tower", "ItzBreadLoaf", 2, 72, 24, 1023003, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna"), "Archer", 9, 9, 24));
-		StructureCatalog.add(StructureCatalog.def("crumb_trail_camp", "Crumb Trail Camp", "ItzBreadLoaf", 1, 64, 20, 1023004, List.of("#minecraft:is_forest", "minecraft:taiga"), "2 ItzBreadLoafs", 15, 11, 6));
-		StructureCatalog.add(StructureCatalog.def("knight_training_yard", "Knight Training Yard", "ItzBreadLoaf", 2, 72, 24, 1023005, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:forest"), "2 Knights", 17, 15, 7));
-		StructureCatalog.add(StructureCatalog.def("bread_bank", "Bread Bank", "ItzBreadLoaf", 3, 88, 28, 1023006, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna"), "Captain (guard)", 13, 11, 8));
-		StructureCatalog.add(StructureCatalog.def("sweaty_gym", "Sweaty Gym", "ItzBreadLoaf", 2, 72, 24, 1023007, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:desert", "minecraft:savanna"), "Sweaty ItzBreadLoaf", 15, 13, 7));
-		StructureCatalog.add(StructureCatalog.def("hay_maze", "Hay Bale Maze", "ItzBreadLoaf", 1, 64, 20, 1023008, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna"), "ItzBreadLoaf", 17, 17, 4));
-		StructureCatalog.add(StructureCatalog.def("miners_rest", "Miner's Rest Stop", "ItzBreadLoaf", 2, 72, 24, 1023009, List.of("minecraft:windswept_hills", "minecraft:windswept_forest", "minecraft:stony_peaks", "minecraft:meadow", "minecraft:taiga"), "Miner", 13, 11, 8));
-		StructureCatalog.add(StructureCatalog.def("bandit_lookout", "Bandit Lookout", "ItzBreadLoaf", 2, 72, 24, 1023010, List.of("minecraft:dark_forest", "minecraft:taiga", "minecraft:forest"), "2 Bandits", 11, 11, 13));
-		StructureCatalog.add(StructureCatalog.def("loaf_statue", "Statue of ItzBreadLoaf", "ItzBreadLoaf", 1, 64, 20, 1023011, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow"), "Village ItzBreadLoaf (caretaker)", 11, 9, 12));
-		StructureCatalog.add(StructureCatalog.def("archery_range", "Archery Range", "ItzBreadLoaf", 1, 64, 20, 1023012, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna", "minecraft:forest"), "Archer", 17, 11, 6));
-		StructureCatalog.add(StructureCatalog.def("desert_oasis_camp", "Desert Oasis Camp", "ItzBreadLoaf", 2, 72, 24, 1023013, List.of("minecraft:desert"), "ItzBreadLoaf + Village ItzBreadLoaf", 15, 15, 9));
-		StructureCatalog.add(StructureCatalog.def("snowy_bakehouse", "Snowy Bakehouse", "ItzBreadLoaf", 1, 64, 20, 1023014, List.of("minecraft:snowy_plains", "minecraft:snowy_taiga", "minecraft:grove", "minecraft:snowy_slopes"), "ItzBreadLoaf", 13, 11, 11));
-		StructureCatalog.add(StructureCatalog.def("captains_manor", "Captain's Manor", "ItzBreadLoaf", 3, 88, 28, 1023015, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:forest", "minecraft:birch_forest"), "Captain + Knight", 17, 15, 14));
-		StructureCatalog.add(StructureCatalog.def("wind_launch_pad", "Wind Charge Launch Pad", "FelixSyn", 2, 72, 24, 1023016, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna"), "Wild FelixSyn (Harley sometimes)", 15, 15, 8));
-		StructureCatalog.add(StructureCatalog.def("smash_crater", "Smash Crater", "FelixSyn", 2, 72, 24, 1023017, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna", "minecraft:windswept_hills"), "Wild FelixSyn (Harley sometimes)", 17, 17, 5));
-		StructureCatalog.add(StructureCatalog.def("felix_trophy_hall", "FelixSyn's Trophy Hall", "FelixSyn", 3, 88, 28, 1023018, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow"), "Wild FelixSyn (Harley sometimes)", 15, 11, 11));
-		StructureCatalog.add(StructureCatalog.def("duo_cabin", "FelixSyn & Harley's Cabin", "FelixSyn", 2, 72, 24, 1023019, List.of("#minecraft:is_forest", "minecraft:taiga"), "FelixSyn (Harley sometimes)", 13, 11, 9));
-		StructureCatalog.add(StructureCatalog.def("parkour_tower", "FelixSyn's Parkour Tower", "FelixSyn", 2, 72, 24, 1023020, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna", "minecraft:desert", "minecraft:badlands"), "Wild FelixSyn (Harley sometimes)", 13, 13, 22));
-		StructureCatalog.add(StructureCatalog.def("sparring_ring", "Sparring Ring", "FelixSyn", 1, 64, 20, 1023021, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna", "minecraft:forest"), "Wild FelixSyn (Harley sometimes)", 15, 15, 6));
-		StructureCatalog.add(StructureCatalog.def("mace_drop_tower", "Mace Drop Tower", "FelixSyn", 2, 72, 24, 1023022, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna", "minecraft:windswept_hills"), "Wild FelixSyn (Harley sometimes)", 11, 11, 25));
-		StructureCatalog.add(StructureCatalog.def("rivalry_wall", "The Rivalry Wall", "FelixSyn", 1, 64, 20, 1023023, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna"), "Wild FelixSyn (Harley sometimes)", 21, 7, 12));
-		StructureCatalog.add(StructureCatalog.def("breeze_hunter_camp", "Breeze Hunter's Camp", "FelixSyn", 2, 72, 24, 1023024, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "#minecraft:is_forest", "minecraft:savanna", "minecraft:taiga"), "Wild FelixSyn (Harley sometimes)", 15, 13, 6));
-		StructureCatalog.add(StructureCatalog.def("harleys_training_grove", "Harley's Training Grove", "FelixSyn", 2, 72, 24, 1023025, List.of("minecraft:flower_forest", "minecraft:forest", "minecraft:birch_forest", "minecraft:cherry_grove"), "Harley", 15, 15, 8));
-		StructureCatalog.add(StructureCatalog.def("giant_mace", "The Giant Mace", "Easter egg", 3, 128, 40, 1023026, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna", "minecraft:windswept_hills"), "nobody", 9, 9, 16));
-		StructureCatalog.add(StructureCatalog.def("tiny_house", "The Tiny House", "Easter egg", 1, 100, 32, 1023027, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "#minecraft:is_forest"), "nobody", 7, 7, 5));
-		StructureCatalog.add(StructureCatalog.def("upside_down_house", "The Upside-Down House", "Easter egg", 2, 110, 36, 1023028, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:forest"), "nobody", 11, 9, 12));
-		StructureCatalog.add(StructureCatalog.def("bread_portal", "Portal to the Bread Dimension", "Easter egg", 2, 110, 36, 1023029, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow"), "nobody", 9, 5, 8));
-		StructureCatalog.add(StructureCatalog.def("developers_desk", "The Developer's Desk", "Easter egg", 1, 120, 40, 1023030, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:forest"), "nobody", 9, 9, 8));
-		StructureCatalog.add(StructureCatalog.def("witchy_potion_shop", "Witchy Potion Shop", "ImLilyLol", 2, 72, 24, 1023031, List.of("minecraft:swamp", "minecraft:dark_forest", "minecraft:forest"), "Witchy Lily", 11, 11, 10));
-		StructureCatalog.add(StructureCatalog.def("moonlit_reading_nook", "Moonlit Reading Nook", "ImLilyLol", 1, 64, 20, 1023032, List.of("minecraft:birch_forest", "minecraft:old_growth_birch_forest", "minecraft:forest", "minecraft:meadow"), "Bookworm Lily", 9, 9, 11));
-		StructureCatalog.add(StructureCatalog.def("tulip_terrace", "Tulip Terrace", "ImLilyLol", 1, 64, 20, 1023033, List.of("minecraft:flower_forest", "minecraft:meadow", "minecraft:plains"), "Gardener Lily", 15, 15, 8));
-		StructureCatalog.add(StructureCatalog.def("willow_swing", "Willow Swing Pond", "ImLilyLol", 1, 64, 20, 1023034, List.of("minecraft:forest", "minecraft:flower_forest", "minecraft:birch_forest", "minecraft:plains", "minecraft:meadow"), "ImLilyLol", 15, 15, 10));
-		StructureCatalog.add(StructureCatalog.def("archers_glade", "Archer Lily's Glade", "ImLilyLol", 2, 72, 24, 1023035, List.of("minecraft:forest", "minecraft:birch_forest", "minecraft:taiga", "minecraft:old_growth_birch_forest"), "Archer Lily", 17, 17, 10));
-		StructureCatalog.add(StructureCatalog.def("flower_studio", "Pressed Flower Studio", "ImLilyLol", 1, 64, 20, 1023036, List.of("minecraft:meadow", "minecraft:cherry_grove", "minecraft:flower_forest"), "ImLilyLol", 11, 10, 10));
-		StructureCatalog.add(StructureCatalog.def("herbalist_hut", "Herbalist's Stilt Hut", "ImLilyLol", 2, 72, 24, 1023037, List.of("minecraft:swamp", "minecraft:mangrove_swamp"), "Witchy Lily", 13, 13, 12).placement(StructureCatalog.Placement.ANY_SURFACE));
-		StructureCatalog.add(StructureCatalog.def("wishing_hill", "Stargazing Hill", "ImLilyLol", 1, 64, 20, 1023038, List.of("minecraft:meadow", "minecraft:plains", "minecraft:snowy_plains"), "Bookworm Lily", 15, 15, 7));
-		StructureCatalog.add(StructureCatalog.def("amethyst_garden", "Amethyst Garden", "ImLilyLol", 2, 72, 24, 1023039, List.of("minecraft:meadow", "minecraft:forest", "minecraft:cherry_grove"), "Witchy Lily", 13, 13, 6));
-		StructureCatalog.add(StructureCatalog.def("lily_letter_post", "Lily's Letter Post", "ImLilyLol", 1, 64, 20, 1023040, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:forest"), "ImLilyLol", 11, 9, 9));
-		StructureCatalog.add(StructureCatalog.def("fairy_ring", "Fairy Ring", "ImLilyLol", 2, 72, 24, 1023041, List.of("minecraft:dark_forest", "minecraft:old_growth_spruce_taiga", "minecraft:forest"), "Witchy Lily", 13, 13, 5));
-		StructureCatalog.add(StructureCatalog.def("winter_dome_garden", "Winter Dome Garden", "ImLilyLol", 2, 72, 24, 1023042, List.of("minecraft:snowy_plains", "minecraft:snowy_taiga", "minecraft:grove", "minecraft:snowy_slopes"), "Gardener Lily", 13, 13, 7));
-		StructureCatalog.add(StructureCatalog.def("cherry_tea_house", "Cherry Tea House", "ImLilyLol", 2, 72, 24, 1023043, List.of("minecraft:cherry_grove"), "ImLilyLol", 15, 13, 10));
-		StructureCatalog.add(StructureCatalog.def("bookbinders_workshop", "Bookbinder's Workshop", "ImLilyLol", 2, 72, 24, 1023044, List.of("minecraft:birch_forest", "minecraft:forest", "minecraft:plains"), "Bookworm Lily", 13, 10, 10));
-		StructureCatalog.add(StructureCatalog.def("rose_arch_garden", "Rose Arch Garden", "ImLilyLol", 1, 64, 20, 1023045, List.of("minecraft:flower_forest", "minecraft:meadow", "minecraft:sunflower_plains"), "Gardener Lily", 13, 17, 7));
-		StructureCatalog.add(StructureCatalog.def("dairy_barn", "Dairy Barn", "Madison", 1, 64, 20, 1023046, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow"), "Farmer Madison + cows", 15, 11, 11));
-		StructureCatalog.add(StructureCatalog.def("pie_shop", "Madison's Pie Shop", "Madison", 1, 64, 20, 1023047, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:forest"), "Baker Madison", 13, 10, 10));
-		StructureCatalog.add(StructureCatalog.def("fish_smokehouse", "Fish Smokehouse", "Madison", 1, 64, 20, 1023048, List.of("minecraft:taiga", "minecraft:forest", "minecraft:birch_forest"), "Fisher Madison", 13, 11, 10));
-		StructureCatalog.add(StructureCatalog.def("chicken_coop", "Chicken Coop Farm", "Madison", 1, 64, 20, 1023049, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna"), "Farmer Madison + chickens", 15, 12, 7));
-		StructureCatalog.add(StructureCatalog.def("beekeepers_cottage", "Beekeeper's Cottage", "Madison", 1, 64, 20, 1023050, List.of("minecraft:flower_forest", "minecraft:meadow", "minecraft:plains"), "Beekeeper Madison", 13, 10, 9));
-		StructureCatalog.add(StructureCatalog.def("horse_stables", "Horse Stables", "Madison", 2, 72, 24, 1023051, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna"), "Farmer Madison + horses", 17, 13, 10));
-		StructureCatalog.add(StructureCatalog.def("farmers_market", "Farmers' Market", "Madison", 2, 72, 24, 1023052, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow"), "Merchant + Farmer Madison", 19, 12, 6));
-		StructureCatalog.add(StructureCatalog.def("grain_silo", "Grain Silo", "Madison", 2, 72, 24, 1023053, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna"), "Farmer Madison", 13, 13, 18));
-		StructureCatalog.add(StructureCatalog.def("melon_farm", "Melon & Berry Farm", "Madison", 1, 64, 20, 1023054, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna"), "Farmer Madison", 17, 13, 6));
-		StructureCatalog.add(StructureCatalog.def("cookie_cottage", "Cookie Cottage", "Madison", 1, 64, 20, 1023055, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:forest", "minecraft:sparse_jungle"), "Baker Madison", 13, 11, 9));
-		StructureCatalog.add(StructureCatalog.def("sheep_ranch", "Sheep Ranch", "Madison", 1, 64, 20, 1023056, List.of("minecraft:meadow", "minecraft:plains", "minecraft:windswept_hills"), "Farmer Madison + sheep", 19, 15, 8));
-		StructureCatalog.add(StructureCatalog.def("merchant_caravan", "Merchant Caravan", "Madison", 2, 72, 24, 1023057, List.of("minecraft:savanna", "minecraft:desert", "minecraft:plains"), "Merchant Madison", 15, 11, 7));
-		StructureCatalog.add(StructureCatalog.def("friends_picnic", "Friends' Picnic", "Shared", 1, 64, 20, 1023058, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:flower_forest"), "ItzBreadLoaf, Lily, Madison", 17, 13, 8));
-		StructureCatalog.add(StructureCatalog.def("story_circle", "Campfire Story Circle", "Shared", 1, 64, 20, 1023059, List.of("#minecraft:is_forest", "minecraft:taiga"), "ItzBreadLoaf, Lily, Madison", 15, 15, 5));
-		StructureCatalog.add(StructureCatalog.def("movie_night", "Movie Night Screen", "Shared", 1, 64, 20, 1023060, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow"), "ItzBreadLoaf, Lily, Madison", 17, 17, 10));
-		StructureCatalog.add(StructureCatalog.def("winter_lodge", "Friends' Winter Lodge", "Shared", 2, 72, 24, 1023061, List.of("minecraft:snowy_plains", "minecraft:snowy_taiga", "minecraft:grove", "minecraft:snowy_slopes"), "ItzBreadLoaf, Lily, Madison", 17, 13, 12));
-		StructureCatalog.add(StructureCatalog.def("obstacle_course", "Obstacle Course", "Shared", 1, 64, 20, 1023062, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna"), "ItzBreadLoaf, Lily", 21, 11, 5));
-		StructureCatalog.add(StructureCatalog.def("clubhouse_tree", "Treehouse Clubhouse", "Shared", 2, 72, 24, 1023063, List.of("#minecraft:is_forest", "minecraft:birch_forest"), "ItzBreadLoaf, Lily, Madison", 15, 15, 16));
-		StructureCatalog.add(StructureCatalog.def("harvest_fair", "Harvest Fair", "Shared", 2, 72, 24, 1023064, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:forest", "minecraft:taiga"), "Madison, Farmer Madison, ItzBreadLoaf", 19, 15, 8));
-		StructureCatalog.add(StructureCatalog.def("community_garden", "Community Garden", "Shared", 1, 64, 20, 1023065, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:flower_forest"), "Gardener Lily, Farmer Madison, ItzBreadLoaf", 17, 17, 6));
-		StructureCatalog.add(StructureCatalog.def("mini_golf", "Mini Golf Course", "Shared", 1, 64, 20, 1023066, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow"), "ItzBreadLoaf, Madison", 19, 13, 6));
-		StructureCatalog.add(StructureCatalog.def("truce_pavilion", "The Truce Pavilion", "Shared", 2, 72, 24, 1023067, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow"), "Lily, Madison, FelixSyn (Harley sometimes)", 15, 13, 9));
-		StructureCatalog.add(StructureCatalog.def("beach_snack_hut", "Beach Snack Hut", "Ocean/beach", 1, 64, 20, 1023068, List.of("minecraft:beach"), "ItzBreadLoaf + Village ItzBreadLoaf", 13, 11, 7));
-		StructureCatalog.add(StructureCatalog.def("lifeguard_tower", "Lifeguard Tower", "Ocean/beach", 1, 64, 20, 1023069, List.of("minecraft:beach"), "Fisherman", 9, 9, 10));
-		StructureCatalog.add(StructureCatalog.def("ferry_landing", "River Ferry Landing", "Ocean/beach", 1, 64, 20, 1023070, List.of("minecraft:river"), "Fisher Madison", 13, 17, 6).placement(StructureCatalog.Placement.ANY_SURFACE));
-		StructureCatalog.add(StructureCatalog.def("pearl_diver_raft", "Pearl Diver's Raft", "Ocean/beach", 2, 72, 24, 1023071, List.of("minecraft:warm_ocean", "minecraft:lukewarm_ocean", "minecraft:deep_lukewarm_ocean"), "Fisherman", 11, 11, 6).placement(StructureCatalog.Placement.WATER));
-		StructureCatalog.add(StructureCatalog.def("sea_glass_cove", "Sea Glass Cove", "Ocean/beach", 1, 64, 20, 1023072, List.of("minecraft:beach", "minecraft:stony_shore"), "ImLilyLol", 13, 11, 6));
-		StructureCatalog.add(StructureCatalog.def("fishermens_wharf", "Fishermen's Wharf", "Ocean/beach", 2, 72, 24, 1023073, List.of("minecraft:beach", "minecraft:river", "minecraft:stony_shore"), "Fisher Madison + Fisherman", 15, 19, 8).placement(StructureCatalog.Placement.ANY_SURFACE));
-		StructureCatalog.add(StructureCatalog.def("hellfire_bakery", "Hellfire Bakery", "Nether", 2, 72, 24, 1023074, List.of("minecraft:nether_wastes", "minecraft:crimson_forest"), "Nether ItzBreadLoaf", 13, 11, 7).placement(StructureCatalog.Placement.NETHER_FLOOR));
-		StructureCatalog.add(StructureCatalog.def("crimson_outpost", "Crimson Outpost", "Nether", 2, 72, 24, 1023075, List.of("minecraft:crimson_forest", "minecraft:nether_wastes"), "2 Nether ItzBreadLoafs", 15, 15, 14).placement(StructureCatalog.Placement.NETHER_FLOOR));
-		StructureCatalog.add(StructureCatalog.def("nether_wart_garden", "Witchy Lily's Nether Garden", "Nether", 2, 72, 24, 1023076, List.of("minecraft:soul_sand_valley", "minecraft:nether_wastes", "minecraft:warped_forest"), "Witchy Lily", 13, 13, 6).placement(StructureCatalog.Placement.NETHER_FLOOR));
-		StructureCatalog.add(StructureCatalog.def("lava_fishing_spot", "Lava Fishing Spot", "Nether", 2, 72, 24, 1023077, List.of("minecraft:nether_wastes", "minecraft:basalt_deltas"), "Nether ItzBreadLoaf", 15, 13, 6).placement(StructureCatalog.Placement.NETHER_FLOOR));
-		StructureCatalog.add(StructureCatalog.def("basalt_watchtower", "Basalt Watchtower", "Nether", 2, 72, 24, 1023078, List.of("minecraft:basalt_deltas", "minecraft:nether_wastes"), "Nether ItzBreadLoaf", 9, 9, 20).placement(StructureCatalog.Placement.NETHER_FLOOR));
-		StructureCatalog.add(StructureCatalog.def("soul_camp", "Soul Camp", "Nether", 2, 72, 24, 1023079, List.of("minecraft:soul_sand_valley"), "2 Nether ItzBreadLoafs", 15, 13, 6).placement(StructureCatalog.Placement.NETHER_FLOOR));
-		StructureCatalog.add(StructureCatalog.def("gold_trading_post", "Gold Trading Post", "Nether", 3, 88, 28, 1023080, List.of("minecraft:nether_wastes", "minecraft:crimson_forest", "minecraft:basalt_deltas"), "Nether ItzBreadLoaf", 13, 10, 7).placement(StructureCatalog.Placement.NETHER_FLOOR));
-		StructureCatalog.add(StructureCatalog.def("strider_stables", "Strider Stables", "Nether", 2, 72, 24, 1023081, List.of("minecraft:nether_wastes", "minecraft:basalt_deltas", "minecraft:crimson_forest"), "Nether ItzBreadLoaf + striders", 15, 13, 7).placement(StructureCatalog.Placement.NETHER_FLOOR));
-		StructureCatalog.add(StructureCatalog.def("void_observatory", "Void Observatory", "End", 3, 88, 28, 1023082, List.of("minecraft:end_highlands", "minecraft:end_midlands"), "Bookworm Lily", 11, 11, 11).placement(StructureCatalog.Placement.ISLAND));
-		StructureCatalog.add(StructureCatalog.def("chorus_garden", "Chorus Garden", "End", 3, 88, 28, 1023083, List.of("minecraft:end_highlands", "minecraft:end_midlands"), "Gardener Lily", 15, 15, 8).placement(StructureCatalog.Placement.ISLAND));
-		StructureCatalog.add(StructureCatalog.def("last_loaf_shrine", "The Last Loaf", "End", 4, 96, 32, 1023084, List.of("minecraft:end_highlands", "minecraft:end_midlands"), "Master BreadLoaf", 11, 11, 8).placement(StructureCatalog.Placement.ISLAND));
-		StructureCatalog.add(StructureCatalog.def("purpur_vault", "Purpur Vault", "End", 4, 96, 32, 1023085, List.of("minecraft:end_highlands", "minecraft:end_midlands"), "nobody", 13, 13, 8).placement(StructureCatalog.Placement.ISLAND));
-		StructureCatalog.add(StructureCatalog.def("dragon_lookout", "Dragon Lookout", "End", 3, 88, 28, 1023086, List.of("minecraft:end_highlands", "minecraft:end_midlands"), "nobody", 9, 9, 23).placement(StructureCatalog.Placement.ISLAND));
-		StructureCatalog.add(StructureCatalog.def("void_fishing_platform", "Void Fishing Platform", "End", 3, 88, 28, 1023087, List.of("minecraft:end_highlands", "minecraft:end_midlands"), "Fisherman", 13, 11, 6).placement(StructureCatalog.Placement.ISLAND));
+		StructureCatalog.add(StructureCatalog.def("bread_stand", "Roadside Bread Stand", "ItzBreadLoaf", 1, 40, 12, 1023001, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:forest"), "ItzBreadLoaf", 9, 7, 6));
+		StructureCatalog.add(StructureCatalog.def("toaster_house", "Toaster House", "ItzBreadLoaf", 1, 40, 12, 1023002, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "#minecraft:is_forest"), "ItzBreadLoaf", 11, 9, 9));
+		StructureCatalog.add(StructureCatalog.def("baguette_tower", "Baguette Tower", "ItzBreadLoaf", 2, 44, 14, 1023003, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna"), "Archer", 9, 9, 24));
+		StructureCatalog.add(StructureCatalog.def("crumb_trail_camp", "Crumb Trail Camp", "ItzBreadLoaf", 1, 40, 12, 1023004, List.of("#minecraft:is_forest", "minecraft:taiga"), "2 ItzBreadLoafs", 15, 11, 6));
+		StructureCatalog.add(StructureCatalog.def("knight_training_yard", "Knight Training Yard", "ItzBreadLoaf", 2, 44, 14, 1023005, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:forest"), "2 Knights", 17, 15, 7));
+		StructureCatalog.add(StructureCatalog.def("bread_bank", "Bread Bank", "ItzBreadLoaf", 3, 52, 16, 1023006, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna"), "Captain (guard)", 13, 11, 8));
+		StructureCatalog.add(StructureCatalog.def("sweaty_gym", "Sweaty Gym", "ItzBreadLoaf", 2, 44, 14, 1023007, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:desert", "minecraft:savanna"), "Sweaty ItzBreadLoaf", 15, 13, 7));
+		StructureCatalog.add(StructureCatalog.def("hay_maze", "Hay Bale Maze", "ItzBreadLoaf", 1, 40, 12, 1023008, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna"), "ItzBreadLoaf", 17, 17, 4));
+		StructureCatalog.add(StructureCatalog.def("miners_rest", "Miner's Rest Stop", "ItzBreadLoaf", 2, 44, 14, 1023009, List.of("minecraft:windswept_hills", "minecraft:windswept_forest", "minecraft:stony_peaks", "minecraft:meadow", "minecraft:taiga"), "Miner", 13, 11, 8));
+		StructureCatalog.add(StructureCatalog.def("bandit_lookout", "Bandit Lookout", "ItzBreadLoaf", 2, 44, 14, 1023010, List.of("minecraft:dark_forest", "minecraft:taiga", "minecraft:forest"), "2 Bandits", 11, 11, 13));
+		StructureCatalog.add(StructureCatalog.def("loaf_statue", "Statue of ItzBreadLoaf", "ItzBreadLoaf", 1, 40, 12, 1023011, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow"), "Village ItzBreadLoaf (caretaker)", 11, 9, 12));
+		StructureCatalog.add(StructureCatalog.def("archery_range", "Archery Range", "ItzBreadLoaf", 1, 40, 12, 1023012, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna", "minecraft:forest"), "Archer", 17, 11, 6));
+		StructureCatalog.add(StructureCatalog.def("desert_oasis_camp", "Desert Oasis Camp", "ItzBreadLoaf", 2, 44, 14, 1023013, List.of("minecraft:desert"), "ItzBreadLoaf + Village ItzBreadLoaf", 15, 15, 9));
+		StructureCatalog.add(StructureCatalog.def("snowy_bakehouse", "Snowy Bakehouse", "ItzBreadLoaf", 1, 40, 12, 1023014, List.of("minecraft:snowy_plains", "minecraft:snowy_taiga", "minecraft:grove", "minecraft:snowy_slopes"), "ItzBreadLoaf", 13, 11, 11));
+		StructureCatalog.add(StructureCatalog.def("captains_manor", "Captain's Manor", "ItzBreadLoaf", 3, 52, 16, 1023015, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:forest", "minecraft:birch_forest"), "Captain + Knight", 17, 15, 14));
+		StructureCatalog.add(StructureCatalog.def("wind_launch_pad", "Wind Charge Launch Pad", "FelixSyn", 2, 44, 14, 1023016, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna"), "Wild FelixSyn (Harley sometimes)", 15, 15, 8));
+		StructureCatalog.add(StructureCatalog.def("smash_crater", "Smash Crater", "FelixSyn", 2, 44, 14, 1023017, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna", "minecraft:windswept_hills"), "Wild FelixSyn (Harley sometimes)", 17, 17, 5));
+		StructureCatalog.add(StructureCatalog.def("felix_trophy_hall", "FelixSyn's Trophy Hall", "FelixSyn", 3, 52, 16, 1023018, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow"), "Wild FelixSyn (Harley sometimes)", 15, 11, 11));
+		StructureCatalog.add(StructureCatalog.def("duo_cabin", "FelixSyn & Harley's Cabin", "FelixSyn", 2, 44, 14, 1023019, List.of("#minecraft:is_forest", "minecraft:taiga"), "FelixSyn (Harley sometimes)", 13, 11, 9));
+		StructureCatalog.add(StructureCatalog.def("parkour_tower", "FelixSyn's Parkour Tower", "FelixSyn", 2, 44, 14, 1023020, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna", "minecraft:desert", "minecraft:badlands"), "Wild FelixSyn (Harley sometimes)", 13, 13, 22));
+		StructureCatalog.add(StructureCatalog.def("sparring_ring", "Sparring Ring", "FelixSyn", 1, 40, 12, 1023021, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna", "minecraft:forest"), "Wild FelixSyn (Harley sometimes)", 15, 15, 6));
+		StructureCatalog.add(StructureCatalog.def("mace_drop_tower", "Mace Drop Tower", "FelixSyn", 2, 44, 14, 1023022, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna", "minecraft:windswept_hills"), "Wild FelixSyn (Harley sometimes)", 11, 11, 25));
+		StructureCatalog.add(StructureCatalog.def("rivalry_wall", "The Rivalry Wall", "FelixSyn", 1, 40, 12, 1023023, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna"), "Wild FelixSyn (Harley sometimes)", 21, 7, 12));
+		StructureCatalog.add(StructureCatalog.def("breeze_hunter_camp", "Breeze Hunter's Camp", "FelixSyn", 2, 44, 14, 1023024, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "#minecraft:is_forest", "minecraft:savanna", "minecraft:taiga"), "Wild FelixSyn (Harley sometimes)", 15, 13, 6));
+		StructureCatalog.add(StructureCatalog.def("harleys_training_grove", "Harley's Training Grove", "FelixSyn", 2, 44, 14, 1023025, List.of("minecraft:flower_forest", "minecraft:forest", "minecraft:birch_forest", "minecraft:cherry_grove"), "Harley", 15, 15, 8));
+		StructureCatalog.add(StructureCatalog.def("giant_mace", "The Giant Mace", "Easter egg", 3, 80, 24, 1023026, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna", "minecraft:windswept_hills"), "nobody", 9, 9, 16));
+		StructureCatalog.add(StructureCatalog.def("tiny_house", "The Tiny House", "Easter egg", 1, 64, 20, 1023027, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "#minecraft:is_forest"), "nobody", 7, 7, 5));
+		StructureCatalog.add(StructureCatalog.def("upside_down_house", "The Upside-Down House", "Easter egg", 2, 70, 22, 1023028, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:forest"), "nobody", 11, 9, 12));
+		StructureCatalog.add(StructureCatalog.def("bread_portal", "Portal to the Bread Dimension", "Easter egg", 2, 70, 22, 1023029, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow"), "nobody", 9, 5, 8));
+		StructureCatalog.add(StructureCatalog.def("developers_desk", "The Developer's Desk", "Easter egg", 1, 76, 24, 1023030, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:forest"), "nobody", 9, 9, 8));
+		StructureCatalog.add(StructureCatalog.def("witchy_potion_shop", "Witchy Potion Shop", "ImLilyLol", 2, 44, 14, 1023031, List.of("minecraft:swamp", "minecraft:dark_forest", "minecraft:forest"), "Witchy Lily", 11, 11, 10));
+		StructureCatalog.add(StructureCatalog.def("moonlit_reading_nook", "Moonlit Reading Nook", "ImLilyLol", 1, 40, 12, 1023032, List.of("minecraft:birch_forest", "minecraft:old_growth_birch_forest", "minecraft:forest", "minecraft:meadow"), "Bookworm Lily", 9, 9, 11));
+		StructureCatalog.add(StructureCatalog.def("tulip_terrace", "Tulip Terrace", "ImLilyLol", 1, 40, 12, 1023033, List.of("minecraft:flower_forest", "minecraft:meadow", "minecraft:plains"), "Gardener Lily", 15, 15, 8));
+		StructureCatalog.add(StructureCatalog.def("willow_swing", "Willow Swing Pond", "ImLilyLol", 1, 40, 12, 1023034, List.of("minecraft:forest", "minecraft:flower_forest", "minecraft:birch_forest", "minecraft:plains", "minecraft:meadow"), "ImLilyLol", 15, 15, 10));
+		StructureCatalog.add(StructureCatalog.def("archers_glade", "Archer Lily's Glade", "ImLilyLol", 2, 44, 14, 1023035, List.of("minecraft:forest", "minecraft:birch_forest", "minecraft:taiga", "minecraft:old_growth_birch_forest"), "Archer Lily", 17, 17, 10));
+		StructureCatalog.add(StructureCatalog.def("flower_studio", "Pressed Flower Studio", "ImLilyLol", 1, 40, 12, 1023036, List.of("minecraft:meadow", "minecraft:cherry_grove", "minecraft:flower_forest"), "ImLilyLol", 11, 10, 10));
+		StructureCatalog.add(StructureCatalog.def("herbalist_hut", "Herbalist's Stilt Hut", "ImLilyLol", 2, 44, 14, 1023037, List.of("minecraft:swamp", "minecraft:mangrove_swamp"), "Witchy Lily", 13, 13, 12).placement(StructureCatalog.Placement.ANY_SURFACE));
+		StructureCatalog.add(StructureCatalog.def("wishing_hill", "Stargazing Hill", "ImLilyLol", 1, 40, 12, 1023038, List.of("minecraft:meadow", "minecraft:plains", "minecraft:snowy_plains"), "Bookworm Lily", 15, 15, 7));
+		StructureCatalog.add(StructureCatalog.def("amethyst_garden", "Amethyst Garden", "ImLilyLol", 2, 44, 14, 1023039, List.of("minecraft:meadow", "minecraft:forest", "minecraft:cherry_grove"), "Witchy Lily", 13, 13, 6));
+		StructureCatalog.add(StructureCatalog.def("lily_letter_post", "Lily's Letter Post", "ImLilyLol", 1, 40, 12, 1023040, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:forest"), "ImLilyLol", 11, 9, 9));
+		StructureCatalog.add(StructureCatalog.def("fairy_ring", "Fairy Ring", "ImLilyLol", 2, 44, 14, 1023041, List.of("minecraft:dark_forest", "minecraft:old_growth_spruce_taiga", "minecraft:forest"), "Witchy Lily", 13, 13, 5));
+		StructureCatalog.add(StructureCatalog.def("winter_dome_garden", "Winter Dome Garden", "ImLilyLol", 2, 44, 14, 1023042, List.of("minecraft:snowy_plains", "minecraft:snowy_taiga", "minecraft:grove", "minecraft:snowy_slopes"), "Gardener Lily", 13, 13, 7));
+		StructureCatalog.add(StructureCatalog.def("cherry_tea_house", "Cherry Tea House", "ImLilyLol", 2, 44, 14, 1023043, List.of("minecraft:cherry_grove"), "ImLilyLol", 15, 13, 10));
+		StructureCatalog.add(StructureCatalog.def("bookbinders_workshop", "Bookbinder's Workshop", "ImLilyLol", 2, 44, 14, 1023044, List.of("minecraft:birch_forest", "minecraft:forest", "minecraft:plains"), "Bookworm Lily", 13, 10, 10));
+		StructureCatalog.add(StructureCatalog.def("rose_arch_garden", "Rose Arch Garden", "ImLilyLol", 1, 40, 12, 1023045, List.of("minecraft:flower_forest", "minecraft:meadow", "minecraft:sunflower_plains"), "Gardener Lily", 13, 17, 7));
+		StructureCatalog.add(StructureCatalog.def("dairy_barn", "Dairy Barn", "Madison", 1, 40, 12, 1023046, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow"), "Farmer Madison + cows", 15, 11, 11));
+		StructureCatalog.add(StructureCatalog.def("pie_shop", "Madison's Pie Shop", "Madison", 1, 40, 12, 1023047, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:forest"), "Baker Madison", 13, 10, 10));
+		StructureCatalog.add(StructureCatalog.def("fish_smokehouse", "Fish Smokehouse", "Madison", 1, 40, 12, 1023048, List.of("minecraft:taiga", "minecraft:forest", "minecraft:birch_forest"), "Fisher Madison", 13, 11, 10));
+		StructureCatalog.add(StructureCatalog.def("chicken_coop", "Chicken Coop Farm", "Madison", 1, 40, 12, 1023049, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna"), "Farmer Madison + chickens", 15, 12, 7));
+		StructureCatalog.add(StructureCatalog.def("beekeepers_cottage", "Beekeeper's Cottage", "Madison", 1, 40, 12, 1023050, List.of("minecraft:flower_forest", "minecraft:meadow", "minecraft:plains"), "Beekeeper Madison", 13, 10, 9));
+		StructureCatalog.add(StructureCatalog.def("horse_stables", "Horse Stables", "Madison", 2, 44, 14, 1023051, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna"), "Farmer Madison + horses", 17, 13, 10));
+		StructureCatalog.add(StructureCatalog.def("farmers_market", "Farmers' Market", "Madison", 2, 44, 14, 1023052, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow"), "Merchant + Farmer Madison", 19, 12, 6));
+		StructureCatalog.add(StructureCatalog.def("grain_silo", "Grain Silo", "Madison", 2, 44, 14, 1023053, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna"), "Farmer Madison", 13, 13, 18));
+		StructureCatalog.add(StructureCatalog.def("melon_farm", "Melon & Berry Farm", "Madison", 1, 40, 12, 1023054, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna"), "Farmer Madison", 17, 13, 6));
+		StructureCatalog.add(StructureCatalog.def("cookie_cottage", "Cookie Cottage", "Madison", 1, 40, 12, 1023055, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:forest", "minecraft:sparse_jungle"), "Baker Madison", 13, 11, 9));
+		StructureCatalog.add(StructureCatalog.def("sheep_ranch", "Sheep Ranch", "Madison", 1, 40, 12, 1023056, List.of("minecraft:meadow", "minecraft:plains", "minecraft:windswept_hills"), "Farmer Madison + sheep", 19, 15, 8));
+		StructureCatalog.add(StructureCatalog.def("merchant_caravan", "Merchant Caravan", "Madison", 2, 44, 14, 1023057, List.of("minecraft:savanna", "minecraft:desert", "minecraft:plains"), "Merchant Madison", 15, 11, 7));
+		StructureCatalog.add(StructureCatalog.def("friends_picnic", "Friends' Picnic", "Shared", 1, 40, 12, 1023058, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:flower_forest"), "ItzBreadLoaf, Lily, Madison", 17, 13, 8));
+		StructureCatalog.add(StructureCatalog.def("story_circle", "Campfire Story Circle", "Shared", 1, 40, 12, 1023059, List.of("#minecraft:is_forest", "minecraft:taiga"), "ItzBreadLoaf, Lily, Madison", 15, 15, 5));
+		StructureCatalog.add(StructureCatalog.def("movie_night", "Movie Night Screen", "Shared", 1, 40, 12, 1023060, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow"), "ItzBreadLoaf, Lily, Madison", 17, 17, 10));
+		StructureCatalog.add(StructureCatalog.def("winter_lodge", "Friends' Winter Lodge", "Shared", 2, 44, 14, 1023061, List.of("minecraft:snowy_plains", "minecraft:snowy_taiga", "minecraft:grove", "minecraft:snowy_slopes"), "ItzBreadLoaf, Lily, Madison", 17, 13, 12));
+		StructureCatalog.add(StructureCatalog.def("obstacle_course", "Obstacle Course", "Shared", 1, 40, 12, 1023062, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna"), "ItzBreadLoaf, Lily", 21, 11, 5));
+		StructureCatalog.add(StructureCatalog.def("clubhouse_tree", "Treehouse Clubhouse", "Shared", 2, 44, 14, 1023063, List.of("#minecraft:is_forest", "minecraft:birch_forest"), "ItzBreadLoaf, Lily, Madison", 15, 15, 16));
+		StructureCatalog.add(StructureCatalog.def("harvest_fair", "Harvest Fair", "Shared", 2, 44, 14, 1023064, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:forest", "minecraft:taiga"), "Madison, Farmer Madison, ItzBreadLoaf", 19, 15, 8));
+		StructureCatalog.add(StructureCatalog.def("community_garden", "Community Garden", "Shared", 1, 40, 12, 1023065, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:flower_forest"), "Gardener Lily, Farmer Madison, ItzBreadLoaf", 17, 17, 6));
+		StructureCatalog.add(StructureCatalog.def("mini_golf", "Mini Golf Course", "Shared", 1, 40, 12, 1023066, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow"), "ItzBreadLoaf, Madison", 19, 13, 6));
+		StructureCatalog.add(StructureCatalog.def("truce_pavilion", "The Truce Pavilion", "Shared", 2, 44, 14, 1023067, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow"), "Lily, Madison, FelixSyn (Harley sometimes)", 15, 13, 9));
+		StructureCatalog.add(StructureCatalog.def("beach_snack_hut", "Beach Snack Hut", "Ocean/beach", 1, 40, 12, 1023068, List.of("minecraft:beach"), "ItzBreadLoaf + Village ItzBreadLoaf", 13, 11, 7));
+		StructureCatalog.add(StructureCatalog.def("lifeguard_tower", "Lifeguard Tower", "Ocean/beach", 1, 40, 12, 1023069, List.of("minecraft:beach"), "Fisherman", 9, 9, 10));
+		StructureCatalog.add(StructureCatalog.def("ferry_landing", "River Ferry Landing", "Ocean/beach", 1, 40, 12, 1023070, List.of("minecraft:river"), "Fisher Madison", 13, 17, 6).placement(StructureCatalog.Placement.ANY_SURFACE));
+		StructureCatalog.add(StructureCatalog.def("pearl_diver_raft", "Pearl Diver's Raft", "Ocean/beach", 2, 44, 14, 1023071, List.of("minecraft:warm_ocean", "minecraft:lukewarm_ocean", "minecraft:deep_lukewarm_ocean"), "Fisherman", 11, 11, 6).placement(StructureCatalog.Placement.WATER));
+		StructureCatalog.add(StructureCatalog.def("sea_glass_cove", "Sea Glass Cove", "Ocean/beach", 1, 40, 12, 1023072, List.of("minecraft:beach", "minecraft:stony_shore"), "ImLilyLol", 13, 11, 6));
+		StructureCatalog.add(StructureCatalog.def("fishermens_wharf", "Fishermen's Wharf", "Ocean/beach", 2, 44, 14, 1023073, List.of("minecraft:beach", "minecraft:river", "minecraft:stony_shore"), "Fisher Madison + Fisherman", 15, 19, 8).placement(StructureCatalog.Placement.ANY_SURFACE));
+		StructureCatalog.add(StructureCatalog.def("hellfire_bakery", "Hellfire Bakery", "Nether", 2, 44, 14, 1023074, List.of("minecraft:nether_wastes", "minecraft:crimson_forest"), "Nether ItzBreadLoaf", 13, 11, 7).placement(StructureCatalog.Placement.NETHER_FLOOR));
+		StructureCatalog.add(StructureCatalog.def("crimson_outpost", "Crimson Outpost", "Nether", 2, 44, 14, 1023075, List.of("minecraft:crimson_forest", "minecraft:nether_wastes"), "2 Nether ItzBreadLoafs", 15, 15, 14).placement(StructureCatalog.Placement.NETHER_FLOOR));
+		StructureCatalog.add(StructureCatalog.def("nether_wart_garden", "Witchy Lily's Nether Garden", "Nether", 2, 44, 14, 1023076, List.of("minecraft:soul_sand_valley", "minecraft:nether_wastes", "minecraft:warped_forest"), "Witchy Lily", 13, 13, 6).placement(StructureCatalog.Placement.NETHER_FLOOR));
+		StructureCatalog.add(StructureCatalog.def("lava_fishing_spot", "Lava Fishing Spot", "Nether", 2, 44, 14, 1023077, List.of("minecraft:nether_wastes", "minecraft:basalt_deltas"), "Nether ItzBreadLoaf", 15, 13, 6).placement(StructureCatalog.Placement.NETHER_FLOOR));
+		StructureCatalog.add(StructureCatalog.def("basalt_watchtower", "Basalt Watchtower", "Nether", 2, 44, 14, 1023078, List.of("minecraft:basalt_deltas", "minecraft:nether_wastes"), "Nether ItzBreadLoaf", 9, 9, 20).placement(StructureCatalog.Placement.NETHER_FLOOR));
+		StructureCatalog.add(StructureCatalog.def("soul_camp", "Soul Camp", "Nether", 2, 44, 14, 1023079, List.of("minecraft:soul_sand_valley"), "2 Nether ItzBreadLoafs", 15, 13, 6).placement(StructureCatalog.Placement.NETHER_FLOOR));
+		StructureCatalog.add(StructureCatalog.def("gold_trading_post", "Gold Trading Post", "Nether", 3, 52, 16, 1023080, List.of("minecraft:nether_wastes", "minecraft:crimson_forest", "minecraft:basalt_deltas"), "Nether ItzBreadLoaf", 13, 10, 7).placement(StructureCatalog.Placement.NETHER_FLOOR));
+		StructureCatalog.add(StructureCatalog.def("strider_stables", "Strider Stables", "Nether", 2, 44, 14, 1023081, List.of("minecraft:nether_wastes", "minecraft:basalt_deltas", "minecraft:crimson_forest"), "Nether ItzBreadLoaf + striders", 15, 13, 7).placement(StructureCatalog.Placement.NETHER_FLOOR));
+		StructureCatalog.add(StructureCatalog.def("void_observatory", "Void Observatory", "End", 3, 52, 16, 1023082, List.of("minecraft:end_highlands", "minecraft:end_midlands"), "Bookworm Lily", 11, 11, 11).placement(StructureCatalog.Placement.ISLAND));
+		StructureCatalog.add(StructureCatalog.def("chorus_garden", "Chorus Garden", "End", 3, 52, 16, 1023083, List.of("minecraft:end_highlands", "minecraft:end_midlands"), "Gardener Lily", 15, 15, 8).placement(StructureCatalog.Placement.ISLAND));
+		StructureCatalog.add(StructureCatalog.def("last_loaf_shrine", "The Last Loaf", "End", 4, 60, 20, 1023084, List.of("minecraft:end_highlands", "minecraft:end_midlands"), "Master BreadLoaf", 11, 11, 8).placement(StructureCatalog.Placement.ISLAND));
+		StructureCatalog.add(StructureCatalog.def("purpur_vault", "Purpur Vault", "End", 4, 60, 20, 1023085, List.of("minecraft:end_highlands", "minecraft:end_midlands"), "nobody", 13, 13, 8).placement(StructureCatalog.Placement.ISLAND));
+		StructureCatalog.add(StructureCatalog.def("dragon_lookout", "Dragon Lookout", "End", 3, 52, 16, 1023086, List.of("minecraft:end_highlands", "minecraft:end_midlands"), "nobody", 9, 9, 23).placement(StructureCatalog.Placement.ISLAND));
+		StructureCatalog.add(StructureCatalog.def("void_fishing_platform", "Void Fishing Platform", "End", 3, 52, 16, 1023087, List.of("minecraft:end_highlands", "minecraft:end_midlands"), "Fisherman", 13, 11, 6).placement(StructureCatalog.Placement.ISLAND));
+		StructureCatalog.add(StructureCatalog.def("bread_cellar", "ItzBreadLoaf's Bread Cellar", "Underground", 2, 44, 14, 1023088, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "#minecraft:is_forest"), "ItzBreadLoaf", 11, 13, 5));
+		StructureCatalog.add(StructureCatalog.def("miners_shaft", "Miner's Shaft", "Underground", 2, 44, 14, 1023089, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:windswept_hills", "minecraft:taiga", "minecraft:savanna"), "Miner", 11, 11, 8));
+		StructureCatalog.add(StructureCatalog.def("secret_lab", "Witchy Lily's Secret Lab", "Underground", 3, 52, 16, 1023090, List.of("#minecraft:is_forest", "minecraft:swamp", "minecraft:dark_forest"), "Witchy Lily", 11, 11, 3));
+		StructureCatalog.add(StructureCatalog.def("felix_bunker", "FelixSyn's Secret Bunker", "Underground", 3, 52, 16, 1023091, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna", "minecraft:forest"), "Wild FelixSyn (Harley sometimes)", 13, 11, 4));
+		StructureCatalog.add(StructureCatalog.def("mushroom_grotto", "Glowing Mushroom Grotto", "Underground", 2, 44, 14, 1023092, List.of("#minecraft:is_forest", "minecraft:dark_forest", "minecraft:taiga", "minecraft:mushroom_fields"), "Gardener Lily", 15, 18, 5));
+		StructureCatalog.add(StructureCatalog.def("deep_forge", "The Deep Forge", "Underground", 3, 52, 16, 1023093, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:windswept_hills", "minecraft:stony_peaks", "minecraft:taiga"), "Miner", 13, 13, 7));
+		StructureCatalog.add(StructureCatalog.def("buried_library", "The Buried Library", "Underground", 3, 52, 16, 1023094, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "#minecraft:is_forest", "minecraft:birch_forest"), "Bookworm Lily", 13, 18, 5));
+		StructureCatalog.add(StructureCatalog.def("root_cellar", "Madison's Root Cellar", "Underground", 1, 40, 12, 1023095, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:taiga", "minecraft:forest"), "Farmer Madison", 11, 11, 5));
+		StructureCatalog.add(StructureCatalog.def("lily_writing_cabin", "Lily's Abandoned Writing Cabin", "Lore", 2, 44, 14, 1023096, List.of("minecraft:birch_forest", "minecraft:forest", "minecraft:meadow"), "nobody", 11, 11, 8));
+		StructureCatalog.add(StructureCatalog.def("first_bakery_ruins", "Ruins of the First Bakery", "Lore", 2, 44, 14, 1023097, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow"), "nobody", 13, 11, 5));
+		StructureCatalog.add(StructureCatalog.def("memorial_grove", "The Memorial Grove", "Lore", 2, 44, 14, 1023098, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "#minecraft:is_forest"), "nobody", 15, 15, 7));
+		StructureCatalog.add(StructureCatalog.def("rivalry_battle_site", "The Old Battle Site", "Lore", 3, 52, 16, 1023099, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna"), "nobody", 17, 13, 6));
+		StructureCatalog.add(StructureCatalog.def("sealed_library", "The Sealed Library", "Lore", 3, 52, 16, 1023100, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "#minecraft:is_forest"), "nobody", 13, 13, 9));
+		StructureCatalog.add(StructureCatalog.def("cartographers_tent", "The Cartographer's Tent", "Lore", 2, 44, 14, 1023101, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna", "minecraft:taiga"), "nobody", 13, 11, 7));
+		StructureCatalog.add(StructureCatalog.def("masters_old_home", "Master BreadLoaf's Old Home", "Lore", 3, 52, 16, 1023102, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:forest"), "nobody", 13, 11, 9));
+		StructureCatalog.add(StructureCatalog.def("old_loaf_archive", "The Archive Under the Old Loaf", "Lore", 3, 52, 16, 1023103, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow"), "nobody", 15, 13, 7));
+		StructureCatalog.add(StructureCatalog.def("cousins_old_treehouse", "The Cousins' Old Treehouse", "Lore", 2, 44, 14, 1023104, List.of("#minecraft:is_forest", "minecraft:birch_forest"), "nobody", 14, 14, 16));
+		StructureCatalog.add(StructureCatalog.def("drifters_rest", "The Drifters' Rest", "Lore", 2, 44, 14, 1023105, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "#minecraft:is_forest", "minecraft:savanna"), "nobody", 13, 11, 5));
+		StructureCatalog.add(StructureCatalog.def("naturalist_camp", "Lily's Naturalist Camp", "Lore", 2, 44, 14, 1023106, List.of("#minecraft:is_forest", "minecraft:taiga", "minecraft:meadow"), "nobody", 14, 11, 6));
+		StructureCatalog.add(StructureCatalog.def("masters_departure", "Master's Departure Point", "Lore", 3, 52, 16, 1023107, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:windswept_hills"), "nobody", 15, 14, 7));
+		StructureCatalog.add(StructureCatalog.def("whispering_stones", "The Whispering Stones", "Lore", 2, 44, 14, 1023108, List.of("#minecraft:is_forest", "minecraft:taiga", "minecraft:dark_forest"), "nobody", 13, 13, 5));
+		StructureCatalog.add(StructureCatalog.def("crossroads_signpost", "The Crossroads Signpost", "Lore", 1, 40, 12, 1023109, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna"), "nobody", 11, 11, 6));
+		StructureCatalog.add(StructureCatalog.def("lost_loaf_wagon", "The Lost Loaf Wagon", "Lore", 2, 44, 14, 1023110, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "minecraft:savanna"), "nobody", 15, 12, 7));
 	}
 }
 ```
@@ -21246,6 +21769,29 @@ final class NewLayouts {
 		layouts.put("purpur_vault", EndBlueprints::purpurVault);
 		layouts.put("dragon_lookout", EndBlueprints::dragonLookout);
 		layouts.put("void_fishing_platform", EndBlueprints::voidFishingPlatform);
+		layouts.put("bread_cellar", UndergroundBlueprints::breadCellar);
+		layouts.put("miners_shaft", UndergroundBlueprints::minersShaft);
+		layouts.put("secret_lab", UndergroundBlueprints::secretLab);
+		layouts.put("felix_bunker", UndergroundBlueprints::felixBunker);
+		layouts.put("mushroom_grotto", UndergroundBlueprints::mushroomGrotto);
+		layouts.put("deep_forge", UndergroundBlueprints::deepForge);
+		layouts.put("buried_library", UndergroundBlueprints::buriedLibrary);
+		layouts.put("root_cellar", UndergroundBlueprints::rootCellar);
+		layouts.put("lily_writing_cabin", LoreBlueprints::lilyWritingCabin);
+		layouts.put("first_bakery_ruins", LoreBlueprints::firstBakeryRuins);
+		layouts.put("memorial_grove", LoreBlueprints::memorialGrove);
+		layouts.put("rivalry_battle_site", LoreBlueprints::rivalryBattleSite);
+		layouts.put("sealed_library", LoreBlueprints::sealedLibrary);
+		layouts.put("cartographers_tent", LoreBlueprints::cartographersTent);
+		layouts.put("masters_old_home", LoreBlueprints::mastersOldHome);
+		layouts.put("old_loaf_archive", LoreBlueprints::oldLoafArchive);
+		layouts.put("cousins_old_treehouse", LoreBlueprints::cousinsOldTreehouse);
+		layouts.put("drifters_rest", LoreBlueprints::driftersRest);
+		layouts.put("naturalist_camp", LoreBlueprints::naturalistCamp);
+		layouts.put("masters_departure", LoreBlueprints::mastersDeparture);
+		layouts.put("whispering_stones", LoreBlueprints::whisperingStones);
+		layouts.put("crossroads_signpost", LoreBlueprints::crossroadsSignpost);
+		layouts.put("lost_loaf_wagon", LoreBlueprints::lostLoafWagon);
 	}
 }
 ```
@@ -24550,12 +25096,59 @@ public final class StructureCheckMain {
 				}
 			}
 		}
+		int tables = checkLootItems(java.nio.file.Path.of("src/main/resources/data/itzbreadloaf/loot_table"), problems);
 		if (problems.isEmpty()) {
-			System.out.println("Structure check: all " + built + " test builds passed (" + StructureCatalog.all().size() + " structures).");
+			System.out.println("Structure check: all " + built + " test builds passed (" + StructureCatalog.all().size() + " structures), "
+					+ tables + " loot tables use only real items.");
 			return;
 		}
 		problems.forEach(p -> System.out.println("Structure check: " + p));
 		throw new IllegalStateException(problems.size() + " structure problem(s)");
+	}
+
+	/**
+	 * Every minecraft: item named in the mod's loot tables must exist in this game version (item ids get renamed
+	 * between versions, and a table with an unknown item fails to load). The mod's own items aren't registered in this
+	 * offline run, so those are skipped. Returns how many tables it read.
+	 */
+	private static int checkLootItems(java.nio.file.Path root, List<String> problems) {
+		if (!java.nio.file.Files.isDirectory(root)) {
+			return 0;
+		}
+		int count = 0;
+		try (var files = java.nio.file.Files.walk(root)) {
+			for (java.nio.file.Path file : files.filter(f -> f.toString().endsWith(".json")).toList()) {
+				count++;
+				com.google.gson.JsonElement json = com.google.gson.JsonParser.parseString(java.nio.file.Files.readString(file));
+				collectItems(json, name -> {
+					net.minecraft.resources.Identifier id = net.minecraft.resources.Identifier.tryParse(name);
+					if (id == null || id.getNamespace().equals("minecraft")
+							&& !net.minecraft.core.registries.BuiltInRegistries.ITEM.containsKey(id)) {
+						problems.add("loot table " + root.relativize(file) + ": unknown item " + name);
+					}
+				});
+			}
+		} catch (java.io.IOException e) {
+			problems.add("loot tables: " + e);
+		}
+		return count;
+	}
+
+	private static void collectItems(com.google.gson.JsonElement element, java.util.function.Consumer<String> out) {
+		if (element.isJsonObject()) {
+			com.google.gson.JsonObject object = element.getAsJsonObject();
+			com.google.gson.JsonElement type = object.get("type");
+			if (type != null && type.isJsonPrimitive() && "minecraft:item".equals(type.getAsString()) && object.has("name")) {
+				out.accept(object.get("name").getAsString());
+			}
+			for (var entry : object.entrySet()) {
+				collectItems(entry.getValue(), out);
+			}
+		} else if (element.isJsonArray()) {
+			for (com.google.gson.JsonElement child : element.getAsJsonArray()) {
+				collectItems(child, out);
+			}
+		}
 	}
 
 	/** Makes sure the check can fail: a sealed room's chest, and a tower top with no ladder, must be reported. */
@@ -24571,6 +25164,357 @@ public final class StructureCheckMain {
 		if (Reachability.check(sealed).size() < 2 || Reachability.check(noLadder).isEmpty()) {
 			throw new IllegalStateException("The structure check didn't catch a sealed room or a missing ladder: it's broken");
 		}
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/worldgen/build/UndergroundBlueprints.java
+
+```java
+package com.itzbreadloaf.worldgen.build;
+
+import com.itzbreadloaf.character.CharacterVariant;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.CandleBlock;
+import net.minecraft.world.level.block.RailBlock;
+import net.minecraft.world.level.block.TrapDoorBlock;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.Half;
+import net.minecraft.world.level.block.state.properties.RailShape;
+
+/**
+ * Update 2's underground structures (part 8, batch 7): a little something at the surface (a stairway mouth, a
+ * headframe, a hidden hatch) and rooms carved deep under it. Stairways and shafts are lined with stone so caves,
+ * gravel and water stay out.
+ */
+final class UndergroundBlueprints {
+	private UndergroundBlueprints() {
+	}
+
+	private static BlockPos at(int x, int y, int z) {
+		return new BlockPos(x, y, z);
+	}
+
+	/**
+	 * A stone-lined stairway from a room floor at yFloor (negative) up to the surface. The first step is at
+	 * (x, yFloor + 1, z), each next one a block up and a block toward {@code up}; the last is at ground level (y 0).
+	 * Underground, the steps get stone walls on both sides and a stone ceiling.
+	 */
+	static void stairway(Blueprint b, int x, int z, int yFloor, Direction up) {
+		BlockState wall = b.palette.bricks();
+		int steps = -yFloor;
+		int px = up.getStepZ() != 0 ? 1 : 0;
+		int pz = up.getStepX() != 0 ? 1 : 0;
+		for (int i = 0; i < steps; i++) {
+			int sx = x + up.getStepX() * i;
+			int sz = z + up.getStepZ() * i;
+			int y = yFloor + 1 + i;
+			for (int dy = -1; dy <= 4; dy++) {
+				int wy = y + dy;
+				if (wy > 0) {
+					continue;
+				}
+				for (int side : new int[]{-1, 1}) {
+					if (!b.isSet(sx + px * side, wy, sz + pz * side)) {
+						b.set(sx + px * side, wy, sz + pz * side, wall);
+					}
+				}
+			}
+			if (!b.isSet(sx, y - 1, sz)) {
+				b.set(sx, y - 1, sz, wall);
+			}
+			b.set(sx, y, sz, Pieces.stairs(b.palette.stoneStairs(), up));
+			b.clear(sx, y + 1, sz, sx, y + 3, sz);
+			if (y + 4 <= 0) {
+				b.set(sx, y + 4, sz, wall);
+			}
+		}
+	}
+
+	/**
+	 * A stone-lined ladder shaft at (x, z) from yBottom up to y top (inclusive), the ladder facing {@code facing}
+	 * (hanging on the block behind it). With {@code hatch}, a trapdoor flush with the ground closes the top.
+	 */
+	static void ladderShaft(Blueprint b, int x, int z, int yBottom, int top, Direction facing, boolean hatch) {
+		BlockState wall = b.palette.bricks();
+		for (int y = yBottom; y <= top; y++) {
+			for (int[] d : new int[][]{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) {
+				if (!b.isSet(x + d[0], y, z + d[1])) {
+					b.set(x + d[0], y, z + d[1], wall);
+				}
+			}
+		}
+		Pieces.ladder(b, x, yBottom, top, z, facing);
+		if (hatch) {
+			b.set(x, 0, z, b.palette.wood().trapdoor().defaultBlockState().setValue(TrapDoorBlock.HALF, Half.TOP));
+		}
+	}
+
+	/** A stone room with a stone ceiling: floor at yFloor, {@code height} blocks of air inside. */
+	static void vault(Blueprint b, int x0, int z0, int x1, int z1, int yFloor, int height, String name) {
+		Pieces.stoneRoom(b, x0, z0, x1, z1, yFloor, height, name);
+		b.fill(x0, yFloor + height + 1, z0, x1, yFloor + height + 1, z1, b.palette.bricks());
+	}
+
+	/** A log door frame around the mouth of a stairway at (x, 0, z), facing along x. */
+	private static void doorFrame(Blueprint b, int x, int z) {
+		BlockState log = b.palette.log();
+		b.fill(x - 1, 1, z, x - 1, 2, z, log);
+		b.fill(x + 1, 1, z, x + 1, 2, z, log);
+		b.fill(x - 1, 3, z, x + 1, 3, z, Pieces.logAlong(log, Direction.Axis.X));
+	}
+
+	// ================================================================ the structures
+
+	/** ItzBreadLoaf's Bread Cellar: a stairway down to a vaulted cellar of bread barrels, hay and a long table. */
+	static void breadCellar(Blueprint b) {
+		Palette p = b.palette;
+		int floor = -6;
+		vault(b, 1, 6, 9, 12, floor, 4, "bread cellar");
+		b.clear(5, floor + 1, 6, 5, floor + 3, 6);
+		stairway(b, 5, 5, floor, Direction.NORTH);
+		doorFrame(b, 5, 0);
+		int y = floor + 1;
+		for (int z = 7; z <= 11; z++) {
+			b.set(2, y, z, Blocks.BARREL);
+			b.set(2, y + 1, z, Blocks.BARREL);
+			b.set(8, y, z, Blocks.BARREL);
+		}
+		b.barrel(2, y, 9, "chests/bread_cellar");
+		b.barrel(8, y, 9, "chests/bread_cellar");
+		b.set(8, y + 1, 11, Blocks.HAY_BLOCK);
+		b.set(8, y + 1, 10, Blocks.HAY_BLOCK);
+		for (int z = 8; z <= 10; z++) {
+			b.set(5, y, z, Pieces.topSlab(p.slab()));
+		}
+		b.set(5, y + 1, 9, Blocks.CAKE);
+		b.chest(4, y, 11, "chests/bread_cellar");
+		Pieces.lantern(b, 4, floor + 4, 8, true);
+		Pieces.lantern(b, 6, floor + 4, 10, true);
+		b.set(7, 1, 2, p.fence());
+		Pieces.lantern(b, 7, 2, 2, false);
+		b.resident(CharacterVariant.BREADLOAF, 6, y, 8, 5, 9, 10);
+	}
+
+	/** Miner's Shaft: a log headframe over a ladder shaft 14 deep, a miner's camp at the bottom with rails and ore in the walls. */
+	static void minersShaft(Blueprint b) {
+		Palette p = b.palette;
+		int floor = -14;
+		vault(b, 2, 2, 9, 8, floor, 3, "mine camp");
+		ladderShaft(b, 5, 3, floor + 1, 0, Direction.SOUTH, false);
+		// Headframe.
+		for (int[] c : new int[][]{{3, 2}, {7, 2}, {3, 4}, {7, 4}}) {
+			b.fill(c[0], 1, c[1], c[0], 5, c[1], p.log());
+		}
+		b.fill(3, 6, 3, 7, 6, 3, Pieces.logAlong(p.log(), Direction.Axis.X));
+		b.set(5, 5, 3, p.fence());
+		b.set(5, 4, 3, p.fence());
+		int y = floor + 1;
+		b.bed(3, y, 5, p.bed());
+		b.chest(3, y, 7, "chests/miners_shaft");
+		b.set(7, y, 3, Blocks.FURNACE);
+		b.set(8, y, 3, Blocks.CRAFTING_TABLE);
+		b.fill(5, y, 7, 8, y, 7, Blocks.RAIL.defaultBlockState().setValue(RailBlock.SHAPE, RailShape.EAST_WEST));
+		for (int[] o : new int[][]{{9, y + 1, 4}, {9, y, 6}, {2, y + 1, 6}, {6, y + 2, 8}}) {
+			b.set(o[0], o[1], o[2], Blocks.IRON_ORE);
+		}
+		b.set(9, y + 1, 7, Blocks.COAL_ORE);
+		b.set(4, y + 1, 8, Blocks.COPPER_ORE);
+		Pieces.lantern(b, 6, floor + 3, 5, true);
+		b.resident(CharacterVariant.MINER, 6, y, 5, 6, 5, 8, at(3, y, 5), null, false);
+	}
+
+	/** Witchy Lily's Secret Lab: a hatch hidden in a bush, a ladder down to a lab of brewing stands and an enchanting table. */
+	static void secretLab(Blueprint b) {
+		Palette p = b.palette;
+		int floor = -9;
+		vault(b, 1, 3, 9, 9, floor, 3, "secret lab");
+		ladderShaft(b, 5, 4, floor + 1, -1, Direction.SOUTH, true);
+		BlockState leaves = LilyBlueprints.leaves(p.wood().leaves());
+		for (int x = 4; x <= 6; x++) {
+			for (int z = 3; z <= 5; z++) {
+				if (!(x == 5 && (z == 4 || z == 3))) {
+					b.set(x, 1, z, leaves);
+				}
+			}
+		}
+		int y = floor + 1;
+		b.fill(2, y, 5, 2, y + 1, 8, Blocks.BOOKSHELF);
+		b.set(4, y, 8, Blocks.BREWING_STAND);
+		b.set(6, y, 8, Blocks.BREWING_STAND);
+		b.set(3, y, 8, Blocks.WATER_CAULDRON);
+		b.set(7, y, 8, Blocks.WATER_CAULDRON);
+		b.set(5, y, 7, Blocks.ENCHANTING_TABLE);
+		b.chest(8, y, 5, "chests/secret_lab");
+		b.set(8, y, 6, Blocks.POTTED_RED_MUSHROOM);
+		b.set(5, y, 8, Blocks.PURPLE_CANDLE.defaultBlockState().setValue(CandleBlock.CANDLES, 4).setValue(CandleBlock.LIT, true));
+		Pieces.lantern(b, 3, floor + 3, 6, true);
+		Pieces.lantern(b, 7, floor + 3, 6, true);
+		b.resident(CharacterVariant.WITCHY, 6, y, 5, 5, 6, 8);
+	}
+
+	/** FelixSyn's Secret Bunker: a hatch by a boulder, a ladder down to a training bunker with dummies, targets and mace racks. */
+	static void felixBunker(Blueprint b) {
+		Palette p = b.palette;
+		int floor = -8;
+		vault(b, 1, 1, 11, 9, floor, 4, "bunker");
+		ladderShaft(b, 6, 2, floor + 1, -1, Direction.SOUTH, true);
+		b.fill(8, 1, 1, 9, 1, 2, Blocks.MOSSY_COBBLESTONE);
+		b.set(8, 2, 1, Blocks.MOSSY_COBBLESTONE);
+		int y = floor + 1;
+		b.mob(4, y, 5, "dummy");
+		b.mob(8, y, 5, "dummy");
+		b.set(11, y + 1, 4, Blocks.TARGET);
+		b.set(11, y + 1, 6, Blocks.TARGET);
+		for (int z = 4; z <= 6; z++) {
+			b.set(2, y, z, Blocks.DARK_OAK_FENCE);
+			b.set(2, y + 1, z, Blocks.POLISHED_DEEPSLATE_WALL);
+		}
+		b.bed(9, y, 7, Blocks.BLACK_BED);
+		b.chest(3, y, 8, "chests/felix_bunker");
+		b.barrel(4, y, 8, "chests/barrel_supplies");
+		Pieces.lantern(b, 6, floor + 4, 5, true);
+		Pieces.lantern(b, 4, floor + 4, 3, true);
+		b.resident(CharacterVariant.WILD_FELIX, 6, y, 4, 6, 5, 8, at(9, y, 7), null, false);
+	}
+
+	/** Glowing Mushroom Grotto: a stairway down into a cave with a mycelium floor, giant mushrooms, shroomlights and a pool. */
+	static void mushroomGrotto(Blueprint b) {
+		Palette p = b.palette;
+		int floor = -7;
+		// The cave: rough stone walls and ceiling, mycelium floor.
+		Block[] rock = {Blocks.STONE, Blocks.ANDESITE, Blocks.MOSSY_COBBLESTONE, Blocks.TUFF};
+		for (int x = 2; x <= 12; x++) {
+			for (int z = 8; z <= 17; z++) {
+				boolean edge = x == 2 || x == 12 || z == 8 || z == 17;
+				for (int y = floor; y <= floor + 6; y++) {
+					if (edge || y == floor + 6) {
+						b.set(x, y, z, rock[b.random.nextInt(rock.length)]);
+					} else if (y == floor) {
+						b.set(x, y, z, Blocks.MYCELIUM);
+					} else {
+						b.set(x, y, z, Blocks.AIR);
+					}
+				}
+				if (!edge && b.random.nextInt(5) == 0) {
+					b.set(x, floor + 5, z, rock[b.random.nextInt(rock.length)]);
+				}
+			}
+		}
+		b.clear(7, floor + 1, 8, 7, floor + 3, 8);
+		stairway(b, 7, 7, floor, Direction.NORTH);
+		doorFrame(b, 7, 1);
+		b.floor(5, 10, 9, 12, floor + 1, "grotto");
+		// Giant mushrooms.
+		int y = floor + 1;
+		b.fill(4, y, 14, 4, y + 2, 14, Blocks.MUSHROOM_STEM);
+		b.fill(3, y + 3, 13, 5, y + 3, 15, Blocks.RED_MUSHROOM_BLOCK);
+		b.set(4, y + 3, 14, Blocks.SHROOMLIGHT);
+		b.fill(10, y, 11, 10, y + 1, 11, Blocks.MUSHROOM_STEM);
+		b.fill(9, y + 2, 10, 11, y + 2, 12, Blocks.BROWN_MUSHROOM_BLOCK);
+		b.set(10, y + 2, 11, Blocks.SHROOMLIGHT);
+		for (int[] m : new int[][]{{6, 15}, {8, 14}, {3, 10}, {11, 15}}) {
+			b.set(m[0], y, m[1], b.random.nextBoolean() ? Blocks.RED_MUSHROOM : Blocks.BROWN_MUSHROOM);
+		}
+		b.fill(7, floor - 1, 15, 9, floor - 1, 16, Blocks.STONE);
+		b.fill(7, floor, 15, 9, floor, 16, Blocks.WATER);
+		b.set(7, floor + 5, 12, Blocks.SHROOMLIGHT);
+		b.chest(11, y, 16, "chests/mushroom_grotto");
+		b.resident(CharacterVariant.GARDENER, 7, y, 11, 7, 12, 8);
+	}
+
+	/** The Deep Forge: a stone hut over a ladder shaft 16 deep, a forge hall with anvils, blast furnaces and a lava trough behind bars. */
+	static void deepForge(Blueprint b) {
+		Palette p = b.palette;
+		int floor = -16;
+		vault(b, 1, 3, 11, 11, floor, 5, "forge hall");
+		ladderShaft(b, 6, 4, floor + 1, 0, Direction.SOUTH, false);
+		Pieces.stoneRoom(b, 4, 2, 8, 6, 0, 3, "forge entrance");
+		Pieces.roof(b, Pieces.Roof.FLAT, 4, 2, 8, 6, 3);
+		Pieces.door(b, 6, 1, 2, Direction.NORTH);
+		b.set(6, 0, 4, Blocks.LADDER.defaultBlockState().setValue(net.minecraft.world.level.block.LadderBlock.FACING, Direction.SOUTH));
+		int y = floor + 1;
+		// Lava trough along the back wall, behind iron bars.
+		b.fill(3, floor, 10, 9, floor, 10, p.bricks());
+		b.fill(3, y, 10, 9, y, 10, Blocks.LAVA);
+		b.fill(3, y, 9, 9, y + 1, 9, Blocks.IRON_BARS);
+		b.set(2, y, 10, p.bricks());
+		b.set(10, y, 10, p.bricks());
+		b.set(3, y, 4, Blocks.ANVIL);
+		b.set(9, y, 4, Blocks.ANVIL);
+		b.set(2, y, 6, Blocks.BLAST_FURNACE);
+		b.set(2, y, 7, Blocks.BLAST_FURNACE);
+		b.set(10, y, 6, Blocks.SMITHING_TABLE);
+		b.set(10, y, 7, Blocks.GRINDSTONE);
+		b.chest(10, y, 8, "chests/deep_forge");
+		b.barrel(2, y, 8, "chests/barrel_supplies");
+		b.bed(4, y, 6, p.bed());
+		for (int x : new int[]{4, 8}) {
+			b.fill(x, floor + 4, 7, x, floor + 5, 7, Blocks.IRON_BARS);
+			Pieces.lantern(b, x, floor + 3, 7, true);
+		}
+		b.floor(5, 5, 9, 8, y, "forge hall");
+		b.resident(CharacterVariant.MINER, 6, y, 6, 6, 7, 8, at(4, y, 6), null, false);
+	}
+
+	/** The Buried Library: a stairway down to a hidden hall of bookshelves, lecterns and a candle-lit reading table. */
+	static void buriedLibrary(Blueprint b) {
+		Palette p = b.palette;
+		int floor = -7;
+		vault(b, 1, 7, 11, 17, floor, 4, "buried library");
+		b.clear(6, floor + 1, 7, 6, floor + 3, 7);
+		stairway(b, 6, 6, floor, Direction.NORTH);
+		doorFrame(b, 6, 0);
+		int y = floor + 1;
+		b.fill(2, y, 8, 2, y + 1, 16, Blocks.BOOKSHELF);
+		b.fill(10, y, 8, 10, y + 1, 16, Blocks.BOOKSHELF);
+		b.fill(3, y, 16, 9, y + 1, 16, Blocks.BOOKSHELF);
+		for (int x : new int[]{4, 8}) {
+			b.fill(x, y, 10, x, y + 1, 13, Blocks.BOOKSHELF);
+		}
+		b.set(6, y, 15, Blocks.LECTERN);
+		b.set(3, y, 9, Blocks.LECTERN);
+		for (int z = 11; z <= 12; z++) {
+			b.set(6, y, z, Pieces.topSlab(p.slab()));
+		}
+		b.set(6, y + 1, 11, Blocks.WHITE_CANDLE.defaultBlockState().setValue(CandleBlock.CANDLES, 3).setValue(CandleBlock.LIT, true));
+		b.set(5, y, 11, Pieces.stairs(p.stairs(), Direction.WEST));
+		b.set(7, y, 12, Pieces.stairs(p.stairs(), Direction.EAST));
+		b.chest(9, y, 15, "chests/buried_library");
+		for (int z : new int[]{9, 14}) {
+			Pieces.lantern(b, 6, floor + 4, z, true);
+		}
+		b.resident(CharacterVariant.BOOKWORM, 6, y, 9, 6, 12, 8);
+	}
+
+	/** Madison's Root Cellar: a log doorway at the top of a short stairway, a cool cellar of crop barrels, roots and candles. */
+	static void rootCellar(Blueprint b) {
+		Palette p = b.palette;
+		int floor = -5;
+		vault(b, 1, 5, 9, 10, floor, 3, "root cellar");
+		b.clear(5, floor + 1, 5, 5, floor + 3, 5);
+		stairway(b, 5, 4, floor, Direction.NORTH);
+		doorFrame(b, 5, 0);
+		int y = floor + 1;
+		b.barrel(2, y, 9, "chests/root_cellar");
+		b.barrel(8, y, 9, "chests/root_cellar");
+		for (int x : new int[]{3, 7}) {
+			b.set(x, y, 9, Blocks.BARREL);
+			b.set(x, y + 1, 9, Blocks.BARREL);
+		}
+		b.set(2, y, 6, Blocks.PUMPKIN);
+		b.set(8, y, 6, Blocks.HAY_BLOCK);
+		b.set(2, floor + 3, 9, Blocks.COBWEB);
+		b.set(8, floor + 3, 6, Blocks.COBWEB);
+		for (int x = 3; x <= 7; x += 2) {
+			b.set(x, floor + 3, 7, Blocks.HANGING_ROOTS);
+		}
+		b.set(5, y, 9, Blocks.YELLOW_CANDLE.defaultBlockState().setValue(CandleBlock.CANDLES, 2).setValue(CandleBlock.LIT, true));
+		Pieces.lantern(b, 5, floor + 3, 8, true);
+		b.resident(CharacterVariant.FARMER, 5, y, 7, 5, 8, 8);
 	}
 }
 ```
@@ -29795,6 +30739,127 @@ public final class StructureCheckMain {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/loot_table/chests/bread_cellar.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 5
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 20,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 3,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "itzbreadloaf:loaf_bread",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 5
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:wheat",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 10
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cake",
+          "weight": 3
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:hay_block",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:honey_bottle",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:gold_nugget",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/loot_table/chests/bread_portal.json
 
 ```json
@@ -30185,6 +31250,127 @@ public final class StructureCheckMain {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/loot_table/chests/buried_library.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4,
+        "max": 6
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:book",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:paper",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 3,
+                "max": 9
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:writable_book",
+          "weight": 4
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:ink_sac",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:candle",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:lapis_lazuli",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:experience_bottle",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/loot_table/chests/captains_manor.json
 
 ```json
@@ -30330,6 +31516,84 @@ public final class StructureCheckMain {
               "add": false
             }
           ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/cartographers_tent.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 5
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:book",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:paper",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:candle",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:map",
+          "weight": 8
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:compass",
+          "weight": 4
         }
       ]
     }
@@ -31470,6 +32734,106 @@ public final class StructureCheckMain {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/loot_table/chests/cousins_old_treehouse.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 5
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:book",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:paper",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:candle",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cookie",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:pink_dye",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/loot_table/chests/crimson_outpost.json
 
 ```json
@@ -31591,6 +32955,95 @@ public final class StructureCheckMain {
                 "type": "minecraft:uniform",
                 "min": 1,
                 "max": 2
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/crossroads_signpost.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 2,
+        "max": 4
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:book",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:paper",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:candle",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:map",
+          "weight": 6
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
               },
               "add": false
             }
@@ -31826,6 +33279,121 @@ public final class StructureCheckMain {
           "type": "minecraft:item",
           "name": "minecraft:bucket",
           "weight": 4
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/deep_forge.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4,
+        "max": 6
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_ingot",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:gold_ingot",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:coal",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 10
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_block",
+          "weight": 3
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_chain",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:anvil",
+          "weight": 2
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_axe",
+          "weight": 3
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:raw_gold",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
         }
       ]
     }
@@ -32371,6 +33939,106 @@ public final class StructureCheckMain {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/loot_table/chests/drifters_rest.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 5
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:book",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:paper",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:candle",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cooked_porkchop",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bone",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/loot_table/chests/duo_cabin.json
 
 ```json
@@ -32876,6 +34544,132 @@ public final class StructureCheckMain {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/loot_table/chests/felix_bunker.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4,
+        "max": 6
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cooked_porkchop",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 5
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_ingot",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:gold_ingot",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:arrow",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 10
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:feather",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:shield",
+          "weight": 3
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_sword",
+          "weight": 3
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/loot_table/chests/felix_trophy_hall.json
 
 ```json
@@ -33123,6 +34917,106 @@ public final class StructureCheckMain {
                 "type": "minecraft:uniform",
                 "min": 1,
                 "max": 4
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/first_bakery_ruins.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 5
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:book",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:paper",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:candle",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:wheat",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
               },
               "add": false
             }
@@ -38016,6 +39910,106 @@ public final class StructureCheckMain {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/loot_table/chests/lily_writing_cabin.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 5
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:book",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:paper",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:candle",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:feather",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:ink_sac",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/loot_table/chests/loaf_lighthouse.json
 
 ```json
@@ -38406,6 +40400,106 @@ public final class StructureCheckMain {
                 "type": "minecraft:uniform",
                 "min": 1,
                 "max": 1
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/lost_loaf_wagon.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 5
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:book",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:paper",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:candle",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:hay_block",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "itzbreadloaf:loaf_bread",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
               },
               "add": false
             }
@@ -38934,6 +41028,206 @@ public final class StructureCheckMain {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/loot_table/chests/masters_departure.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4,
+        "max": 6
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:book",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:paper",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:candle",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:obsidian",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:blaze_powder",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/masters_old_home.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4,
+        "max": 6
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:book",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:paper",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:candle",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:gold_ingot",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:obsidian",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/loot_table/chests/melon_farm.json
 
 ```json
@@ -39039,6 +41333,106 @@ public final class StructureCheckMain {
                 "type": "minecraft:uniform",
                 "min": 2,
                 "max": 6
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/memorial_grove.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 5
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:book",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:paper",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:candle",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:lily_of_the_valley",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bone_meal",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
               },
               "add": false
             }
@@ -39302,6 +41696,143 @@ public final class StructureCheckMain {
                 "type": "minecraft:uniform",
                 "min": 2,
                 "max": 6
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/miners_shaft.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 5
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:raw_iron",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:coal",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 12
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:raw_copper",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:rail",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 12
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:torch",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 12
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_pickaxe",
+          "weight": 3
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:redstone",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:lapis_lazuli",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
               },
               "add": false
             }
@@ -39978,6 +42509,227 @@ public final class StructureCheckMain {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/loot_table/chests/mushroom_grotto.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 5
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:red_mushroom",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:brown_mushroom",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:shroomlight",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:glow_berries",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:mycelium",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:mushroom_stew",
+          "weight": 6
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bone_meal",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/naturalist_camp.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 5
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:book",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:paper",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:candle",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bone_meal",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:spider_eye",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/loot_table/chests/nether_mace_arena.json
 
 ```json
@@ -40319,6 +43071,106 @@ public final class StructureCheckMain {
                 "type": "minecraft:uniform",
                 "min": 1,
                 "max": 2
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/old_loaf_archive.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4,
+        "max": 6
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:book",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:paper",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:candle",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "itzbreadloaf:loaf_bread",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:experience_bottle",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
               },
               "add": false
             }
@@ -41432,6 +44284,111 @@ public final class StructureCheckMain {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/loot_table/chests/rivalry_battle_site.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4,
+        "max": 6
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:book",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:paper",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:candle",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_ingot",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:stone_sword",
+          "weight": 4
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:arrow",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/loot_table/chests/rivalry_wall.json
 
 ```json
@@ -41701,6 +44658,138 @@ public final class StructureCheckMain {
                 "type": "minecraft:uniform",
                 "min": 1,
                 "max": 1
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/root_cellar.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 2,
+        "max": 4
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:potato",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:carrot",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:beetroot",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:pumpkin",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:apple",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:candle",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
               },
               "add": false
             }
@@ -42111,6 +45200,254 @@ public final class StructureCheckMain {
                 "type": "minecraft:uniform",
                 "min": 2,
                 "max": 6
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/sealed_library.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4,
+        "max": 6
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:book",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:paper",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:candle",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:ink_sac",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:lapis_lazuli",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/secret_lab.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4,
+        "max": 6
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:glass_bottle",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:nether_wart",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:glowstone_dust",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:redstone",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:lapis_lazuli",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:book",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:blaze_powder",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:experience_bottle",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
               },
               "add": false
             }
@@ -45620,6 +48957,90 @@ public final class StructureCheckMain {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/loot_table/chests/whispering_stones.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 5
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:book",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:paper",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:candle",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:amethyst_shard",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/loot_table/chests/willow_swing.json
 
 ```json
@@ -48135,6 +51556,19 @@ public final class StructureCheckMain {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/bread_cellar.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "minecraft:meadow",
+    "#minecraft:is_forest"
+  ]
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/bread_portal.json
 
 ```json
@@ -48175,6 +51609,20 @@ public final class StructureCheckMain {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/buried_library.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "minecraft:meadow",
+    "#minecraft:is_forest",
+    "minecraft:birch_forest"
+  ]
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/captains_manor.json
 
 ```json
@@ -48185,6 +51633,20 @@ public final class StructureCheckMain {
     "minecraft:meadow",
     "minecraft:forest",
     "minecraft:birch_forest"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/cartographers_tent.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "minecraft:meadow",
+    "minecraft:savanna",
+    "minecraft:taiga"
   ]
 }
 ```
@@ -48305,6 +51767,17 @@ public final class StructureCheckMain {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/cousins_old_treehouse.json
+
+```json
+{
+  "values": [
+    "#minecraft:is_forest",
+    "minecraft:birch_forest"
+  ]
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/crimson_outpost.json
 
 ```json
@@ -48312,6 +51785,19 @@ public final class StructureCheckMain {
   "values": [
     "minecraft:crimson_forest",
     "minecraft:nether_wastes"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/crossroads_signpost.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "minecraft:meadow",
+    "minecraft:savanna"
   ]
 }
 ```
@@ -48335,6 +51821,21 @@ public final class StructureCheckMain {
     "minecraft:plains",
     "minecraft:sunflower_plains",
     "minecraft:meadow"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/deep_forge.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "minecraft:meadow",
+    "minecraft:windswept_hills",
+    "minecraft:stony_peaks",
+    "minecraft:taiga"
   ]
 }
 ```
@@ -48380,6 +51881,20 @@ public final class StructureCheckMain {
   "values": [
     "minecraft:end_highlands",
     "minecraft:end_midlands"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/drifters_rest.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "minecraft:meadow",
+    "#minecraft:is_forest",
+    "minecraft:savanna"
   ]
 }
 ```
@@ -48453,6 +51968,20 @@ public final class StructureCheckMain {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/felix_bunker.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "minecraft:meadow",
+    "minecraft:savanna",
+    "minecraft:forest"
+  ]
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/felix_trophy_hall.json
 
 ```json
@@ -48471,6 +52000,18 @@ public final class StructureCheckMain {
 {
   "values": [
     "minecraft:river"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/first_bakery_ruins.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "minecraft:meadow"
   ]
 }
 ```
@@ -48916,6 +52457,18 @@ public final class StructureCheckMain {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/lily_writing_cabin.json
+
+```json
+{
+  "values": [
+    "minecraft:birch_forest",
+    "minecraft:forest",
+    "minecraft:meadow"
+  ]
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/loaf_lighthouse.json
 
 ```json
@@ -48949,6 +52502,19 @@ public final class StructureCheckMain {
     "minecraft:dark_forest",
     "minecraft:old_growth_pine_taiga",
     "minecraft:old_growth_spruce_taiga"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/lost_loaf_wagon.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "minecraft:meadow",
+    "minecraft:savanna"
   ]
 }
 ```
@@ -49007,6 +52573,32 @@ public final class StructureCheckMain {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/masters_departure.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "minecraft:meadow",
+    "minecraft:windswept_hills"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/masters_old_home.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "minecraft:meadow",
+    "minecraft:forest"
+  ]
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/melon_farm.json
 
 ```json
@@ -49016,6 +52608,19 @@ public final class StructureCheckMain {
     "minecraft:sunflower_plains",
     "minecraft:meadow",
     "minecraft:savanna"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/memorial_grove.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "minecraft:meadow",
+    "#minecraft:is_forest"
   ]
 }
 ```
@@ -49042,6 +52647,21 @@ public final class StructureCheckMain {
     "minecraft:stony_peaks",
     "minecraft:meadow",
     "minecraft:taiga"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/miners_shaft.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "minecraft:meadow",
+    "minecraft:windswept_hills",
+    "minecraft:taiga",
+    "minecraft:savanna"
   ]
 }
 ```
@@ -49106,6 +52726,31 @@ public final class StructureCheckMain {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/mushroom_grotto.json
+
+```json
+{
+  "values": [
+    "#minecraft:is_forest",
+    "minecraft:dark_forest",
+    "minecraft:taiga",
+    "minecraft:mushroom_fields"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/naturalist_camp.json
+
+```json
+{
+  "values": [
+    "#minecraft:is_forest",
+    "minecraft:taiga",
+    "minecraft:meadow"
+  ]
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/nether_mace_arena.json
 
 ```json
@@ -49147,6 +52792,18 @@ public final class StructureCheckMain {
     "minecraft:sunflower_plains",
     "minecraft:meadow",
     "minecraft:savanna"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/old_loaf_archive.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "minecraft:meadow"
   ]
 }
 ```
@@ -49270,6 +52927,19 @@ public final class StructureCheckMain {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/rivalry_battle_site.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "minecraft:meadow",
+    "minecraft:savanna"
+  ]
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/rivalry_wall.json
 
 ```json
@@ -49289,6 +52959,20 @@ public final class StructureCheckMain {
 {
   "values": [
     "minecraft:river"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/root_cellar.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "minecraft:meadow",
+    "minecraft:taiga",
+    "minecraft:forest"
   ]
 }
 ```
@@ -49341,6 +53025,31 @@ public final class StructureCheckMain {
   "values": [
     "minecraft:beach",
     "minecraft:stony_shore"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/sealed_library.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "minecraft:meadow",
+    "#minecraft:is_forest"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/secret_lab.json
+
+```json
+{
+  "values": [
+    "#minecraft:is_forest",
+    "minecraft:swamp",
+    "minecraft:dark_forest"
   ]
 }
 ```
@@ -49693,6 +53402,18 @@ public final class StructureCheckMain {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/whispering_stones.json
+
+```json
+{
+  "values": [
+    "#minecraft:is_forest",
+    "minecraft:taiga",
+    "minecraft:dark_forest"
+  ]
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/willow_swing.json
 
 ```json
@@ -50006,6 +53727,19 @@ public final class StructureCheckMain {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/worldgen/structure/bread_cellar.json
+
+```json
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "bread_cellar",
+  "biomes": "#itzbreadloaf:has_structure/bread_cellar",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/worldgen/structure/bread_portal.json
 
 ```json
@@ -50045,6 +53779,19 @@ public final class StructureCheckMain {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/worldgen/structure/buried_library.json
+
+```json
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "buried_library",
+  "biomes": "#itzbreadloaf:has_structure/buried_library",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/worldgen/structure/captains_manor.json
 
 ```json
@@ -50052,6 +53799,19 @@ public final class StructureCheckMain {
   "type": "itzbreadloaf:blueprint",
   "id": "captains_manor",
   "biomes": "#itzbreadloaf:has_structure/captains_manor",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/cartographers_tent.json
+
+```json
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "cartographers_tent",
+  "biomes": "#itzbreadloaf:has_structure/cartographers_tent",
   "step": "surface_structures",
   "spawn_overrides": {},
   "terrain_adaptation": "none"
@@ -50175,6 +53935,19 @@ public final class StructureCheckMain {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/worldgen/structure/cousins_old_treehouse.json
+
+```json
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "cousins_old_treehouse",
+  "biomes": "#itzbreadloaf:has_structure/cousins_old_treehouse",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/worldgen/structure/crimson_outpost.json
 
 ```json
@@ -50182,6 +53955,19 @@ public final class StructureCheckMain {
   "type": "itzbreadloaf:blueprint",
   "id": "crimson_outpost",
   "biomes": "#itzbreadloaf:has_structure/crimson_outpost",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/crossroads_signpost.json
+
+```json
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "crossroads_signpost",
+  "biomes": "#itzbreadloaf:has_structure/crossroads_signpost",
   "step": "surface_structures",
   "spawn_overrides": {},
   "terrain_adaptation": "none"
@@ -50208,6 +53994,19 @@ public final class StructureCheckMain {
   "type": "itzbreadloaf:blueprint",
   "id": "dairy_barn",
   "biomes": "#itzbreadloaf:has_structure/dairy_barn",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/deep_forge.json
+
+```json
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "deep_forge",
+  "biomes": "#itzbreadloaf:has_structure/deep_forge",
   "step": "surface_structures",
   "spawn_overrides": {},
   "terrain_adaptation": "none"
@@ -50260,6 +54059,19 @@ public final class StructureCheckMain {
   "type": "itzbreadloaf:blueprint",
   "id": "dragon_lookout",
   "biomes": "#itzbreadloaf:has_structure/dragon_lookout",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/drifters_rest.json
+
+```json
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "drifters_rest",
+  "biomes": "#itzbreadloaf:has_structure/drifters_rest",
   "step": "surface_structures",
   "spawn_overrides": {},
   "terrain_adaptation": "none"
@@ -50344,6 +54156,19 @@ public final class StructureCheckMain {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/worldgen/structure/felix_bunker.json
+
+```json
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "felix_bunker",
+  "biomes": "#itzbreadloaf:has_structure/felix_bunker",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/worldgen/structure/felix_trophy_hall.json
 
 ```json
@@ -50364,6 +54189,19 @@ public final class StructureCheckMain {
   "type": "itzbreadloaf:blueprint",
   "id": "ferry_landing",
   "biomes": "#itzbreadloaf:has_structure/ferry_landing",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/first_bakery_ruins.json
+
+```json
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "first_bakery_ruins",
+  "biomes": "#itzbreadloaf:has_structure/first_bakery_ruins",
   "step": "surface_structures",
   "spawn_overrides": {},
   "terrain_adaptation": "none"
@@ -50838,6 +54676,19 @@ public final class StructureCheckMain {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/worldgen/structure/lily_writing_cabin.json
+
+```json
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "lily_writing_cabin",
+  "biomes": "#itzbreadloaf:has_structure/lily_writing_cabin",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/worldgen/structure/loaf_lighthouse.json
 
 ```json
@@ -50871,6 +54722,19 @@ public final class StructureCheckMain {
   "type": "itzbreadloaf:blueprint",
   "id": "lookout_tower",
   "biomes": "#itzbreadloaf:has_structure/lookout_tower",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/lost_loaf_wagon.json
+
+```json
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "lost_loaf_wagon",
+  "biomes": "#itzbreadloaf:has_structure/lost_loaf_wagon",
   "step": "surface_structures",
   "spawn_overrides": {},
   "terrain_adaptation": "none"
@@ -50929,6 +54793,32 @@ public final class StructureCheckMain {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/worldgen/structure/masters_departure.json
+
+```json
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "masters_departure",
+  "biomes": "#itzbreadloaf:has_structure/masters_departure",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/masters_old_home.json
+
+```json
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "masters_old_home",
+  "biomes": "#itzbreadloaf:has_structure/masters_old_home",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/worldgen/structure/melon_farm.json
 
 ```json
@@ -50936,6 +54826,19 @@ public final class StructureCheckMain {
   "type": "itzbreadloaf:blueprint",
   "id": "melon_farm",
   "biomes": "#itzbreadloaf:has_structure/melon_farm",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/memorial_grove.json
+
+```json
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "memorial_grove",
+  "biomes": "#itzbreadloaf:has_structure/memorial_grove",
   "step": "surface_structures",
   "spawn_overrides": {},
   "terrain_adaptation": "none"
@@ -50962,6 +54865,19 @@ public final class StructureCheckMain {
   "type": "itzbreadloaf:blueprint",
   "id": "miners_rest",
   "biomes": "#itzbreadloaf:has_structure/miners_rest",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/miners_shaft.json
+
+```json
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "miners_shaft",
+  "biomes": "#itzbreadloaf:has_structure/miners_shaft",
   "step": "surface_structures",
   "spawn_overrides": {},
   "terrain_adaptation": "none"
@@ -51033,6 +54949,32 @@ public final class StructureCheckMain {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/worldgen/structure/mushroom_grotto.json
+
+```json
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "mushroom_grotto",
+  "biomes": "#itzbreadloaf:has_structure/mushroom_grotto",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/naturalist_camp.json
+
+```json
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "naturalist_camp",
+  "biomes": "#itzbreadloaf:has_structure/naturalist_camp",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/worldgen/structure/nether_mace_arena.json
 
 ```json
@@ -51079,6 +55021,19 @@ public final class StructureCheckMain {
   "type": "itzbreadloaf:blueprint",
   "id": "obstacle_course",
   "biomes": "#itzbreadloaf:has_structure/obstacle_course",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/old_loaf_archive.json
+
+```json
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "old_loaf_archive",
+  "biomes": "#itzbreadloaf:has_structure/old_loaf_archive",
   "step": "surface_structures",
   "spawn_overrides": {},
   "terrain_adaptation": "none"
@@ -51202,6 +55157,19 @@ public final class StructureCheckMain {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/worldgen/structure/rivalry_battle_site.json
+
+```json
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "rivalry_battle_site",
+  "biomes": "#itzbreadloaf:has_structure/rivalry_battle_site",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/worldgen/structure/rivalry_wall.json
 
 ```json
@@ -51222,6 +55190,19 @@ public final class StructureCheckMain {
   "type": "itzbreadloaf:blueprint",
   "id": "riverside_mill",
   "biomes": "#itzbreadloaf:has_structure/riverside_mill",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/root_cellar.json
+
+```json
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "root_cellar",
+  "biomes": "#itzbreadloaf:has_structure/root_cellar",
   "step": "surface_structures",
   "spawn_overrides": {},
   "terrain_adaptation": "none"
@@ -51274,6 +55255,32 @@ public final class StructureCheckMain {
   "type": "itzbreadloaf:blueprint",
   "id": "sea_glass_cove",
   "biomes": "#itzbreadloaf:has_structure/sea_glass_cove",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/sealed_library.json
+
+```json
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "sealed_library",
+  "biomes": "#itzbreadloaf:has_structure/sealed_library",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/secret_lab.json
+
+```json
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "secret_lab",
+  "biomes": "#itzbreadloaf:has_structure/secret_lab",
   "step": "surface_structures",
   "spawn_overrides": {},
   "terrain_adaptation": "none"
@@ -51631,6 +55638,19 @@ public final class StructureCheckMain {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/worldgen/structure/whispering_stones.json
+
+```json
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "whispering_stones",
+  "biomes": "#itzbreadloaf:has_structure/whispering_stones",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/worldgen/structure/willow_swing.json
 
 ```json
@@ -51747,8 +55767,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023039,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -51770,8 +55790,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023035,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -51793,8 +55813,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023012,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -51816,8 +55836,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 52,
-    "separation": 16,
+    "spacing": 31,
+    "separation": 10,
     "salt": 1022403,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -51839,8 +55859,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023003,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -51862,8 +55882,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 60,
-    "separation": 18,
+    "spacing": 36,
+    "separation": 11,
     "salt": 1022010,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -51885,8 +55905,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 60,
-    "separation": 18,
+    "spacing": 36,
+    "separation": 11,
     "salt": 1022008,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -51908,8 +55928,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023010,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -51931,8 +55951,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023078
   }
 }
@@ -51950,8 +55970,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023068,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -51973,8 +55993,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 52,
-    "separation": 16,
+    "spacing": 31,
+    "separation": 10,
     "salt": 1022409,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -51996,8 +56016,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023050,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52019,8 +56039,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 48,
-    "separation": 16,
+    "spacing": 29,
+    "separation": 10,
     "salt": 1022416,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52042,8 +56062,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023044,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52065,8 +56085,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 52,
-    "separation": 16,
+    "spacing": 31,
+    "separation": 10,
     "salt": 1022201,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52088,9 +56108,32 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 88,
-    "separation": 28,
+    "spacing": 52,
+    "separation": 16,
     "salt": 1023006,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/bread_cellar.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:bread_cellar",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 44,
+    "separation": 14,
+    "salt": 1023088,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
       "chunk_count": 4
@@ -52111,8 +56154,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 110,
-    "separation": 36,
+    "spacing": 70,
+    "separation": 22,
     "salt": 1023029,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52134,8 +56177,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023001,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52157,9 +56200,32 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023024,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/buried_library.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:buried_library",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 52,
+    "separation": 16,
+    "salt": 1023094,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
       "chunk_count": 4
@@ -52180,9 +56246,32 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 88,
-    "separation": 28,
+    "spacing": 52,
+    "separation": 16,
     "salt": 1023015,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/cartographers_tent.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:cartographers_tent",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 44,
+    "separation": 14,
+    "salt": 1023101,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
       "chunk_count": 4
@@ -52203,8 +56292,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023043,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52226,8 +56315,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023049,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52249,8 +56338,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 88,
-    "separation": 28,
+    "spacing": 52,
+    "separation": 16,
     "salt": 1023083
   }
 }
@@ -52268,8 +56357,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 48,
-    "separation": 16,
+    "spacing": 29,
+    "separation": 10,
     "salt": 1022502,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52291,8 +56380,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 52,
-    "separation": 16,
+    "spacing": 31,
+    "separation": 10,
     "salt": 1022404,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52314,8 +56403,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023063,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52337,8 +56426,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023065,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52360,8 +56449,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023055,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52383,9 +56472,32 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 52,
-    "separation": 18,
+    "spacing": 31,
+    "separation": 11,
     "salt": 1022309,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/cousins_old_treehouse.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:cousins_old_treehouse",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 44,
+    "separation": 14,
+    "salt": 1023104,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
       "chunk_count": 4
@@ -52406,9 +56518,32 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023075
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/crossroads_signpost.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:crossroads_signpost",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 40,
+    "separation": 12,
+    "salt": 1023109,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
   }
 }
 ```
@@ -52425,8 +56560,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023004,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52448,9 +56583,32 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023046,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/deep_forge.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:deep_forge",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 52,
+    "separation": 16,
+    "salt": 1023093,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
       "chunk_count": 4
@@ -52471,8 +56629,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 52,
-    "separation": 16,
+    "spacing": 31,
+    "separation": 10,
     "salt": 1022205,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52494,8 +56652,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023013,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52517,8 +56675,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 120,
-    "separation": 40,
+    "spacing": 76,
+    "separation": 24,
     "salt": 1023030,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52540,9 +56698,32 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 88,
-    "separation": 28,
+    "spacing": 52,
+    "separation": 16,
     "salt": 1023086
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/drifters_rest.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:drifters_rest",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 44,
+    "separation": 14,
+    "salt": 1023105,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
   }
 }
 ```
@@ -52559,8 +56740,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023019,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52582,8 +56763,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 20,
-    "separation": 7,
+    "spacing": 16,
+    "separation": 4,
     "salt": 1022313
   }
 }
@@ -52601,8 +56782,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 22,
-    "separation": 7,
+    "spacing": 16,
+    "separation": 4,
     "salt": 1022412
   }
 }
@@ -52620,8 +56801,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023041,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52643,8 +56824,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023052,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52666,9 +56847,32 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 68,
-    "separation": 22,
+    "spacing": 41,
+    "separation": 13,
     "salt": 1022304,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/felix_bunker.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:felix_bunker",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 52,
+    "separation": 16,
+    "salt": 1023091,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
       "chunk_count": 4
@@ -52689,8 +56893,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 88,
-    "separation": 28,
+    "spacing": 52,
+    "separation": 16,
     "salt": 1023018,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52712,9 +56916,32 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023070,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/first_bakery_ruins.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:first_bakery_ruins",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 44,
+    "separation": 14,
+    "salt": 1023097,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
       "chunk_count": 4
@@ -52735,8 +56962,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023048,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52758,8 +56985,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023073,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52781,8 +57008,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 40,
-    "separation": 12,
+    "spacing": 24,
+    "separation": 7,
     "salt": 1022207,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52804,8 +57031,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 40,
-    "separation": 14,
+    "spacing": 24,
+    "separation": 8,
     "salt": 1022405,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52827,8 +57054,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 60,
-    "separation": 20,
+    "spacing": 36,
+    "separation": 12,
     "salt": 1022303,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52850,8 +57077,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023036,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52873,8 +57100,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 68,
-    "separation": 22,
+    "spacing": 41,
+    "separation": 13,
     "salt": 1022006,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52896,8 +57123,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023058,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52919,8 +57146,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 60,
-    "separation": 20,
+    "spacing": 36,
+    "separation": 12,
     "salt": 1022413,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52942,8 +57169,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 80,
-    "separation": 28,
+    "spacing": 48,
+    "separation": 17,
     "salt": 1022311,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52965,8 +57192,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 128,
-    "separation": 40,
+    "spacing": 80,
+    "separation": 24,
     "salt": 1023026,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -52988,8 +57215,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 88,
-    "separation": 28,
+    "spacing": 52,
+    "separation": 16,
     "salt": 1023080
   }
 }
@@ -53007,8 +57234,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023053,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -53030,8 +57257,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 56,
-    "separation": 18,
+    "spacing": 34,
+    "separation": 11,
     "salt": 1022301,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -53053,8 +57280,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023025,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -53076,8 +57303,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023064,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -53099,8 +57326,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023008,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -53122,8 +57349,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023074
   }
 }
@@ -53141,8 +57368,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023037,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -53164,8 +57391,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023051,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -53187,8 +57414,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 40,
-    "separation": 14,
+    "spacing": 24,
+    "separation": 8,
     "salt": 1022001,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -53210,8 +57437,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 48,
-    "separation": 16,
+    "spacing": 29,
+    "separation": 10,
     "salt": 1022206,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -53233,8 +57460,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 48,
-    "separation": 16,
+    "spacing": 29,
+    "separation": 10,
     "salt": 1022204,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -53256,8 +57483,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023005,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -53279,8 +57506,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 56,
-    "separation": 18,
+    "spacing": 34,
+    "separation": 11,
     "salt": 1022302,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -53302,8 +57529,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 52,
-    "separation": 16,
+    "spacing": 31,
+    "separation": 10,
     "salt": 1022406,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -53325,8 +57552,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 96,
-    "separation": 32,
+    "spacing": 60,
+    "separation": 20,
     "salt": 1023084
   }
 }
@@ -53344,8 +57571,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023077
   }
 }
@@ -53363,8 +57590,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023069,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -53386,8 +57613,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 32,
-    "separation": 12,
+    "spacing": 19,
+    "separation": 7,
     "salt": 1022102,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -53409,8 +57636,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 32,
-    "separation": 10,
+    "spacing": 19,
+    "separation": 6,
     "salt": 1022003,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -53432,8 +57659,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023040,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -53455,8 +57682,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 32,
-    "separation": 12,
+    "spacing": 19,
+    "separation": 7,
     "salt": 1022101,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -53478,8 +57705,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 40,
-    "separation": 14,
+    "spacing": 24,
+    "separation": 8,
     "salt": 1022105,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -53501,8 +57728,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 32,
-    "separation": 12,
+    "spacing": 19,
+    "separation": 7,
     "salt": 1022103,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -53524,9 +57751,32 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 32,
-    "separation": 12,
+    "spacing": 19,
+    "separation": 7,
     "salt": 1022104,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/lily_writing_cabin.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:lily_writing_cabin",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 44,
+    "separation": 14,
+    "salt": 1023096,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
       "chunk_count": 4
@@ -53547,8 +57797,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 52,
-    "separation": 16,
+    "spacing": 31,
+    "separation": 10,
     "salt": 1022414,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -53570,8 +57820,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023011,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -53593,9 +57843,32 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 48,
-    "separation": 16,
+    "spacing": 29,
+    "separation": 10,
     "salt": 1022202,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/lost_loaf_wagon.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:lost_loaf_wagon",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 44,
+    "separation": 14,
+    "salt": 1023110,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
       "chunk_count": 4
@@ -53616,8 +57889,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023022,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -53639,8 +57912,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 56,
-    "separation": 18,
+    "spacing": 34,
+    "separation": 11,
     "salt": 1022501,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -53662,8 +57935,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 36,
-    "separation": 12,
+    "spacing": 22,
+    "separation": 7,
     "salt": 1022004,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -53685,9 +57958,55 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 48,
-    "separation": 16,
+    "spacing": 29,
+    "separation": 10,
     "salt": 1022306,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/masters_departure.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:masters_departure",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 52,
+    "separation": 16,
+    "salt": 1023107,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/masters_old_home.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:masters_old_home",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 52,
+    "separation": 16,
+    "salt": 1023102,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
       "chunk_count": 4
@@ -53708,9 +58027,32 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023054,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/memorial_grove.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:memorial_grove",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 44,
+    "separation": 14,
+    "salt": 1023098,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
       "chunk_count": 4
@@ -53731,8 +58073,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023057,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -53754,9 +58096,32 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023009,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/miners_shaft.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:miners_shaft",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 44,
+    "separation": 14,
+    "salt": 1023089,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
       "chunk_count": 4
@@ -53777,8 +58142,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023066,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -53800,8 +58165,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 38,
+    "separation": 12,
     "salt": 1022203,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -53823,8 +58188,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023032,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -53846,8 +58211,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 48,
-    "separation": 16,
+    "spacing": 29,
+    "separation": 10,
     "salt": 1022402,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -53869,9 +58234,55 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023060,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/mushroom_grotto.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:mushroom_grotto",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 44,
+    "separation": 14,
+    "salt": 1023092,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/naturalist_camp.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:naturalist_camp",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 44,
+    "separation": 14,
+    "salt": 1023106,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
       "chunk_count": 4
@@ -53892,8 +58303,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 26,
-    "separation": 8,
+    "spacing": 16,
+    "separation": 5,
     "salt": 1022411
   }
 }
@@ -53911,8 +58322,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 24,
-    "separation": 8,
+    "spacing": 16,
+    "separation": 5,
     "salt": 1022312
   }
 }
@@ -53930,8 +58341,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023076
   }
 }
@@ -53949,9 +58360,32 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023062,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/old_loaf_archive.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:old_loaf_archive",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 52,
+    "separation": 16,
+    "salt": 1023103,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
       "chunk_count": 4
@@ -53972,8 +58406,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 60,
-    "separation": 20,
+    "spacing": 36,
+    "separation": 12,
     "salt": 1022305,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -53995,8 +58429,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023020,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54018,8 +58452,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023071,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54041,8 +58475,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023047,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54064,8 +58498,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 56,
-    "separation": 16,
+    "spacing": 34,
+    "separation": 10,
     "salt": 1022012,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54087,8 +58521,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 56,
-    "separation": 18,
+    "spacing": 34,
+    "separation": 11,
     "salt": 1022308,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54110,8 +58544,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 96,
-    "separation": 32,
+    "spacing": 60,
+    "separation": 20,
     "salt": 1023085
   }
 }
@@ -54129,8 +58563,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 60,
-    "separation": 20,
+    "spacing": 36,
+    "separation": 12,
     "salt": 1022310,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54152,9 +58586,32 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 48,
-    "separation": 16,
+    "spacing": 29,
+    "separation": 10,
     "salt": 1022504,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/rivalry_battle_site.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:rivalry_battle_site",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 52,
+    "separation": 16,
+    "salt": 1023099,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
       "chunk_count": 4
@@ -54175,8 +58632,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023023,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54198,9 +58655,32 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 44,
-    "separation": 14,
+    "spacing": 26,
+    "separation": 8,
     "salt": 1022408,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/root_cellar.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:root_cellar",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 40,
+    "separation": 12,
+    "salt": 1023095,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
       "chunk_count": 4
@@ -54221,8 +58701,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023045,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54244,8 +58724,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 43,
+    "separation": 14,
     "salt": 1022208,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54267,8 +58747,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 60,
-    "separation": 20,
+    "spacing": 36,
+    "separation": 12,
     "salt": 1022410,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54290,9 +58770,55 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023072,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/sealed_library.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:sealed_library",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 52,
+    "separation": 16,
+    "salt": 1023100,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/secret_lab.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:secret_lab",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 52,
+    "separation": 16,
+    "salt": 1023090,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
       "chunk_count": 4
@@ -54313,8 +58839,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023056,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54336,8 +58862,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 56,
-    "separation": 18,
+    "spacing": 34,
+    "separation": 11,
     "salt": 1022417,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54359,8 +58885,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 80,
-    "separation": 28,
+    "spacing": 48,
+    "separation": 17,
     "salt": 1022011,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54382,8 +58908,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023017,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54405,8 +58931,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 60,
-    "separation": 20,
+    "spacing": 36,
+    "separation": 12,
     "salt": 1022315,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54428,8 +58954,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 52,
-    "separation": 16,
+    "spacing": 31,
+    "separation": 10,
     "salt": 1022418,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54451,8 +58977,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023014,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54474,8 +59000,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023079
   }
 }
@@ -54493,8 +59019,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023021,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54516,8 +59042,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 56,
-    "separation": 18,
+    "spacing": 34,
+    "separation": 11,
     "salt": 1022415,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54539,8 +59065,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023059,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54562,8 +59088,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023081
   }
 }
@@ -54581,8 +59107,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 48,
-    "separation": 16,
+    "spacing": 29,
+    "separation": 10,
     "salt": 1022401,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54604,8 +59130,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 38,
+    "separation": 12,
     "salt": 1022314,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54627,8 +59153,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023007,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54650,8 +59176,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 50,
-    "separation": 16,
+    "spacing": 30,
+    "separation": 10,
     "salt": 1022002,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54673,8 +59199,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 100,
-    "separation": 32,
+    "spacing": 64,
+    "separation": 20,
     "salt": 1023027,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54696,8 +59222,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023002,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54719,8 +59245,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 56,
-    "separation": 16,
+    "spacing": 34,
+    "separation": 10,
     "salt": 1022009,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54742,8 +59268,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 44,
-    "separation": 14,
+    "spacing": 26,
+    "separation": 8,
     "salt": 1022407,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54765,8 +59291,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023067,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54788,8 +59314,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023033,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54811,8 +59337,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 110,
-    "separation": 36,
+    "spacing": 70,
+    "separation": 22,
     "salt": 1023028,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54834,8 +59360,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 43,
+    "separation": 14,
     "salt": 1022005,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54857,8 +59383,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 88,
-    "separation": 28,
+    "spacing": 52,
+    "separation": 16,
     "salt": 1023087
   }
 }
@@ -54876,8 +59402,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 88,
-    "separation": 28,
+    "spacing": 52,
+    "separation": 16,
     "salt": 1023082
   }
 }
@@ -54895,9 +59421,32 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 48,
-    "separation": 16,
+    "spacing": 29,
+    "separation": 10,
     "salt": 1022007,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/whispering_stones.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:whispering_stones",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 44,
+    "separation": 14,
+    "salt": 1023108,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
       "chunk_count": 4
@@ -54918,8 +59467,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023034,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54941,8 +59490,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023016,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54964,8 +59513,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 60,
-    "separation": 20,
+    "spacing": 36,
+    "separation": 12,
     "salt": 1022503,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -54987,8 +59536,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 56,
-    "separation": 18,
+    "spacing": 34,
+    "separation": 11,
     "salt": 1022307,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -55010,8 +59559,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023042,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -55033,8 +59582,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023061,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -55056,8 +59605,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 64,
-    "separation": 20,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1023038,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -55079,8 +59628,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 72,
-    "separation": 24,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1023031,
     "exclusion_zone": {
       "other_set": "minecraft:villages",

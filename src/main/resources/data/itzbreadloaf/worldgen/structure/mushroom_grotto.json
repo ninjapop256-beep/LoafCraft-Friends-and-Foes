@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "mushroom_grotto",
+  "biomes": "#itzbreadloaf:has_structure/mushroom_grotto",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}

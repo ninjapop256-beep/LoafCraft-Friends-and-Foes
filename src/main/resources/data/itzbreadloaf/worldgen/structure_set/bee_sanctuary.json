@@ -7,8 +7,8 @@
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 52,
-    "separation": 16,
+    "spacing": 31,
+    "separation": 10,
     "salt": 1022409,
     "exclusion_zone": {
       "other_set": "minecraft:villages",

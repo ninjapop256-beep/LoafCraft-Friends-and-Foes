@@ -6,6 +6,12 @@ Newest changes first. Existing worlds keep working; new structures only appear i
 
 ---
 
+## 1.1.0-alpha.5
+
+- Structures are much more common: old structures spawn about 40% closer together, new ones 40-60 chunks apart (were 64-128).
+- 15 lore structures: Lily's Abandoned Writing Cabin, Ruins of the First Bakery, The Memorial Grove, The Old Battle Site, The Sealed Library (hidden entrance under a bush), The Cartographer's Tent, Master BreadLoaf's Old Home, The Archive Under the Old Loaf, The Cousins' Old Treehouse, The Drifters' Rest, Lily's Naturalist Camp, Master's Departure Point, The Whispering Stones, The Crossroads Signpost, The Lost Loaf Wagon. Each has a lectern and chest ready for Lily's books.
+- All 110 new structures are in (part 8 done).
+
 ## Unreleased (update 2, in progress)
 
 ### Fixes
@@ -13,6 +19,18 @@ Newest changes first. Existing worlds keep working; new structures only appear i
   - FelixSyn used to walk to the nearest water block as a "hangout spot", and in villages that's the well; Harley followed him in. He now hangs out on dry ground beside the water instead.
   - Characters won't walk or drop into small enclosed pools with no edge to climb out of.
   - Anyone who still ends up stuck in water swims up, and after 5 seconds steps out onto the nearest dry block.
+
+### New structures (part 8, batch 7: underground, 8)
+- Each has a small sign of itself at the surface, and its rooms are 5-16 blocks down. Stairways and shafts are lined with stone, so caves, gravel and water stay out.
+  - **ItzBreadLoaf's Bread Cellar:** a stairway down to a vaulted cellar of bread barrels.
+  - **Miner's Shaft:** a headframe over a 14-deep ladder shaft to a miner's camp with ore in the walls.
+  - **Witchy Lily's Secret Lab:** a hatch hidden in a bush, down to brewing stands and an enchanting table.
+  - **FelixSyn's Secret Bunker:** a hatch by a boulder, down to a training bunker.
+  - **Glowing Mushroom Grotto:** a cave with giant mushrooms, shroomlights and a pool.
+  - **The Deep Forge:** a hut over a 16-deep shaft to a forge hall with a lava trough behind bars.
+  - **The Buried Library**
+  - **Madison's Root Cellar**
+- `./gradlew checkStructures` now also checks that every item in the mod's loot tables exists in this Minecraft version. It caught `minecraft:chain`, which is `minecraft:iron_chain` in 1.21.11.
 
 ### FelixSyn can be tamed, and stops picking fights
 - **Tameable:** feed him cooked porkchops (1 in 4, `felixTameChance`), only while he isn't fighting. This works for wild FelixSyns too.

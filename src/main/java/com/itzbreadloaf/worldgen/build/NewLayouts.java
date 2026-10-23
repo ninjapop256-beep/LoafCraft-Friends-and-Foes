@@ -95,5 +95,28 @@ final class NewLayouts {
 		layouts.put("purpur_vault", EndBlueprints::purpurVault);
 		layouts.put("dragon_lookout", EndBlueprints::dragonLookout);
 		layouts.put("void_fishing_platform", EndBlueprints::voidFishingPlatform);
+		layouts.put("bread_cellar", UndergroundBlueprints::breadCellar);
+		layouts.put("miners_shaft", UndergroundBlueprints::minersShaft);
+		layouts.put("secret_lab", UndergroundBlueprints::secretLab);
+		layouts.put("felix_bunker", UndergroundBlueprints::felixBunker);
+		layouts.put("mushroom_grotto", UndergroundBlueprints::mushroomGrotto);
+		layouts.put("deep_forge", UndergroundBlueprints::deepForge);
+		layouts.put("buried_library", UndergroundBlueprints::buriedLibrary);
+		layouts.put("root_cellar", UndergroundBlueprints::rootCellar);
+		layouts.put("lily_writing_cabin", LoreBlueprints::lilyWritingCabin);
+		layouts.put("first_bakery_ruins", LoreBlueprints::firstBakeryRuins);
+		layouts.put("memorial_grove", LoreBlueprints::memorialGrove);
+		layouts.put("rivalry_battle_site", LoreBlueprints::rivalryBattleSite);
+		layouts.put("sealed_library", LoreBlueprints::sealedLibrary);
+		layouts.put("cartographers_tent", LoreBlueprints::cartographersTent);
+		layouts.put("masters_old_home", LoreBlueprints::mastersOldHome);
+		layouts.put("old_loaf_archive", LoreBlueprints::oldLoafArchive);
+		layouts.put("cousins_old_treehouse", LoreBlueprints::cousinsOldTreehouse);
+		layouts.put("drifters_rest", LoreBlueprints::driftersRest);
+		layouts.put("naturalist_camp", LoreBlueprints::naturalistCamp);
+		layouts.put("masters_departure", LoreBlueprints::mastersDeparture);
+		layouts.put("whispering_stones", LoreBlueprints::whisperingStones);
+		layouts.put("crossroads_signpost", LoreBlueprints::crossroadsSignpost);
+		layouts.put("lost_loaf_wagon", LoreBlueprints::lostLoafWagon);
 	}
 }

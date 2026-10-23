@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "cousins_old_treehouse",
+  "biomes": "#itzbreadloaf:has_structure/cousins_old_treehouse",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}

@@ -51,12 +51,59 @@ public final class StructureCheckMain {
 				}
 			}
 		}
+		int tables = checkLootItems(java.nio.file.Path.of("src/main/resources/data/itzbreadloaf/loot_table"), problems);
 		if (problems.isEmpty()) {
-			System.out.println("Structure check: all " + built + " test builds passed (" + StructureCatalog.all().size() + " structures).");
+			System.out.println("Structure check: all " + built + " test builds passed (" + StructureCatalog.all().size() + " structures), "
+					+ tables + " loot tables use only real items.");
 			return;
 		}
 		problems.forEach(p -> System.out.println("Structure check: " + p));
 		throw new IllegalStateException(problems.size() + " structure problem(s)");
+	}
+
+	/**
+	 * Every minecraft: item named in the mod's loot tables must exist in this game version (item ids get renamed
+	 * between versions, and a table with an unknown item fails to load). The mod's own items aren't registered in this
+	 * offline run, so those are skipped. Returns how many tables it read.
+	 */
+	private static int checkLootItems(java.nio.file.Path root, List<String> problems) {
+		if (!java.nio.file.Files.isDirectory(root)) {
+			return 0;
+		}
+		int count = 0;
+		try (var files = java.nio.file.Files.walk(root)) {
+			for (java.nio.file.Path file : files.filter(f -> f.toString().endsWith(".json")).toList()) {
+				count++;
+				com.google.gson.JsonElement json = com.google.gson.JsonParser.parseString(java.nio.file.Files.readString(file));
+				collectItems(json, name -> {
+					net.minecraft.resources.Identifier id = net.minecraft.resources.Identifier.tryParse(name);
+					if (id == null || id.getNamespace().equals("minecraft")
+							&& !net.minecraft.core.registries.BuiltInRegistries.ITEM.containsKey(id)) {
+						problems.add("loot table " + root.relativize(file) + ": unknown item " + name);
+					}
+				});
+			}
+		} catch (java.io.IOException e) {
+			problems.add("loot tables: " + e);
+		}
+		return count;
+	}
+
+	private static void collectItems(com.google.gson.JsonElement element, java.util.function.Consumer<String> out) {
+		if (element.isJsonObject()) {
+			com.google.gson.JsonObject object = element.getAsJsonObject();
+			com.google.gson.JsonElement type = object.get("type");
+			if (type != null && type.isJsonPrimitive() && "minecraft:item".equals(type.getAsString()) && object.has("name")) {
+				out.accept(object.get("name").getAsString());
+			}
+			for (var entry : object.entrySet()) {
+				collectItems(entry.getValue(), out);
+			}
+		} else if (element.isJsonArray()) {
+			for (com.google.gson.JsonElement child : element.getAsJsonArray()) {
+				collectItems(child, out);
+			}
+		}
 	}
 
 	/** Makes sure the check can fail: a sealed room's chest, and a tower top with no ladder, must be reported. */

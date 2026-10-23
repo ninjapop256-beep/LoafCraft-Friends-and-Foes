@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:blueprint",
+  "id": "lost_loaf_wagon",
+  "biomes": "#itzbreadloaf:has_structure/lost_loaf_wagon",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
