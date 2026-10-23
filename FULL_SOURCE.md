@@ -131,7 +131,7 @@ loader_version=0.19.5
 loom_version=1.18-SNAPSHOT
 
 # Mod Properties
-version=1.1.0-alpha.1
+version=1.1.0-alpha.2
 group=com.itzbreadloaf
 
 # Dependencies
@@ -1305,7 +1305,7 @@ public class ResidentMarkerBlockEntity extends BlockEntity {
 				com.itzbreadloaf.brain.FelixBrain.spawnWild(serverLevel, Vec3.atBottomCenterOf(spawn), home, radius, bed);
 			} else if (variant.kind == CharacterKind.FELIXSYN) {
 				// The village drifter never comes alone: Harley is with him.
-				com.itzbreadloaf.brain.FelixBrain.spawnDuo(serverLevel, Vec3.atBottomCenterOf(spawn), home);
+				com.itzbreadloaf.brain.FelixBrain.spawnDuo(serverLevel, Vec3.atBottomCenterOf(spawn), home, true);
 			} else if (variant.kind == CharacterKind.MASTER) {
 				// The boss makes an entrance (sound and message).
 				LoafCharacter boss = BossSpawner.spawnBoss(serverLevel, spawn);
@@ -3456,7 +3456,7 @@ public class FelixBrain extends LoafBrain {
 
 	/**
 	 * A wild FelixSyn (natural spawns and his own homes): rolled gear, and Harley only comes along sometimes
-	 * (wildFelixHarleyChance, 30%).
+	 * (wildFelixWithHarleyChance, 20%).
 	 */
 	public static @Nullable LoafCharacter spawnWild(ServerLevel level, Vec3 pos, @Nullable BlockPos home, int radius, @Nullable BlockPos bed) {
 		LoafCharacter felix = CharacterManager.create(level, CharacterVariant.WILD_FELIX, pos, level.getRandom().nextFloat() * 360.0F,
@@ -3465,7 +3465,7 @@ public class FelixBrain extends LoafBrain {
 						brain.setupHome(home, radius, bed);
 					}
 				});
-		if (felix != null && level.getRandom().nextFloat() < com.itzbreadloaf.config.ModConfig.get().wildFelixHarleyChance) {
+		if (felix != null && level.getRandom().nextFloat() < com.itzbreadloaf.config.ModConfig.get().wildFelixWithHarleyChance) {
 			UUID felixId = felix.player.getUUID();
 			CharacterManager.create(level, CharacterVariant.HARLEY, pos.add(1.0, 0.0, 0.0), level.getRandom().nextFloat() * 360.0F, brain -> {
 				if (home != null) {
@@ -3483,13 +3483,24 @@ public class FelixBrain extends LoafBrain {
 		return this.variant == CharacterVariant.WILD_FELIX;
 	}
 
-	/** FelixSyn spawns with Harley at his side (villages, the spawn egg, /loafcraft spawn felixsyn). */
+	/** FelixSyn with Harley at his side, always (the spawn egg, /loafcraft spawn felixsyn). */
 	public static @Nullable LoafCharacter spawnDuo(ServerLevel level, Vec3 pos, @Nullable BlockPos home) {
+		return spawnDuo(level, pos, home, false);
+	}
+
+	/**
+	 * FelixSyn, and Harley with him: always, or for natural spawns (villages, structures) only felixHarleyChance of
+	 * the time (20%), so most FelixSyns you meet are on their own.
+	 */
+	public static @Nullable LoafCharacter spawnDuo(ServerLevel level, Vec3 pos, @Nullable BlockPos home, boolean natural) {
 		BlockPos homePos = home != null ? home : BlockPos.containing(pos);
 		LoafCharacter felix = CharacterManager.create(level, CharacterVariant.FELIXSYN, pos, level.getRandom().nextFloat() * 360.0F,
 				brain -> brain.setupHome(homePos, (int) HOME_RADIUS, null));
 		if (felix == null) {
 			return null;
+		}
+		if (natural && level.getRandom().nextDouble() >= com.itzbreadloaf.config.ModConfig.get().felixHarleyChance) {
+			return felix;
 		}
 		UUID felixId = felix.player.getUUID();
 		CharacterManager.create(level, CharacterVariant.HARLEY, pos.add(1.0, 0.0, 0.0), level.getRandom().nextFloat() * 360.0F, brain -> {
@@ -3917,11 +3928,11 @@ public class FelixBrain extends LoafBrain {
 		}
 		ServerLevel level = this.player.level();
 		// Loot rarity system: his drop table + tier rolls, armor 8.5% each. Sometimes some of his wind charges
-		// (25%), rarely his own mace (5%).
+		// (25%), and super rarely his own mace (maceDropChance, 0.8%).
 		com.itzbreadloaf.loot.LootRarity.dropCharacterLoot(this, this.player, source);
 		com.itzbreadloaf.loot.LootRarity.dropGear(this.player, this.random, false);
 		boolean windCharges = this.random.nextFloat() < 0.25F;
-		boolean mace = this.random.nextFloat() < 0.05F;
+		boolean mace = com.itzbreadloaf.loot.LootRarity.maceDrops(this.random);
 		for (int i = 0; i < 36; i++) {
 			ItemStack stack = this.player.getInventory().getItem(i);
 			if (windCharges && stack.is(Items.WIND_CHARGE)) {
@@ -4518,6 +4529,7 @@ import org.jetbrains.annotations.Nullable;
  * Best friend: she adores one real player, "FelixSyn" by default (harleyBestFriend in the config). She never attacks
  * them (even if they hit her), greets them, stays close with hearts, defends them from anything that hurts them,
  * tames on the first golden apple from them, and every few minutes gives them a gift. Nobody else gets gifts.
+ * Only one Harley at a time follows them around (one they tamed comes first); any others just love them from afar.
  */
 public class HarleyBrain extends LoafBrain {
 	public static final int VENGEANCE_TICKS = 1200;
@@ -4678,7 +4690,8 @@ public class HarleyBrain extends LoafBrain {
 			return;
 		}
 		if (this.isTame()) {
-			if (!this.followOwner()) {
+			// If her owner is her best friend and another Harley is already following him, she stays put.
+			if (this.owner != null && isBestFriend(this.getOwnerPlayer()) && this.followSpotTaken(this.owner) || !this.followOwner()) {
 				this.lookAround(8.0);
 			}
 			return;
@@ -4731,24 +4744,40 @@ public class HarleyBrain extends LoafBrain {
 			this.particles(ParticleTypes.DAMAGE_INDICATOR, 3);
 			this.nextOuchTick = this.ticks + 200;
 		}
+		// FelixSyn's duels with ItzBreadLoafs are one on one: she watches and doesn't join (or hit back at his
+		// opponent for a stray hit). His other fights she still jumps into.
+		LivingEntity duel = this.felixDuelOpponent();
 		if (this.isTame()) {
 			this.protectOwner(true);
 		} else {
 			LoafCharacter felix = this.partnerCharacter();
-			if (felix != null && felix.brain != null && felix.brain.getTarget() != null && felix.brain.getTarget() != this.player) {
+			if (felix != null && felix.brain != null && felix.brain.getTarget() != null && felix.brain.getTarget() != this.player
+					&& felix.brain.getTarget() != duel) {
 				this.setTarget(felix.brain.getTarget());
 				return;
 			}
 		}
 		LivingEntity attacker = this.lastAttacker;
-		if (attacker != null && attacker.isAlive() && this.ticks - this.lastHurtTick < 200 && !this.isFriendlyWith(attacker)
+		if (attacker != null && attacker != duel && attacker.isAlive() && this.ticks - this.lastHurtTick < 200 && !this.isFriendlyWith(attacker)
 				&& (this.partner == null || !this.partner.equals(attacker.getUUID()))
 				&& !(attacker instanceof Player p && (p.isCreative() || p.isSpectator()))) {
 			this.setTarget(attacker);
 		}
 	}
 
+	/** The ItzBreadLoaf her FelixSyn is dueling right now, or null. */
+	private @Nullable LivingEntity felixDuelOpponent() {
+		LoafCharacter felix = this.partnerCharacter();
+		LivingEntity target = felix == null || felix.brain == null ? null : felix.brain.getTarget();
+		return target != null && LoafIds.kind(target.getUUID()) == com.itzbreadloaf.character.CharacterKind.BREADLOAF ? target : null;
+	}
+
 	private void fight(LivingEntity target) {
+		// She was already on his opponent when the duel started: back off and let them settle it.
+		if (target == this.felixDuelOpponent()) {
+			this.setTarget(null);
+			return;
+		}
 		this.fightTicks++;
 		double distance = this.player.distanceTo(target);
 		if (distance > 48.0 || this.isTame() && this.isFriendlyWith(target)) {
@@ -4797,6 +4826,38 @@ public class HarleyBrain extends LoafBrain {
 				&& player.getGameProfile().name().equalsIgnoreCase(name.trim());
 	}
 
+	/**
+	 * Only one Harley at a time follows her best friend. The spot is per player (their UUID): who holds it, whether
+	 * he tamed her, and the server tick she last followed. A spot not used for 2 seconds (she died, unloaded, was
+	 * told to sit, or he walked away from her) is free again.
+	 */
+	private record FollowSpot(UUID harley, boolean tamedByHim, int lastTick) {
+	}
+
+	private static final java.util.Map<UUID, FollowSpot> FOLLOW_SPOTS = new java.util.HashMap<>();
+	private static final int FOLLOW_SPOT_TIMEOUT = 40;
+
+	/** True if this Harley may follow that player: she holds the spot, it's free, or he tamed her and the holder is wild. */
+	private boolean claimFollowSpot(UUID friendId) {
+		int now = this.player.level().getServer().getTickCount();
+		boolean tamedByHim = friendId.equals(this.owner);
+		FollowSpot spot = FOLLOW_SPOTS.get(friendId);
+		boolean free = spot == null || spot.harley().equals(this.player.getUUID()) || now - spot.lastTick() > FOLLOW_SPOT_TIMEOUT
+				|| tamedByHim && !spot.tamedByHim();
+		if (free) {
+			FOLLOW_SPOTS.put(friendId, new FollowSpot(this.player.getUUID(), tamedByHim, now));
+		}
+		return free;
+	}
+
+	/** Another Harley is following this player right now. */
+	private boolean followSpotTaken(UUID friendId) {
+		FollowSpot spot = FOLLOW_SPOTS.get(friendId);
+		return spot != null && !spot.harley().equals(this.player.getUUID())
+				&& this.player.level().getServer().getTickCount() - spot.lastTick() <= FOLLOW_SPOT_TIMEOUT
+				&& !(friendId.equals(this.owner) && !spot.tamedByHim());
+	}
+
 	private @Nullable ServerPlayer findBestFriend() {
 		for (ServerPlayer candidate : this.player.level().players()) {
 			if (isBestFriend(candidate) && candidate.isAlive() && !candidate.isSpectator()
@@ -4833,6 +4894,16 @@ public class HarleyBrain extends LoafBrain {
 		}
 		// Tamed by someone else: she still loves them, but she goes with her owner.
 		if (this.sitting || this.isTame() && !this.isOwnedBy(friend)) {
+			return false;
+		}
+		// Only one Harley follows him. The others still love him (hearts, hellos, gifts) but go about their day;
+		// another Harley he tamed waits where she is.
+		if (!this.claimFollowSpot(friend.getUUID())) {
+			if (this.isTame()) {
+				this.nav.stop();
+				this.lookAround(8.0);
+				return true;
+			}
 			return false;
 		}
 		if (distance > 3.5) {
@@ -6309,7 +6380,9 @@ public abstract class LoafBrain {
 			return false;
 		}
 		if (this.isTame()) {
-			// A tamed character's inventory is mostly what its owner gave it: all of it drops.
+			// A tamed character's inventory is mostly what its owner gave it: all of it drops, except maces (super
+			// rare: each one only with maceDropChance).
+			com.itzbreadloaf.loot.LootRarity.stripMaces(this.player, this.random);
 			return true;
 		}
 		// Wild: its own drop table with tier rolls (loot rarity system), plus armor and weapon like a normal mob.
@@ -8224,8 +8297,11 @@ public class MasterBreadLoafBrain extends LoafBrain {
 				ModAdvancements.award(killer, ModAdvancements.MACE_MASTER);
 			}
 		}
-		// Guaranteed: his Wind Burst mace and the trophy. Plus his drop table: extra Epic and Legendary rolls.
-		this.player.spawnAtLocation(level, Gear.enchanted(level, Items.MACE, Enchantments.WIND_BURST, 2));
+		// Guaranteed: the trophy. His Wind Burst mace only super rarely (maceDropChance, 0.8%). Plus his drop table:
+		// extra Epic and Legendary rolls.
+		if (com.itzbreadloaf.loot.LootRarity.maceDrops(this.random)) {
+			this.player.spawnAtLocation(level, Gear.enchanted(level, Items.MACE, Enchantments.WIND_BURST, 2));
+		}
 		this.player.spawnAtLocation(level, new ItemStack(ModItems.MASTER_LOAF_TROPHY));
 		com.itzbreadloaf.loot.LootRarity.dropCharacterLoot(this, this.player, source);
 		this.player.getInventory().clearContent();
@@ -11412,7 +11488,7 @@ public final class VillageSpawner {
 			}
 			BlockPos spot = findSpot(level, village.getBoundingBox(), random);
 			if (spot != null) {
-				FelixBrain.spawnDuo(level, Vec3.atBottomCenterOf(spot), spot);
+				FelixBrain.spawnDuo(level, Vec3.atBottomCenterOf(spot), spot, true);
 			}
 		}
 	}
@@ -11523,8 +11599,10 @@ public final class ModConfig {
 	public double felixVillageChance = 0.4;
 	/** Wild FelixSyn's random natural spawn weight (like itzBreadLoafSpawnWeight). Most live in their own homes. */
 	public int wildFelixSpawnWeight = 2;
-	/** Chance (0-1) that Harley comes along with a wild FelixSyn (she's always with the village drifter). */
-	public double wildFelixHarleyChance = 0.3;
+	/** Chance (0-1) that Harley comes along with a wild FelixSyn (20%). Renamed so old config files lose the old 30%. */
+	public double wildFelixWithHarleyChance = 0.2;
+	/** Chance a FelixSyn in a village or structure has Harley with him (spawn eggs and /loafcraft spawn always do). */
+	public double felixHarleyChance = 0.2;
 	/** Harley's best friend: the one real player she adores and gives gifts to (matched by Minecraft name, any case). */
 	public String harleyBestFriend = "FelixSyn";
 	/** Share (0-1) of ItzBreadLoafs and FelixSyns wearing their main skin; the rest wear a random old skin (<name>_alt<N>.png). */
@@ -11591,6 +11669,13 @@ public final class ModConfig {
 	public double characterArmorDropChance = 0.085;
 	/** Chance a character drops its weapon. */
 	public double characterWeaponDropChance = 0.15;
+	/**
+	 * Maces are super rare. They're in no loot tier; each chest gets one separate mace roll with this chance, by loot
+	 * level 1-4 (0.1%, 0.3%, 0.5%, 0.8%). Character drop tables never roll one.
+	 */
+	public double[] maceChestChance = {0.001, 0.003, 0.005, 0.008};
+	/** Chance a character carrying a mace (FelixSyn, Harley, Master BreadLoaf, wild or tamed) drops it when it dies. */
+	public double maceDropChance = 0.008;
 
 	public enum HarleyPreset {
 		EASY(20.0, 0.85, 0.11, 0.25F), NORMAL(26.0, 1.0, 0.115, 0.4F), HARD(32.0, 1.15, 0.12, 0.6F);
@@ -11987,7 +12072,35 @@ public final class LootRarity {
 			if (path.startsWith("chests/") || path.startsWith("characters/")) {
 				tableBuilder.withPool(tierPool(path));
 			}
+			if (path.startsWith("chests/")) {
+				tableBuilder.withPool(macePool(path));
+			}
 		});
+	}
+
+	/** One separate roll for a mace (tiers/mace), under 1% at every loot level (maceChestChance in the config). */
+	private static LootPool.Builder macePool(String path) {
+		double[] chances = ModConfig.get().maceChestChance;
+		int level = levelOf(path) - 1;
+		double chance = chances != null && level < chances.length ? chances[level] : new double[]{0.001, 0.003, 0.005, 0.008}[level];
+		return LootPool.lootPool().setRolls(ConstantValue.exactly(1.0F))
+				.when(net.minecraft.world.level.storage.loot.predicates.LootItemRandomChanceCondition.randomChance((float) Math.clamp(chance, 0.0, 1.0)))
+				.add(NestedLootTable.lootTableReference(ResourceKey.create(Registries.LOOT_TABLE, ItzBreadLoaf.id("tiers/mace"))));
+	}
+
+	/** Whether a character's mace drops this time (maceDropChance, 0.8% by default). */
+	public static boolean maceDrops(RandomSource random) {
+		return random.nextDouble() < ModConfig.get().maceDropChance;
+	}
+
+	/** A tamed character drops its whole inventory, except maces: each one only with maceDropChance. */
+	public static void stripMaces(ServerPlayer self, RandomSource random) {
+		var inventory = self.getInventory();
+		for (int slot = 0; slot < inventory.getContainerSize(); slot++) {
+			if (inventory.getItem(slot).is(Items.MACE) && !maceDrops(random)) {
+				inventory.setItem(slot, ItemStack.EMPTY);
+			}
+		}
 	}
 
 	/** The loot level (1-4) of a table like "chests/house" or "characters/felixsyn". */
@@ -12073,7 +12186,10 @@ public final class LootRarity {
 			ItemStack stack = self.getInventory().getItem(slot);
 			if (stack.is(ItemTags.SWORDS) || stack.is(ItemTags.AXES) || stack.is(Items.MACE) || stack.is(Items.BOW)
 					|| stack.is(Items.CROSSBOW) || stack.is(Items.TRIDENT)) {
-				self.spawnAtLocation(level, stack.copy());
+				// Maces are super rare: a mace also has to pass maceDropChance (so well under 1% overall).
+				if (!stack.is(Items.MACE) || maceDrops(random)) {
+					self.spawnAtLocation(level, stack.copy());
+				}
 				return;
 			}
 		}
@@ -13577,6 +13693,22 @@ public class HomePiece extends ScatteredFeaturePiece {
 		this.woolColor = random.nextInt(WOOL.length);
 		this.members = 2 + random.nextInt(3);
 		this.groupSeed = random.nextLong();
+	}
+
+	/**
+	 * Placed without neighbor updates, glass panes, iron bars, fences and walls stood as lone posts. Have vanilla's
+	 * post-processing connect them to their neighbors once the chunk is finished.
+	 */
+	@Override
+	protected void placeBlock(WorldGenLevel level, BlockState state, int x, int y, int z, BoundingBox box) {
+		super.placeBlock(level, state, x, y, z, box);
+		net.minecraft.world.level.block.Block block = state.getBlock();
+		if (block instanceof net.minecraft.world.level.block.CrossCollisionBlock || block instanceof net.minecraft.world.level.block.WallBlock) {
+			BlockPos at = this.getWorldPos(x, y, z);
+			if (box.isInside(at) && !(level instanceof net.minecraft.server.level.ServerLevel)) {
+				level.getChunk(at).markPosForPostprocessing(at);
+			}
+		}
 	}
 
 	public HomePiece(CompoundTag tag) {
@@ -16808,8 +16940,9 @@ public class BlueprintPiece extends ScatteredFeaturePiece {
 				continue;
 			}
 			long key = entry.getKey();
-			this.placeBlock(level, entry.getValue(), BlockPos.getX(key) + MARGIN, BlockPos.getY(key), BlockPos.getZ(key) + MARGIN, box);
+			this.placeBlock(level, toPieceFrame(entry.getValue()), BlockPos.getX(key) + MARGIN, BlockPos.getY(key), BlockPos.getZ(key) + MARGIN, box);
 		}
+		this.connectShapes(level, box, b);
 		for (Blueprint.Container container : b.containers) {
 			var loot = ModStructures.lootTable(container.loot());
 			int x = container.x() + MARGIN;
@@ -16819,7 +16952,7 @@ public class BlueprintPiece extends ScatteredFeaturePiece {
 				BlockPos at = this.getWorldPos(x, container.y(), z);
 				if (box.isInside(at)) {
 					BlockState state = b.get(container.x(), container.y(), container.z());
-					this.placeBlock(level, state == null ? Blocks.BARREL.defaultBlockState() : state, x, container.y(), z, box);
+					this.placeBlock(level, toPieceFrame(state == null ? Blocks.BARREL.defaultBlockState() : state), x, container.y(), z, box);
 					RandomizableContainer.setBlockEntityLootTable(level, random, at, loot);
 				}
 			} else {
@@ -16852,6 +16985,46 @@ public class BlueprintPiece extends ScatteredFeaturePiece {
 			this.placeMob(level, box, mob);
 		}
 		this.placeResidents(level, box, b);
+	}
+
+	/**
+	 * Blueprints use north = low z (the front). Vanilla's piece placement (getWorldPos plus the piece's mirror and
+	 * rotation) treats a block's NORTH as local +z instead, so stairs, ladders, doors and trapdoors along z came out
+	 * backwards. Mirroring north/south first makes every facing land the right way for all four orientations.
+	 */
+	private static BlockState toPieceFrame(BlockState state) {
+		return state.mirror(net.minecraft.world.level.block.Mirror.LEFT_RIGHT);
+	}
+
+	/**
+	 * Blocks are placed without neighbor updates, so glass panes, iron bars, fences and walls stood as lone posts
+	 * and stairs didn't form corners. Fix their shapes from their neighbors: while the world generates, through
+	 * vanilla's post-processing (it runs once the neighboring chunks exist, so chunk edges connect too); for
+	 * structures built during play, right away.
+	 */
+	private void connectShapes(WorldGenLevel level, BoundingBox box, Blueprint b) {
+		boolean live = level instanceof net.minecraft.server.level.ServerLevel;
+		for (Map.Entry<Long, BlockState> entry : b.blocks.entrySet()) {
+			net.minecraft.world.level.block.Block block = entry.getValue().getBlock();
+			if (!(block instanceof net.minecraft.world.level.block.CrossCollisionBlock || block instanceof net.minecraft.world.level.block.WallBlock
+					|| block instanceof net.minecraft.world.level.block.StairBlock)) {
+				continue;
+			}
+			long key = entry.getKey();
+			BlockPos at = this.getWorldPos(BlockPos.getX(key) + MARGIN, BlockPos.getY(key), BlockPos.getZ(key) + MARGIN);
+			if (!box.isInside(at)) {
+				continue;
+			}
+			if (live) {
+				BlockState placed = level.getBlockState(at);
+				BlockState shaped = net.minecraft.world.level.block.Block.updateFromNeighbourShapes(placed, level, at);
+				if (shaped != placed) {
+					level.setBlock(at, shaped, 2);
+				}
+			} else {
+				level.getChunk(at).markPosForPostprocessing(at);
+			}
+		}
 	}
 
 	/** Like fillColumnDown, but only through air, water and plants, and at most {@code maxDepth} blocks. */
@@ -17971,30 +18144,30 @@ final class CatalogEntries {
 	}
 
 	static void addAll() {
-		StructureCatalog.add(StructureCatalog.def("house", "House", "ItzBreadLoaf", 1, 20, 7, 1022001, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "#minecraft:is_forest", "#minecraft:is_taiga", "#minecraft:is_savanna", "minecraft:snowy_plains", "minecraft:snowy_taiga", "minecraft:desert"), "ItzBreadLoaf", 9, 9, 12));
-		StructureCatalog.add(StructureCatalog.def("tent", "Tent", "ItzBreadLoaf", 1, 25, 8, 1022002, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "#minecraft:is_forest", "#minecraft:is_taiga", "#minecraft:is_savanna", "minecraft:snowy_plains", "minecraft:snowy_taiga", "minecraft:desert"), "2-4 ItzBreadLoafs", 11, 11, 7));
-		StructureCatalog.add(StructureCatalog.def("fort", "Bread Fort", "ItzBreadLoaf", 3, 34, 11, 1022006, List.of("minecraft:plains", "minecraft:meadow", "#minecraft:is_forest", "#minecraft:is_taiga", "#minecraft:is_savanna", "minecraft:windswept_hills", "minecraft:snowy_plains"), "3 Knights + Captain", 21, 21, 14));
-		StructureCatalog.add(StructureCatalog.def("watchtower", "Watchtower", "ItzBreadLoaf", 2, 24, 8, 1022007, List.of("minecraft:plains", "minecraft:sunflower_plains", "#minecraft:is_forest", "#minecraft:is_taiga", "#minecraft:is_savanna", "minecraft:desert", "minecraft:snowy_plains", "minecraft:meadow"), "Archer", 7, 7, 22));
-		StructureCatalog.add(StructureCatalog.def("bandit_camp", "Bandit Camp", "ItzBreadLoaf", 2, 30, 9, 1022008, List.of("#minecraft:is_forest", "#minecraft:is_taiga", "minecraft:dark_forest", "#minecraft:is_badlands", "#minecraft:is_savanna"), "3-4 Bandits", 15, 15, 7));
-		StructureCatalog.add(StructureCatalog.def("bread_bakery", "Bread Bakery", "ItzBreadLoaf", 1, 26, 8, 1022201, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow"), "ItzBreadLoaf", 11, 11, 12));
-		StructureCatalog.add(StructureCatalog.def("mining_camp", "Mining Camp", "ItzBreadLoaf", 2, 32, 10, 1022203, List.of("#minecraft:is_overworld"), "Miner", 13, 13, 8));
-		StructureCatalog.add(StructureCatalog.def("jungle_treehouse", "Jungle Treehouse", "ItzBreadLoaf", 2, 24, 8, 1022204, List.of("#minecraft:is_jungle", "minecraft:dark_forest"), "ItzBreadLoaf", 13, 13, 24));
-		StructureCatalog.add(StructureCatalog.def("desert_bunker", "Desert Bunker", "ItzBreadLoaf", 2, 26, 8, 1022205, List.of("minecraft:desert", "#minecraft:is_badlands"), "ItzBreadLoaf", 11, 11, 6));
-		StructureCatalog.add(StructureCatalog.def("igloo_hideout", "Igloo Hideout", "ItzBreadLoaf", 1, 24, 8, 1022206, List.of("minecraft:snowy_plains", "minecraft:snowy_taiga", "minecraft:ice_spikes", "minecraft:snowy_slopes"), "ItzBreadLoaf", 9, 9, 7));
-		StructureCatalog.add(StructureCatalog.def("ruined_loaf_castle", "Ruined Loaf Castle", "ItzBreadLoaf", 3, 36, 12, 1022208, List.of("minecraft:plains", "minecraft:sunflower_plains", "#minecraft:is_savanna"), "Captain, Knights, ItzBreadLoafs (3-5)", 27, 27, 16));
-		StructureCatalog.add(StructureCatalog.def("sweaty_dojo", "Sweaty Dojo", "ItzBreadLoaf", 2, 32, 10, 1022314, List.of("minecraft:bamboo_jungle", "minecraft:jungle", "minecraft:cherry_grove", "minecraft:savanna", "minecraft:plains"), "Sweaty", 13, 13, 10));
-		StructureCatalog.add(StructureCatalog.def("windmill", "Bread Mill (id windmill)", "ItzBreadLoaf", 1, 28, 9, 1022307, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow"), "ItzBreadLoaf + Farmer Madison", 15, 15, 18));
-		StructureCatalog.add(StructureCatalog.def("swamp_hut", "Swamp Hut", "ItzBreadLoaf", 1, 24, 8, 1022401, List.of("minecraft:swamp", "minecraft:mangrove_swamp"), "ItzBreadLoaf", 11, 11, 12).placement(StructureCatalog.Placement.ANY_SURFACE));
-		StructureCatalog.add(StructureCatalog.def("mountain_outpost", "Mountain Outpost", "ItzBreadLoaf", 2, 24, 8, 1022402, List.of("minecraft:jagged_peaks", "minecraft:frozen_peaks", "minecraft:stony_peaks", "minecraft:snowy_slopes"), "Archer + Knight", 9, 9, 14));
-		StructureCatalog.add(StructureCatalog.def("badlands_saloon", "Badlands Mineshaft Saloon", "ItzBreadLoaf", 2, 26, 8, 1022403, List.of("#minecraft:is_badlands"), "Miner + ItzBreadLoaf", 15, 13, 10));
-		StructureCatalog.add(StructureCatalog.def("cliffside_base", "Cliffside Cave Base", "ItzBreadLoaf", 2, 26, 8, 1022404, List.of("minecraft:windswept_hills", "minecraft:windswept_gravelly_hills", "minecraft:windswept_forest", "minecraft:meadow", "minecraft:stony_shore"), "ItzBreadLoaf", 13, 13, 4));
-		StructureCatalog.add(StructureCatalog.def("snowball_fort", "Snowball Fort (my idea)", "ItzBreadLoaf", 1, 26, 8, 1022418, List.of("minecraft:snowy_plains", "minecraft:ice_spikes", "minecraft:snowy_taiga", "minecraft:grove"), "ItzBreadLoaf + Village Bread", 19, 13, 5));
-		StructureCatalog.add(StructureCatalog.def("lookout_tower", "Lookout Tower", "ItzBreadLoaf", 2, 24, 8, 1022202, List.of("#minecraft:is_forest", "#minecraft:is_taiga", "minecraft:dark_forest", "minecraft:old_growth_pine_taiga", "minecraft:old_growth_spruce_taiga"), "Archer", 7, 7, 23));
-		StructureCatalog.add(StructureCatalog.def("pirate_ship", "Pirate Ship", "ItzBreadLoaf", 2, 28, 8, 1022012, List.of("#minecraft:is_ocean"), "2-3 Pirates", 9, 23, 15).placement(StructureCatalog.Placement.WATER));
-		StructureCatalog.add(StructureCatalog.def("fishing_dock", "Fishing Dock", "ItzBreadLoaf", 1, 20, 6, 1022207, List.of("minecraft:river", "minecraft:beach", "minecraft:snowy_beach"), "Fisherman", 7, 17, 7).placement(StructureCatalog.Placement.ANY_SURFACE));
-		StructureCatalog.add(StructureCatalog.def("loaf_lighthouse", "Loaf Lighthouse (my idea)", "ItzBreadLoaf", 1, 26, 8, 1022414, List.of("#minecraft:is_beach", "minecraft:stony_shore"), "Fisherman", 9, 9, 23).placement(StructureCatalog.Placement.ANY_SURFACE));
-		StructureCatalog.add(StructureCatalog.def("smugglers_cove", "Smugglers' Cove", "Ocean/beach", 2, 30, 10, 1022315, List.of("#minecraft:is_beach", "minecraft:stony_shore"), "Pirate + Bandit", 13, 17, 8).placement(StructureCatalog.Placement.ANY_SURFACE));
-		StructureCatalog.add(StructureCatalog.def("shipwreck_camp", "Shipwreck Camp (my idea)", "Ocean/beach", 2, 28, 9, 1022417, List.of("#minecraft:is_beach"), "2 Pirates", 17, 11, 8).placement(StructureCatalog.Placement.ANY_SURFACE));
+		StructureCatalog.add(StructureCatalog.def("house", "House", "ItzBreadLoaf", 1, 40, 14, 1022001, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "#minecraft:is_forest", "#minecraft:is_taiga", "#minecraft:is_savanna", "minecraft:snowy_plains", "minecraft:snowy_taiga", "minecraft:desert"), "ItzBreadLoaf", 9, 9, 12));
+		StructureCatalog.add(StructureCatalog.def("tent", "Tent", "ItzBreadLoaf", 1, 50, 16, 1022002, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "#minecraft:is_forest", "#minecraft:is_taiga", "#minecraft:is_savanna", "minecraft:snowy_plains", "minecraft:snowy_taiga", "minecraft:desert"), "2-4 ItzBreadLoafs", 11, 11, 7));
+		StructureCatalog.add(StructureCatalog.def("fort", "Bread Fort", "ItzBreadLoaf", 3, 68, 22, 1022006, List.of("minecraft:plains", "minecraft:meadow", "#minecraft:is_forest", "#minecraft:is_taiga", "#minecraft:is_savanna", "minecraft:windswept_hills", "minecraft:snowy_plains"), "3 Knights + Captain", 21, 21, 14));
+		StructureCatalog.add(StructureCatalog.def("watchtower", "Watchtower", "ItzBreadLoaf", 2, 48, 16, 1022007, List.of("minecraft:plains", "minecraft:sunflower_plains", "#minecraft:is_forest", "#minecraft:is_taiga", "#minecraft:is_savanna", "minecraft:desert", "minecraft:snowy_plains", "minecraft:meadow"), "Archer", 7, 7, 22));
+		StructureCatalog.add(StructureCatalog.def("bandit_camp", "Bandit Camp", "ItzBreadLoaf", 2, 60, 18, 1022008, List.of("#minecraft:is_forest", "#minecraft:is_taiga", "minecraft:dark_forest", "#minecraft:is_badlands", "#minecraft:is_savanna"), "3-4 Bandits", 15, 15, 7));
+		StructureCatalog.add(StructureCatalog.def("bread_bakery", "Bread Bakery", "ItzBreadLoaf", 1, 52, 16, 1022201, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow"), "ItzBreadLoaf", 11, 11, 12));
+		StructureCatalog.add(StructureCatalog.def("mining_camp", "Mining Camp", "ItzBreadLoaf", 2, 64, 20, 1022203, List.of("#minecraft:is_overworld"), "Miner", 13, 13, 8));
+		StructureCatalog.add(StructureCatalog.def("jungle_treehouse", "Jungle Treehouse", "ItzBreadLoaf", 2, 48, 16, 1022204, List.of("#minecraft:is_jungle", "minecraft:dark_forest"), "ItzBreadLoaf", 13, 13, 24));
+		StructureCatalog.add(StructureCatalog.def("desert_bunker", "Desert Bunker", "ItzBreadLoaf", 2, 52, 16, 1022205, List.of("minecraft:desert", "#minecraft:is_badlands"), "ItzBreadLoaf", 11, 11, 6));
+		StructureCatalog.add(StructureCatalog.def("igloo_hideout", "Igloo Hideout", "ItzBreadLoaf", 1, 48, 16, 1022206, List.of("minecraft:snowy_plains", "minecraft:snowy_taiga", "minecraft:ice_spikes", "minecraft:snowy_slopes"), "ItzBreadLoaf", 9, 9, 7));
+		StructureCatalog.add(StructureCatalog.def("ruined_loaf_castle", "Ruined Loaf Castle", "ItzBreadLoaf", 3, 72, 24, 1022208, List.of("minecraft:plains", "minecraft:sunflower_plains", "#minecraft:is_savanna"), "Captain, Knights, ItzBreadLoafs (3-5)", 27, 27, 16));
+		StructureCatalog.add(StructureCatalog.def("sweaty_dojo", "Sweaty Dojo", "ItzBreadLoaf", 2, 64, 20, 1022314, List.of("minecraft:bamboo_jungle", "minecraft:jungle", "minecraft:cherry_grove", "minecraft:savanna", "minecraft:plains"), "Sweaty", 13, 13, 10));
+		StructureCatalog.add(StructureCatalog.def("windmill", "Bread Mill (id windmill)", "ItzBreadLoaf", 1, 56, 18, 1022307, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow"), "ItzBreadLoaf + Farmer Madison", 15, 15, 18));
+		StructureCatalog.add(StructureCatalog.def("swamp_hut", "Swamp Hut", "ItzBreadLoaf", 1, 48, 16, 1022401, List.of("minecraft:swamp", "minecraft:mangrove_swamp"), "ItzBreadLoaf", 11, 11, 12).placement(StructureCatalog.Placement.ANY_SURFACE));
+		StructureCatalog.add(StructureCatalog.def("mountain_outpost", "Mountain Outpost", "ItzBreadLoaf", 2, 48, 16, 1022402, List.of("minecraft:jagged_peaks", "minecraft:frozen_peaks", "minecraft:stony_peaks", "minecraft:snowy_slopes"), "Archer + Knight", 9, 9, 14));
+		StructureCatalog.add(StructureCatalog.def("badlands_saloon", "Badlands Mineshaft Saloon", "ItzBreadLoaf", 2, 52, 16, 1022403, List.of("#minecraft:is_badlands"), "Miner + ItzBreadLoaf", 15, 13, 10));
+		StructureCatalog.add(StructureCatalog.def("cliffside_base", "Cliffside Cave Base", "ItzBreadLoaf", 2, 52, 16, 1022404, List.of("minecraft:windswept_hills", "minecraft:windswept_gravelly_hills", "minecraft:windswept_forest", "minecraft:meadow", "minecraft:stony_shore"), "ItzBreadLoaf", 13, 13, 4));
+		StructureCatalog.add(StructureCatalog.def("snowball_fort", "Snowball Fort (my idea)", "ItzBreadLoaf", 1, 52, 16, 1022418, List.of("minecraft:snowy_plains", "minecraft:ice_spikes", "minecraft:snowy_taiga", "minecraft:grove"), "ItzBreadLoaf + Village Bread", 19, 13, 5));
+		StructureCatalog.add(StructureCatalog.def("lookout_tower", "Lookout Tower", "ItzBreadLoaf", 2, 48, 16, 1022202, List.of("#minecraft:is_forest", "#minecraft:is_taiga", "minecraft:dark_forest", "minecraft:old_growth_pine_taiga", "minecraft:old_growth_spruce_taiga"), "Archer", 7, 7, 23));
+		StructureCatalog.add(StructureCatalog.def("pirate_ship", "Pirate Ship", "ItzBreadLoaf", 2, 56, 16, 1022012, List.of("#minecraft:is_ocean"), "2-3 Pirates", 9, 23, 15).placement(StructureCatalog.Placement.WATER));
+		StructureCatalog.add(StructureCatalog.def("fishing_dock", "Fishing Dock", "ItzBreadLoaf", 1, 40, 12, 1022207, List.of("minecraft:river", "minecraft:beach", "minecraft:snowy_beach"), "Fisherman", 7, 17, 7).placement(StructureCatalog.Placement.ANY_SURFACE));
+		StructureCatalog.add(StructureCatalog.def("loaf_lighthouse", "Loaf Lighthouse (my idea)", "ItzBreadLoaf", 1, 52, 16, 1022414, List.of("#minecraft:is_beach", "minecraft:stony_shore"), "Fisherman", 9, 9, 23).placement(StructureCatalog.Placement.ANY_SURFACE));
+		StructureCatalog.add(StructureCatalog.def("smugglers_cove", "Smugglers' Cove", "Ocean/beach", 2, 60, 20, 1022315, List.of("#minecraft:is_beach", "minecraft:stony_shore"), "Pirate + Bandit", 13, 17, 8).placement(StructureCatalog.Placement.ANY_SURFACE));
+		StructureCatalog.add(StructureCatalog.def("shipwreck_camp", "Shipwreck Camp (my idea)", "Ocean/beach", 2, 56, 18, 1022417, List.of("#minecraft:is_beach"), "2 Pirates", 17, 11, 8).placement(StructureCatalog.Placement.ANY_SURFACE));
 		StructureCatalog.add(StructureCatalog.def("village_campsite", "Village Campsite", "FelixSyn", 2, 2, 1, 0, List.of(), "FelixSyn & Harley", 13, 11, 7).placement(StructureCatalog.Placement.RUNTIME));
 		StructureCatalog.add(StructureCatalog.def("bastion_throne_room", "Bastion Throne Room", "Nether", 4, 2, 1, 0, List.of(), "Master BreadLoaf", 13, 13, 9).placement(StructureCatalog.Placement.RUNTIME));
 	}
@@ -30884,40 +31057,6 @@ public final class StructureCheckMain {
       "entries": [
         {
           "type": "minecraft:item",
-          "name": "minecraft:mace",
-          "weight": 3,
-          "functions": [
-            {
-              "function": "minecraft:set_enchantments",
-              "enchantments": {
-                "minecraft:density": {
-                  "type": "minecraft:uniform",
-                  "min": 3,
-                  "max": 5
-                }
-              }
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:mace",
-          "weight": 3,
-          "functions": [
-            {
-              "function": "minecraft:set_enchantments",
-              "enchantments": {
-                "minecraft:breach": {
-                  "type": "minecraft:uniform",
-                  "min": 2,
-                  "max": 4
-                }
-              }
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
           "name": "minecraft:diamond_sword",
           "weight": 3,
           "functions": [
@@ -31105,23 +31244,6 @@ public final class StructureCheckMain {
         },
         {
           "type": "minecraft:item",
-          "name": "minecraft:mace",
-          "weight": 3,
-          "functions": [
-            {
-              "function": "minecraft:set_enchantments",
-              "enchantments": {
-                "minecraft:wind_burst": {
-                  "type": "minecraft:uniform",
-                  "min": 1,
-                  "max": 3
-                }
-              }
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
           "name": "itzbreadloaf:master_loaf_trophy",
           "weight": 1
         }
@@ -31188,8 +31310,73 @@ public final class StructureCheckMain {
         },
         {
           "type": "minecraft:item",
+          "name": "itzbreadloaf:master_loaf_trophy",
+          "weight": 1
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:elytra",
+          "weight": 3
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/tiers/mace.json
+
+```json
+{
+  "type": "minecraft:generic",
+  "pools": [
+    {
+      "rolls": 1,
+      "bonus_rolls": 0.0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:mace",
+          "weight": 6
+        },
+        {
+          "type": "minecraft:item",
           "name": "minecraft:mace",
           "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_enchantments",
+              "enchantments": {
+                "minecraft:density": {
+                  "type": "minecraft:uniform",
+                  "min": 3,
+                  "max": 5
+                }
+              }
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:mace",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_enchantments",
+              "enchantments": {
+                "minecraft:breach": {
+                  "type": "minecraft:uniform",
+                  "min": 2,
+                  "max": 4
+                }
+              }
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:mace",
+          "weight": 2,
           "functions": [
             {
               "function": "minecraft:set_enchantments",
@@ -31202,16 +31389,6 @@ public final class StructureCheckMain {
               }
             }
           ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "itzbreadloaf:master_loaf_trophy",
-          "weight": 1
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:elytra",
-          "weight": 3
         }
       ]
     }
@@ -31392,11 +31569,6 @@ public final class StructureCheckMain {
         {
           "type": "minecraft:item",
           "name": "minecraft:diamond_boots",
-          "weight": 2
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:mace",
           "weight": 2
         },
         {
@@ -33306,8 +33478,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 26,
-    "separation": 8,
+    "spacing": 52,
+    "separation": 16,
     "salt": 1022403,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -33329,8 +33501,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 30,
-    "separation": 9,
+    "spacing": 60,
+    "separation": 18,
     "salt": 1022010,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -33352,8 +33524,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 30,
-    "separation": 9,
+    "spacing": 60,
+    "separation": 18,
     "salt": 1022008,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -33375,8 +33547,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 26,
-    "separation": 8,
+    "spacing": 52,
+    "separation": 16,
     "salt": 1022409,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -33398,8 +33570,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 24,
-    "separation": 8,
+    "spacing": 48,
+    "separation": 16,
     "salt": 1022416,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -33421,8 +33593,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 26,
-    "separation": 8,
+    "spacing": 52,
+    "separation": 16,
     "salt": 1022201,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -33444,8 +33616,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 24,
-    "separation": 8,
+    "spacing": 48,
+    "separation": 16,
     "salt": 1022502,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -33467,8 +33639,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 26,
-    "separation": 8,
+    "spacing": 52,
+    "separation": 16,
     "salt": 1022404,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -33490,8 +33662,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 26,
-    "separation": 9,
+    "spacing": 52,
+    "separation": 18,
     "salt": 1022309,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -33513,8 +33685,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 26,
-    "separation": 8,
+    "spacing": 52,
+    "separation": 16,
     "salt": 1022205,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -33574,8 +33746,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 34,
-    "separation": 11,
+    "spacing": 68,
+    "separation": 22,
     "salt": 1022304,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -33597,8 +33769,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 20,
-    "separation": 6,
+    "spacing": 40,
+    "separation": 12,
     "salt": 1022207,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -33620,8 +33792,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 20,
-    "separation": 7,
+    "spacing": 40,
+    "separation": 14,
     "salt": 1022405,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -33643,8 +33815,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 30,
-    "separation": 10,
+    "spacing": 60,
+    "separation": 20,
     "salt": 1022303,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -33666,8 +33838,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 34,
-    "separation": 11,
+    "spacing": 68,
+    "separation": 22,
     "salt": 1022006,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -33689,8 +33861,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 30,
-    "separation": 10,
+    "spacing": 60,
+    "separation": 20,
     "salt": 1022413,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -33712,8 +33884,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 40,
-    "separation": 14,
+    "spacing": 80,
+    "separation": 28,
     "salt": 1022311,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -33735,8 +33907,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 28,
-    "separation": 9,
+    "spacing": 56,
+    "separation": 18,
     "salt": 1022301,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -33758,8 +33930,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 20,
-    "separation": 7,
+    "spacing": 40,
+    "separation": 14,
     "salt": 1022001,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -33781,8 +33953,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 24,
-    "separation": 8,
+    "spacing": 48,
+    "separation": 16,
     "salt": 1022206,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -33804,8 +33976,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 24,
-    "separation": 8,
+    "spacing": 48,
+    "separation": 16,
     "salt": 1022204,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -33827,8 +33999,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 28,
-    "separation": 9,
+    "spacing": 56,
+    "separation": 18,
     "salt": 1022302,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -33850,8 +34022,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 26,
-    "separation": 8,
+    "spacing": 52,
+    "separation": 16,
     "salt": 1022406,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -33873,8 +34045,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 16,
-    "separation": 6,
+    "spacing": 32,
+    "separation": 12,
     "salt": 1022102,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -33896,8 +34068,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 16,
-    "separation": 5,
+    "spacing": 32,
+    "separation": 10,
     "salt": 1022003,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -33919,8 +34091,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 16,
-    "separation": 6,
+    "spacing": 32,
+    "separation": 12,
     "salt": 1022101,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -33942,8 +34114,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 20,
-    "separation": 7,
+    "spacing": 40,
+    "separation": 14,
     "salt": 1022105,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -33965,8 +34137,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 16,
-    "separation": 6,
+    "spacing": 32,
+    "separation": 12,
     "salt": 1022103,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -33988,8 +34160,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 16,
-    "separation": 6,
+    "spacing": 32,
+    "separation": 12,
     "salt": 1022104,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -34011,8 +34183,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 26,
-    "separation": 8,
+    "spacing": 52,
+    "separation": 16,
     "salt": 1022414,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -34034,8 +34206,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 24,
-    "separation": 8,
+    "spacing": 48,
+    "separation": 16,
     "salt": 1022202,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -34057,8 +34229,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 28,
-    "separation": 9,
+    "spacing": 56,
+    "separation": 18,
     "salt": 1022501,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -34080,8 +34252,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 18,
-    "separation": 6,
+    "spacing": 36,
+    "separation": 12,
     "salt": 1022004,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -34103,8 +34275,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 24,
-    "separation": 8,
+    "spacing": 48,
+    "separation": 16,
     "salt": 1022306,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -34126,8 +34298,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 32,
-    "separation": 10,
+    "spacing": 64,
+    "separation": 20,
     "salt": 1022203,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -34149,8 +34321,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 24,
-    "separation": 8,
+    "spacing": 48,
+    "separation": 16,
     "salt": 1022402,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -34210,8 +34382,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 30,
-    "separation": 10,
+    "spacing": 60,
+    "separation": 20,
     "salt": 1022305,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -34233,8 +34405,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 28,
-    "separation": 8,
+    "spacing": 56,
+    "separation": 16,
     "salt": 1022012,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -34256,8 +34428,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 28,
-    "separation": 9,
+    "spacing": 56,
+    "separation": 18,
     "salt": 1022308,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -34279,8 +34451,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 30,
-    "separation": 10,
+    "spacing": 60,
+    "separation": 20,
     "salt": 1022310,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -34302,8 +34474,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 24,
-    "separation": 8,
+    "spacing": 48,
+    "separation": 16,
     "salt": 1022504,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -34325,8 +34497,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 22,
-    "separation": 7,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1022408,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -34348,8 +34520,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 36,
-    "separation": 12,
+    "spacing": 72,
+    "separation": 24,
     "salt": 1022208,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -34371,8 +34543,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 30,
-    "separation": 10,
+    "spacing": 60,
+    "separation": 20,
     "salt": 1022410,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -34394,8 +34566,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 28,
-    "separation": 9,
+    "spacing": 56,
+    "separation": 18,
     "salt": 1022417,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -34417,8 +34589,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 40,
-    "separation": 14,
+    "spacing": 80,
+    "separation": 28,
     "salt": 1022011,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -34440,8 +34612,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 30,
-    "separation": 10,
+    "spacing": 60,
+    "separation": 20,
     "salt": 1022315,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -34463,8 +34635,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 26,
-    "separation": 8,
+    "spacing": 52,
+    "separation": 16,
     "salt": 1022418,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -34486,8 +34658,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 28,
-    "separation": 9,
+    "spacing": 56,
+    "separation": 18,
     "salt": 1022415,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -34509,8 +34681,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 24,
-    "separation": 8,
+    "spacing": 48,
+    "separation": 16,
     "salt": 1022401,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -34532,8 +34704,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 32,
-    "separation": 10,
+    "spacing": 64,
+    "separation": 20,
     "salt": 1022314,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -34555,8 +34727,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 25,
-    "separation": 8,
+    "spacing": 50,
+    "separation": 16,
     "salt": 1022002,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -34578,8 +34750,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 28,
-    "separation": 8,
+    "spacing": 56,
+    "separation": 16,
     "salt": 1022009,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -34601,8 +34773,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 22,
-    "separation": 7,
+    "spacing": 44,
+    "separation": 14,
     "salt": 1022407,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -34624,8 +34796,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 36,
-    "separation": 12,
+    "spacing": 72,
+    "separation": 24,
     "salt": 1022005,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -34647,8 +34819,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 24,
-    "separation": 8,
+    "spacing": 48,
+    "separation": 16,
     "salt": 1022007,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -34670,8 +34842,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 30,
-    "separation": 10,
+    "spacing": 60,
+    "separation": 20,
     "salt": 1022503,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
@@ -34693,8 +34865,8 @@ public final class StructureCheckMain {
   ],
   "placement": {
     "type": "minecraft:random_spread",
-    "spacing": 28,
-    "separation": 9,
+    "spacing": 56,
+    "separation": 18,
     "salt": 1022307,
     "exclusion_zone": {
       "other_set": "minecraft:villages",

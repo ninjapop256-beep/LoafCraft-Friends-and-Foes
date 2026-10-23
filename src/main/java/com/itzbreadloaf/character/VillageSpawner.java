@@ -61,7 +61,7 @@ public final class VillageSpawner {
 			}
 			BlockPos spot = findSpot(level, village.getBoundingBox(), random);
 			if (spot != null) {
-				FelixBrain.spawnDuo(level, Vec3.atBottomCenterOf(spot), spot);
+				FelixBrain.spawnDuo(level, Vec3.atBottomCenterOf(spot), spot, true);
 			}
 		}
 	}

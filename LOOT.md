@@ -1,6 +1,8 @@
 # LoafCraft loot rarity
 
-Every LoafCraft chest and character drop rolls from one shared set of tiers. Rare, Epic and Legendary items (maces, god apples, netherite, totems, elytras...) **only** come from tier rolls, never from a structure's own themed items.
+Every LoafCraft chest and character drop rolls from one shared set of tiers. Rare, Epic and Legendary items (god apples, netherite, totems, elytras...) **only** come from tier rolls, never from a structure's own themed items.
+
+**Maces are super rare (under 1% everywhere).** They are in no tier. Each chest gets one separate mace roll: 0.1% (Basic), 0.3% (Standard), 0.5% (Hard), 0.8% (Master) (`maceChestChance` in the config). Characters that carry a mace drop it 0.8% of the time (`maceDropChance`), tamed ones too. Character drop tables never roll a mace.
 
 ## Tier odds per roll, by loot level
 
@@ -23,15 +25,19 @@ Iron ingot (1-4), Gold ingot (1-3), Emerald (1-4), Redstone (2-8), Lapis lazuli 
 
 ## Rare
 
-Diamond (1-2), Golden apple (1-2), Ender pearl (1-3), Wind charge (2-6), Spyglass, Saddle, Breeze rod (1-2), Gold block, Ender eye, Shulker shell, Goat horn, Bee nest, Enchanted book (low level), Diamond sword, Diamond pickaxe, Diamond axe, Diamond helmet, Diamond chestplate, Diamond leggings, Diamond boots, Mace (no enchantments), Sentry armor trim smithing template, Coast armor trim smithing template, Wild armor trim smithing template, Dune armor trim smithing template
+Diamond (1-2), Golden apple (1-2), Ender pearl (1-3), Wind charge (2-6), Spyglass, Saddle, Breeze rod (1-2), Gold block, Ender eye, Shulker shell, Goat horn, Bee nest, Enchanted book (low level), Diamond sword, Diamond pickaxe, Diamond axe, Diamond helmet, Diamond chestplate, Diamond leggings, Diamond boots, Sentry armor trim smithing template, Coast armor trim smithing template, Wild armor trim smithing template, Dune armor trim smithing template
 
 ## Epic
 
-Mace with Density III-V, Mace with Breach II-IV, Diamond sword with good enchantments, Diamond chestplate with good enchantments, Diamond pickaxe with good enchantments, Enchanted book (high level), Totem of undying, Heavy core, Ancient debris (1-2), Netherite scrap, Netherite upgrade smithing template, Heart of the sea, Music disc cat, Music disc pigstep, Music disc otherside, Music disc relic, Music disc creator
+Diamond sword with good enchantments, Diamond chestplate with good enchantments, Diamond pickaxe with good enchantments, Enchanted book (high level), Totem of undying, Heavy core, Ancient debris (1-2), Netherite scrap, Netherite upgrade smithing template, Heart of the sea, Music disc cat, Music disc pigstep, Music disc otherside, Music disc relic, Music disc creator
 
 ## Legendary
 
-Enchanted golden apple, Netherite ingot, Netherite sword (enchanted), Netherite chestplate (enchanted), Netherite pickaxe, Mace with Wind Burst I-III, Master loaf trophy, Elytra (End structures only)
+Enchanted golden apple, Netherite ingot, Netherite sword (enchanted), Netherite chestplate (enchanted), Netherite pickaxe, Master loaf trophy, Elytra (End structures only)
+
+## Mace (separate roll, see above)
+
+Mace (no enchantments), Mace with Density III-V, Mace with Breach II-IV, Mace with Wind Burst I-III
 
 ## Loot levels
 
@@ -111,11 +117,11 @@ Enchanted golden apple, Netherite ingot, Netherite sword (enchanted), Netherite 
 
 ## Character drops
 
-- **Everyone:** their own themed items (below) + tier rolls at their loot level; Looting adds bonus tier rolls; each armor piece 8.5%, their weapon 15%. Tamed characters drop their whole inventory instead (it's your gear).
+- **Everyone:** their own themed items (below) + tier rolls at their loot level; Looting adds bonus tier rolls; each armor piece 8.5%, their weapon 15% (a mace 0.8%). Tamed characters drop their whole inventory instead (it's your gear), except a carried mace: 0.8%.
 - **ItzBreadLoaf:** bread, Loaf Bread, steak, arrows.
 - **ImLilyLol:** flowers, cookies, paper.
 - **Madison:** bread, carrots, potatoes, baked potatoes, pumpkin pie, apples.
-- **FelixSyn:** porkchops, string; 25% some of his wind charges; 5% his own enchanted mace.
+- **FelixSyn:** porkchops, string; 25% some of his wind charges; 0.8% his mace.
 - **Harley:** cookies, a tulip, steak; Harley's Blade 25% when wild.
-- **Master BreadLoaf:** guaranteed Wind Burst mace and Master Loaf Trophy, plus 2 extra Epic/Legendary rolls.
+- **Master BreadLoaf:** guaranteed Master Loaf Trophy, 0.8% his Wind Burst mace, plus 2 extra Epic/Legendary rolls.
 

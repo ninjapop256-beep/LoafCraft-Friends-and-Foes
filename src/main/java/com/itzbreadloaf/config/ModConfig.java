@@ -34,8 +34,10 @@ public final class ModConfig {
 	public double felixVillageChance = 0.4;
 	/** Wild FelixSyn's random natural spawn weight (like itzBreadLoafSpawnWeight). Most live in their own homes. */
 	public int wildFelixSpawnWeight = 2;
-	/** Chance (0-1) that Harley comes along with a wild FelixSyn (she's always with the village drifter). */
-	public double wildFelixHarleyChance = 0.3;
+	/** Chance (0-1) that Harley comes along with a wild FelixSyn (20%). Renamed so old config files lose the old 30%. */
+	public double wildFelixWithHarleyChance = 0.2;
+	/** Chance a FelixSyn in a village or structure has Harley with him (spawn eggs and /loafcraft spawn always do). */
+	public double felixHarleyChance = 0.2;
 	/** Harley's best friend: the one real player she adores and gives gifts to (matched by Minecraft name, any case). */
 	public String harleyBestFriend = "FelixSyn";
 	/** Share (0-1) of ItzBreadLoafs and FelixSyns wearing their main skin; the rest wear a random old skin (<name>_alt<N>.png). */
@@ -102,6 +104,13 @@ public final class ModConfig {
 	public double characterArmorDropChance = 0.085;
 	/** Chance a character drops its weapon. */
 	public double characterWeaponDropChance = 0.15;
+	/**
+	 * Maces are super rare. They're in no loot tier; each chest gets one separate mace roll with this chance, by loot
+	 * level 1-4 (0.1%, 0.3%, 0.5%, 0.8%). Character drop tables never roll one.
+	 */
+	public double[] maceChestChance = {0.001, 0.003, 0.005, 0.008};
+	/** Chance a character carrying a mace (FelixSyn, Harley, Master BreadLoaf, wild or tamed) drops it when it dies. */
+	public double maceDropChance = 0.008;
 
 	public enum HarleyPreset {
 		EASY(20.0, 0.85, 0.11, 0.25F), NORMAL(26.0, 1.0, 0.115, 0.4F), HARD(32.0, 1.15, 0.12, 0.6F);

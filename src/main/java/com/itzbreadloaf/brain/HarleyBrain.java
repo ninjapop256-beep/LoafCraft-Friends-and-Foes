@@ -50,6 +50,7 @@ import org.jetbrains.annotations.Nullable;
  * Best friend: she adores one real player, "FelixSyn" by default (harleyBestFriend in the config). She never attacks
  * them (even if they hit her), greets them, stays close with hearts, defends them from anything that hurts them,
  * tames on the first golden apple from them, and every few minutes gives them a gift. Nobody else gets gifts.
+ * Only one Harley at a time follows them around (one they tamed comes first); any others just love them from afar.
  */
 public class HarleyBrain extends LoafBrain {
 	public static final int VENGEANCE_TICKS = 1200;
@@ -210,7 +211,8 @@ public class HarleyBrain extends LoafBrain {
 			return;
 		}
 		if (this.isTame()) {
-			if (!this.followOwner()) {
+			// If her owner is her best friend and another Harley is already following him, she stays put.
+			if (this.owner != null && isBestFriend(this.getOwnerPlayer()) && this.followSpotTaken(this.owner) || !this.followOwner()) {
 				this.lookAround(8.0);
 			}
 			return;
@@ -263,24 +265,40 @@ public class HarleyBrain extends LoafBrain {
 			this.particles(ParticleTypes.DAMAGE_INDICATOR, 3);
 			this.nextOuchTick = this.ticks + 200;
 		}
+		// FelixSyn's duels with ItzBreadLoafs are one on one: she watches and doesn't join (or hit back at his
+		// opponent for a stray hit). His other fights she still jumps into.
+		LivingEntity duel = this.felixDuelOpponent();
 		if (this.isTame()) {
 			this.protectOwner(true);
 		} else {
 			LoafCharacter felix = this.partnerCharacter();
-			if (felix != null && felix.brain != null && felix.brain.getTarget() != null && felix.brain.getTarget() != this.player) {
+			if (felix != null && felix.brain != null && felix.brain.getTarget() != null && felix.brain.getTarget() != this.player
+					&& felix.brain.getTarget() != duel) {
 				this.setTarget(felix.brain.getTarget());
 				return;
 			}
 		}
 		LivingEntity attacker = this.lastAttacker;
-		if (attacker != null && attacker.isAlive() && this.ticks - this.lastHurtTick < 200 && !this.isFriendlyWith(attacker)
+		if (attacker != null && attacker != duel && attacker.isAlive() && this.ticks - this.lastHurtTick < 200 && !this.isFriendlyWith(attacker)
 				&& (this.partner == null || !this.partner.equals(attacker.getUUID()))
 				&& !(attacker instanceof Player p && (p.isCreative() || p.isSpectator()))) {
 			this.setTarget(attacker);
 		}
 	}
 
+	/** The ItzBreadLoaf her FelixSyn is dueling right now, or null. */
+	private @Nullable LivingEntity felixDuelOpponent() {
+		LoafCharacter felix = this.partnerCharacter();
+		LivingEntity target = felix == null || felix.brain == null ? null : felix.brain.getTarget();
+		return target != null && LoafIds.kind(target.getUUID()) == com.itzbreadloaf.character.CharacterKind.BREADLOAF ? target : null;
+	}
+
 	private void fight(LivingEntity target) {
+		// She was already on his opponent when the duel started: back off and let them settle it.
+		if (target == this.felixDuelOpponent()) {
+			this.setTarget(null);
+			return;
+		}
 		this.fightTicks++;
 		double distance = this.player.distanceTo(target);
 		if (distance > 48.0 || this.isTame() && this.isFriendlyWith(target)) {
@@ -329,6 +347,38 @@ public class HarleyBrain extends LoafBrain {
 				&& player.getGameProfile().name().equalsIgnoreCase(name.trim());
 	}
 
+	/**
+	 * Only one Harley at a time follows her best friend. The spot is per player (their UUID): who holds it, whether
+	 * he tamed her, and the server tick she last followed. A spot not used for 2 seconds (she died, unloaded, was
+	 * told to sit, or he walked away from her) is free again.
+	 */
+	private record FollowSpot(UUID harley, boolean tamedByHim, int lastTick) {
+	}
+
+	private static final java.util.Map<UUID, FollowSpot> FOLLOW_SPOTS = new java.util.HashMap<>();
+	private static final int FOLLOW_SPOT_TIMEOUT = 40;
+
+	/** True if this Harley may follow that player: she holds the spot, it's free, or he tamed her and the holder is wild. */
+	private boolean claimFollowSpot(UUID friendId) {
+		int now = this.player.level().getServer().getTickCount();
+		boolean tamedByHim = friendId.equals(this.owner);
+		FollowSpot spot = FOLLOW_SPOTS.get(friendId);
+		boolean free = spot == null || spot.harley().equals(this.player.getUUID()) || now - spot.lastTick() > FOLLOW_SPOT_TIMEOUT
+				|| tamedByHim && !spot.tamedByHim();
+		if (free) {
+			FOLLOW_SPOTS.put(friendId, new FollowSpot(this.player.getUUID(), tamedByHim, now));
+		}
+		return free;
+	}
+
+	/** Another Harley is following this player right now. */
+	private boolean followSpotTaken(UUID friendId) {
+		FollowSpot spot = FOLLOW_SPOTS.get(friendId);
+		return spot != null && !spot.harley().equals(this.player.getUUID())
+				&& this.player.level().getServer().getTickCount() - spot.lastTick() <= FOLLOW_SPOT_TIMEOUT
+				&& !(friendId.equals(this.owner) && !spot.tamedByHim());
+	}
+
 	private @Nullable ServerPlayer findBestFriend() {
 		for (ServerPlayer candidate : this.player.level().players()) {
 			if (isBestFriend(candidate) && candidate.isAlive() && !candidate.isSpectator()
@@ -365,6 +415,16 @@ public class HarleyBrain extends LoafBrain {
 		}
 		// Tamed by someone else: she still loves them, but she goes with her owner.
 		if (this.sitting || this.isTame() && !this.isOwnedBy(friend)) {
+			return false;
+		}
+		// Only one Harley follows him. The others still love him (hearts, hellos, gifts) but go about their day;
+		// another Harley he tamed waits where she is.
+		if (!this.claimFollowSpot(friend.getUUID())) {
+			if (this.isTame()) {
+				this.nav.stop();
+				this.lookAround(8.0);
+				return true;
+			}
 			return false;
 		}
 		if (distance > 3.5) {

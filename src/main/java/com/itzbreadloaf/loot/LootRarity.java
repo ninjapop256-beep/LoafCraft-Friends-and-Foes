@@ -52,7 +52,35 @@ public final class LootRarity {
 			if (path.startsWith("chests/") || path.startsWith("characters/")) {
 				tableBuilder.withPool(tierPool(path));
 			}
+			if (path.startsWith("chests/")) {
+				tableBuilder.withPool(macePool(path));
+			}
 		});
+	}
+
+	/** One separate roll for a mace (tiers/mace), under 1% at every loot level (maceChestChance in the config). */
+	private static LootPool.Builder macePool(String path) {
+		double[] chances = ModConfig.get().maceChestChance;
+		int level = levelOf(path) - 1;
+		double chance = chances != null && level < chances.length ? chances[level] : new double[]{0.001, 0.003, 0.005, 0.008}[level];
+		return LootPool.lootPool().setRolls(ConstantValue.exactly(1.0F))
+				.when(net.minecraft.world.level.storage.loot.predicates.LootItemRandomChanceCondition.randomChance((float) Math.clamp(chance, 0.0, 1.0)))
+				.add(NestedLootTable.lootTableReference(ResourceKey.create(Registries.LOOT_TABLE, ItzBreadLoaf.id("tiers/mace"))));
+	}
+
+	/** Whether a character's mace drops this time (maceDropChance, 0.8% by default). */
+	public static boolean maceDrops(RandomSource random) {
+		return random.nextDouble() < ModConfig.get().maceDropChance;
+	}
+
+	/** A tamed character drops its whole inventory, except maces: each one only with maceDropChance. */
+	public static void stripMaces(ServerPlayer self, RandomSource random) {
+		var inventory = self.getInventory();
+		for (int slot = 0; slot < inventory.getContainerSize(); slot++) {
+			if (inventory.getItem(slot).is(Items.MACE) && !maceDrops(random)) {
+				inventory.setItem(slot, ItemStack.EMPTY);
+			}
+		}
 	}
 
 	/** The loot level (1-4) of a table like "chests/house" or "characters/felixsyn". */
@@ -138,7 +166,10 @@ public final class LootRarity {
 			ItemStack stack = self.getInventory().getItem(slot);
 			if (stack.is(ItemTags.SWORDS) || stack.is(ItemTags.AXES) || stack.is(Items.MACE) || stack.is(Items.BOW)
 					|| stack.is(Items.CROSSBOW) || stack.is(Items.TRIDENT)) {
-				self.spawnAtLocation(level, stack.copy());
+				// Maces are super rare: a mace also has to pass maceDropChance (so well under 1% overall).
+				if (!stack.is(Items.MACE) || maceDrops(random)) {
+					self.spawnAtLocation(level, stack.copy());
+				}
 				return;
 			}
 		}

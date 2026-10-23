@@ -64,7 +64,7 @@ public class FelixBrain extends LoafBrain {
 
 	/**
 	 * A wild FelixSyn (natural spawns and his own homes): rolled gear, and Harley only comes along sometimes
-	 * (wildFelixHarleyChance, 30%).
+	 * (wildFelixWithHarleyChance, 20%).
 	 */
 	public static @Nullable LoafCharacter spawnWild(ServerLevel level, Vec3 pos, @Nullable BlockPos home, int radius, @Nullable BlockPos bed) {
 		LoafCharacter felix = CharacterManager.create(level, CharacterVariant.WILD_FELIX, pos, level.getRandom().nextFloat() * 360.0F,
@@ -73,7 +73,7 @@ public class FelixBrain extends LoafBrain {
 						brain.setupHome(home, radius, bed);
 					}
 				});
-		if (felix != null && level.getRandom().nextFloat() < com.itzbreadloaf.config.ModConfig.get().wildFelixHarleyChance) {
+		if (felix != null && level.getRandom().nextFloat() < com.itzbreadloaf.config.ModConfig.get().wildFelixWithHarleyChance) {
 			UUID felixId = felix.player.getUUID();
 			CharacterManager.create(level, CharacterVariant.HARLEY, pos.add(1.0, 0.0, 0.0), level.getRandom().nextFloat() * 360.0F, brain -> {
 				if (home != null) {
@@ -91,13 +91,24 @@ public class FelixBrain extends LoafBrain {
 		return this.variant == CharacterVariant.WILD_FELIX;
 	}
 
-	/** FelixSyn spawns with Harley at his side (villages, the spawn egg, /loafcraft spawn felixsyn). */
+	/** FelixSyn with Harley at his side, always (the spawn egg, /loafcraft spawn felixsyn). */
 	public static @Nullable LoafCharacter spawnDuo(ServerLevel level, Vec3 pos, @Nullable BlockPos home) {
+		return spawnDuo(level, pos, home, false);
+	}
+
+	/**
+	 * FelixSyn, and Harley with him: always, or for natural spawns (villages, structures) only felixHarleyChance of
+	 * the time (20%), so most FelixSyns you meet are on their own.
+	 */
+	public static @Nullable LoafCharacter spawnDuo(ServerLevel level, Vec3 pos, @Nullable BlockPos home, boolean natural) {
 		BlockPos homePos = home != null ? home : BlockPos.containing(pos);
 		LoafCharacter felix = CharacterManager.create(level, CharacterVariant.FELIXSYN, pos, level.getRandom().nextFloat() * 360.0F,
 				brain -> brain.setupHome(homePos, (int) HOME_RADIUS, null));
 		if (felix == null) {
 			return null;
+		}
+		if (natural && level.getRandom().nextDouble() >= com.itzbreadloaf.config.ModConfig.get().felixHarleyChance) {
+			return felix;
 		}
 		UUID felixId = felix.player.getUUID();
 		CharacterManager.create(level, CharacterVariant.HARLEY, pos.add(1.0, 0.0, 0.0), level.getRandom().nextFloat() * 360.0F, brain -> {
@@ -525,11 +536,11 @@ public class FelixBrain extends LoafBrain {
 		}
 		ServerLevel level = this.player.level();
 		// Loot rarity system: his drop table + tier rolls, armor 8.5% each. Sometimes some of his wind charges
-		// (25%), rarely his own mace (5%).
+		// (25%), and super rarely his own mace (maceDropChance, 0.8%).
 		com.itzbreadloaf.loot.LootRarity.dropCharacterLoot(this, this.player, source);
 		com.itzbreadloaf.loot.LootRarity.dropGear(this.player, this.random, false);
 		boolean windCharges = this.random.nextFloat() < 0.25F;
-		boolean mace = this.random.nextFloat() < 0.05F;
+		boolean mace = com.itzbreadloaf.loot.LootRarity.maceDrops(this.random);
 		for (int i = 0; i < 36; i++) {
 			ItemStack stack = this.player.getInventory().getItem(i);
 			if (windCharges && stack.is(Items.WIND_CHARGE)) {

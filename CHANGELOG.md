@@ -23,6 +23,33 @@ Newest changes first. Existing worlds keep working; new structures only appear i
 - **No fights in villages.** He doesn't start fights in or next to a village, and a rival fight that moves into one stops. He still fights back if he or Harley gets hit.
 - **The rivalry is only with geared ItzBreadLoafs.** He only fights ItzBreadLoafs wearing armor or holding a weapon, and ItzBreadLoafs without gear don't go after him either.
 
+### Structures are spread out more
+- Every overworld LoafCraft structure is now about twice as far apart (for example Houses every 40 chunks instead of 20). Nether and End structures are unchanged.
+
+### FelixSyn is usually alone
+- FelixSyns in villages and structures now have Harley with them only 20% of the time (`felixHarleyChance`), and wild FelixSyns 20% (was 30%, `wildFelixWithHarleyChance`). Spawn eggs and `/loafcraft spawn felixsyn` still always bring her.
+
+### Maces are super rare (under 1% everywhere)
+- Maces are no longer in the Rare, Epic or Legendary loot tiers. Each chest gets one separate mace roll instead: 0.1% (Basic), 0.3% (Standard), 0.5% (Hard), 0.8% (Master).
+- Characters that carry a mace drop it only 0.8% of the time: FelixSyn (was 5%), wild FelixSyns, and any tamed character carrying one. Harley never drops hers. Master BreadLoaf's Wind Burst mace is no longer guaranteed (still 0.8%); his trophy still is.
+- Character drop tables never roll a mace.
+- Config: `maceChestChance` (one per loot level) and `maceDropChance`.
+
+### Structure blocks face the right way
+- Stairs, ladders, doors and trapdoors in the remade structures faced backwards when they ran front to back. The blueprints and Minecraft's structure rotation disagreed about which way north is. They now line up however a structure is rotated. Ladders were also hanging on the wrong side of their wall, so they could pop off.
+- Glass panes, iron bars, fences and walls now connect to the blocks around them instead of standing as thin posts. This applies to remade and old structures, including across chunk edges.
+- Stairs in the remade structures also form proper corners.
+- Only newly generated chunks get the fix; structures that already generated keep their old blocks.
+
+### Harley stays out of FelixSyn's duels
+- When her FelixSyn is dueling an ItzBreadLoaf, Harley watches instead of joining in. A stray hit from his opponent doesn't pull her in either. She still helps him in every other fight.
+
+### Only one Harley follows FelixSyn
+- Before, every Harley near the real player FelixSyn (`harleyBestFriend` in the config) followed him around. Now only one at a time does.
+  - A Harley he tamed takes the spot over a wild one.
+  - The others still greet him, send hearts and give gifts, but go about their day. Other Harleys he tamed wait where they are.
+  - If his Harley dies, sits, or gets left behind, another one can take over after 2 seconds.
+
 ### Mace smashes work again
 - FelixSyn, Harley and Master BreadLoaf jumped with a wind charge but never swung the mace on the way down. Switching to the mace in mid-air resets the attack charge, and they waited for a full charge, which a mace can't reach before landing. They now smash as soon as they're in range while falling.
 

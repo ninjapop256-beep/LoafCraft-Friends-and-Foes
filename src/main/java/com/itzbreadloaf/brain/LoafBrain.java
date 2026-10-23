@@ -392,7 +392,9 @@ public abstract class LoafBrain {
 			return false;
 		}
 		if (this.isTame()) {
-			// A tamed character's inventory is mostly what its owner gave it: all of it drops.
+			// A tamed character's inventory is mostly what its owner gave it: all of it drops, except maces (super
+			// rare: each one only with maceDropChance).
+			com.itzbreadloaf.loot.LootRarity.stripMaces(this.player, this.random);
 			return true;
 		}
 		// Wild: its own drop table with tier rolls (loot rarity system), plus armor and weapon like a normal mob.

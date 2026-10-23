@@ -63,6 +63,22 @@ public class HomePiece extends ScatteredFeaturePiece {
 		this.groupSeed = random.nextLong();
 	}
 
+	/**
+	 * Placed without neighbor updates, glass panes, iron bars, fences and walls stood as lone posts. Have vanilla's
+	 * post-processing connect them to their neighbors once the chunk is finished.
+	 */
+	@Override
+	protected void placeBlock(WorldGenLevel level, BlockState state, int x, int y, int z, BoundingBox box) {
+		super.placeBlock(level, state, x, y, z, box);
+		net.minecraft.world.level.block.Block block = state.getBlock();
+		if (block instanceof net.minecraft.world.level.block.CrossCollisionBlock || block instanceof net.minecraft.world.level.block.WallBlock) {
+			BlockPos at = this.getWorldPos(x, y, z);
+			if (box.isInside(at) && !(level instanceof net.minecraft.server.level.ServerLevel)) {
+				level.getChunk(at).markPosForPostprocessing(at);
+			}
+		}
+	}
+
 	public HomePiece(CompoundTag tag) {
 		super(ModStructures.HOME_PIECE, tag);
 		this.kind = HomeKind.byName(tag.getStringOr("Kind", "house"));
