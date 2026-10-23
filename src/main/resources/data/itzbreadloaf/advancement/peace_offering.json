@@ -1,0 +1,28 @@
+{
+  "parent": "itzbreadloaf:hands_off_the_pantry",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:golden_carrot",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.peace_offering.title",
+      "fallback": "Peace Offering"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.peace_offering.description",
+      "fallback": "Calm Madison down by putting her food back"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:cliffside_base",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 26,
+    "separation": 8,
+    "salt": 1022404,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}

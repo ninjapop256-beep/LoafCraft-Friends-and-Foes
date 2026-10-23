@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:home",
+  "kind": "pumpkin_patch",
+  "biomes": "#itzbreadloaf:has_structure/pumpkin_patch",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}

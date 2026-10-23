@@ -1,0 +1,18 @@
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:treehouse",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 28,
+    "separation": 8,
+    "salt": 1022009,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}

@@ -1,0 +1,29770 @@
+# LoafCraft: Friends & Foes (Carpet fake-player edition) - full source of every file
+
+Every character is a Carpet fake player (EntityPlayerMPFake) driven by a brain through Carpet's EntityPlayerActionPack. 25 character types (including FelixSyn and Harley), 40 structures, 24 advancements, /friend. Requires Carpet 1.4.194 for Minecraft 1.21.11. Binary assets (textures, sounds) are not included here.
+
+## build.gradle
+
+```groovy
+plugins {
+	id 'net.fabricmc.fabric-loom-remap' version "${loom_version}"
+	id 'maven-publish'
+}
+
+repositories {
+	// Carpet mod (gnembon's fabric-carpet)
+	maven {
+		name = 'Masa'
+		url = 'https://masa.dy.fi/maven'
+	}
+	// Add repositories to retrieve artifacts from in here.
+	// You should only use this when depending on other mods because
+	// Loom adds the essential maven repositories to download Minecraft and libraries from automatically.
+	// See https://docs.gradle.org/current/userguide/declaring_repositories.html
+	// for more information about repositories.
+}
+
+loom {
+	splitEnvironmentSourceSets()
+
+	mods {
+		"itzbreadloaf" {
+			sourceSet sourceSets.main
+			sourceSet sourceSets.client
+		}
+	}
+}
+
+dependencies {
+	// To change the versions see the gradle.properties file
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	mappings loom.officialMojangMappings()
+	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+
+	// Fabric API. This is technically optional, but you probably want it anyway.
+	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+
+	// Carpet mod: required. Its fake players and player action pack drive every LoafCraft character.
+	modImplementation "carpet:fabric-carpet:${project.carpet_version}"
+}
+
+processResources {
+	def version = project.version
+	inputs.property "version", version
+
+	filesMatching("fabric.mod.json") {
+		expand "version": version
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 21
+}
+
+java {
+	// Loom will automatically attach sourcesJar to a RemapSourcesJar task and to the "build" task
+	// if it is present.
+	// If you remove this line, sources will not be generated.
+	withSourcesJar()
+
+	sourceCompatibility = JavaVersion.VERSION_21
+	targetCompatibility = JavaVersion.VERSION_21
+}
+
+jar {
+	def projectName = project.name
+	inputs.property "projectName", projectName
+
+	from("LICENSE") {
+		rename { "${it}_$projectName"}
+	}
+}
+
+// configure the maven publication
+publishing {
+	publications {
+		create("mavenJava", MavenPublication) {
+			from components.java
+		}
+	}
+
+	// See https://docs.gradle.org/current/userguide/publishing_maven.html for information on how to set up publishing.
+	repositories {
+		// Add repositories to publish to here.
+		// Notice: This block does NOT have the same function as the block in the top level.
+		// The repositories here will be used for publishing your artifact, not for
+		// retrieving dependencies.
+	}
+}
+```
+
+## gradle.properties
+
+```properties
+# Done to increase the memory available to gradle.
+org.gradle.jvmargs=-Xmx1G
+org.gradle.parallel=true
+org.gradle.configuration-cache=true
+
+# Fabric Properties
+# check these on https://fabricmc.net/develop
+minecraft_version=1.21.11
+loader_version=0.19.5
+loom_version=1.18-SNAPSHOT
+
+# Mod Properties
+version=1.0.0
+group=com.itzbreadloaf
+
+# Dependencies
+fabric_api_version=0.141.6+1.21.11
+carpet_version=1.21.11-1.4.194+v260107
+```
+
+## src/client/java/com/itzbreadloaf/client/CharacterSkins.java
+
+```java
+package com.itzbreadloaf.client;
+
+import com.itzbreadloaf.ItzBreadLoaf;
+import com.itzbreadloaf.character.CharacterKind;
+import com.itzbreadloaf.character.CharacterVariant;
+import com.mojang.blaze3d.platform.NativeImage;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+import net.minecraft.client.Minecraft;
+import net.minecraft.core.ClientAsset;
+import net.minecraft.resources.Identifier;
+import net.minecraft.server.packs.resources.Resource;
+import net.minecraft.world.entity.player.PlayerModelType;
+import net.minecraft.world.entity.player.PlayerSkin;
+
+/**
+ * Picks the skin for a character from assets/itzbreadloaf/textures/entity/, most specific first:
+ * Characters with old skins ({@code <character>_alt1.png}, {@code _alt2}...) wear a random one, see {@link #pickSkin}.
+ * <ol>
+ *   <li>{@code <type>_baby.png} for babies (for example {@code knight_baby.png})</li>
+ *   <li>{@code <type>.png} (for example {@code knight.png}, {@code witchy.png}, {@code baker.png})</li>
+ *   <li>{@code <character>_baby.png} for babies (for example {@code itzbreadloaf_baby.png})</li>
+ *   <li>{@code <character>.png} (itzbreadloaf, imlilylol, madison, master_breadloaf, felixsyn, harley)</li>
+ * </ol>
+ * The type comes from the character's UUID (saved with it, and sent to every client as part of the player info),
+ * baby comes from the synced scale attribute. Arm width (slim or classic) is read from the PNG itself: slim skins
+ * leave the right arm's last column empty (pixel 54,20 is transparent).
+ */
+public final class CharacterSkins {
+	private static final Map<String, Optional<PlayerSkin>> CACHE = new HashMap<>();
+	private static final Map<String, List<String>> ALTERNATES = new HashMap<>();
+
+	private CharacterSkins() {
+	}
+
+	public static PlayerSkin get(CharacterVariant variant, boolean baby, UUID id) {
+		CharacterKind kind = variant.kind;
+		String main = pickSkin(kind, id);
+		// The plain types (ItzBreadLoaf, FelixSyn...) share their file name with the character, so for them the
+		// type-specific step is skipped and the random pick decides.
+		boolean typed = !variant.id.equals(kind.id);
+		String[] names = baby
+				? (typed ? new String[]{variant.id + "_baby", variant.id, kind.id + "_baby", main, kind.id}
+						: new String[]{kind.id + "_baby", main, kind.id})
+				: (typed ? new String[]{variant.id, main, kind.id} : new String[]{main, kind.id});
+		for (String name : names) {
+			Optional<PlayerSkin> skin = CACHE.computeIfAbsent(name, n -> load(n, kind.slim));
+			if (skin.isPresent()) {
+				return skin.get();
+			}
+		}
+		// No file at all: a plain texture path so the problem is visible (missing-texture pink) instead of a crash.
+		Identifier path = kind.skinTexture();
+		return new PlayerSkin(new ClientAsset.ResourceTexture(path, path), null, null, kind.slim ? PlayerModelType.SLIM : PlayerModelType.WIDE, true);
+	}
+
+	/** Forget everything (after a resource reload, so new or changed skin files are picked up). */
+	public static void clear() {
+		CACHE.clear();
+		ALTERNATES.clear();
+	}
+
+	/**
+	 * Which skin this character wears: its main skin ({@code <character>.png}) most of the time, otherwise one of its
+	 * old skins ({@code <character>_alt1.png}, {@code _alt2}...) picked evenly. The pick comes from the character's UUID,
+	 * so each one keeps its skin forever and every player sees the same one. How often the main skin is worn is
+	 * mainSkinChance in the config (0.5 = half of them).
+	 */
+	private static String pickSkin(CharacterKind kind, UUID id) {
+		List<String> alternates = ALTERNATES.computeIfAbsent(kind.id, CharacterSkins::findAlternates);
+		if (alternates.isEmpty()) {
+			return kind.id;
+		}
+		// SplitMix64 on the UUID: well spread even though the UUIDs only differ in a few bits.
+		long h = id.getMostSignificantBits() * 31 + id.getLeastSignificantBits();
+		h = (h ^ (h >>> 30)) * 0xbf58476d1ce4e5b9L;
+		h = (h ^ (h >>> 27)) * 0x94d049bb133111ebL;
+		h ^= h >>> 31;
+		double roll = (h >>> 11) * 0x1.0p-53;
+		double mainChance = Math.clamp(com.itzbreadloaf.config.ModConfig.get().mainSkinChance, 0.0, 1.0);
+		if (roll < mainChance) {
+			return kind.id;
+		}
+		return alternates.get((int) Math.floorMod(h >>> 3, (long) alternates.size()));
+	}
+
+	/** {@code <character>_alt1.png}, {@code _alt2.png}... up to the first missing number. */
+	private static List<String> findAlternates(String kindId) {
+		List<String> found = new ArrayList<>();
+		for (int i = 1; i <= 64; i++) {
+			String name = kindId + "_alt" + i;
+			if (Minecraft.getInstance().getResourceManager().getResource(ItzBreadLoaf.id("textures/entity/" + name + ".png")).isEmpty()) {
+				break;
+			}
+			found.add(name);
+		}
+		return found;
+	}
+
+	private static Optional<PlayerSkin> load(String name, boolean slimFallback) {
+		Identifier path = ItzBreadLoaf.id("textures/entity/" + name + ".png");
+		Optional<Resource> resource = Minecraft.getInstance().getResourceManager().getResource(path);
+		if (resource.isEmpty()) {
+			return Optional.empty();
+		}
+		boolean slim = slimFallback;
+		try (InputStream stream = resource.get().open(); NativeImage image = NativeImage.read(stream)) {
+			if (image.getWidth() == 64 && image.getHeight() == 64) {
+				slim = (image.getPixel(54, 20) >>> 24) == 0;
+			} else {
+				slim = false;
+			}
+		} catch (Exception e) {
+			ItzBreadLoaf.LOGGER.warn("Could not read skin {} to check its arm width, using the default", path, e);
+		}
+		return Optional.of(new PlayerSkin(new ClientAsset.ResourceTexture(path, path), null, null,
+				slim ? PlayerModelType.SLIM : PlayerModelType.WIDE, true));
+	}
+
+	/** Master BreadLoaf (any of his skins): gets the glowing eyes layer. */
+	public static boolean isMaster(PlayerSkin skin) {
+		return skin != null && skin.body() instanceof ClientAsset.ResourceTexture texture
+				&& texture.texturePath().getNamespace().equals(ItzBreadLoaf.MOD_ID)
+				&& texture.texturePath().getPath().startsWith("textures/entity/master_breadloaf");
+	}
+}
+```
+
+## src/client/java/com/itzbreadloaf/client/ItzBreadLoafClient.java
+
+```java
+package com.itzbreadloaf.client;
+
+import com.itzbreadloaf.client.render.MasterEyesLayer;
+import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.rendering.v1.LivingEntityFeatureRendererRegistrationCallback;
+import net.minecraft.client.model.player.PlayerModel;
+import net.minecraft.client.renderer.entity.RenderLayerParent;
+import net.minecraft.client.renderer.entity.player.AvatarRenderer;
+import net.minecraft.client.renderer.entity.state.AvatarRenderState;
+
+/**
+ * Client side of LoafCraft. Characters are players, so they use the vanilla player renderer: skins come from the
+ * AbstractClientPlayer skin mixin (picked by UUID, slim or classic arms per character), the Tab list hides them
+ * (PlayerTabOverlay mixin), their name tags show their type ("Knight ItzBreadLoaf"), and Master BreadLoaf gets his
+ * glowing eyes as an extra player-renderer layer.
+ */
+public class ItzBreadLoafClient implements ClientModInitializer {
+	@Override
+	public void onInitializeClient() {
+		LivingEntityFeatureRendererRegistrationCallback.EVENT.register((entityType, renderer, helper, context) -> {
+			if (renderer instanceof AvatarRenderer<?> avatar) {
+				@SuppressWarnings("unchecked")
+				RenderLayerParent<AvatarRenderState, PlayerModel> parent = (RenderLayerParent<AvatarRenderState, PlayerModel>) (Object) avatar;
+				helper.register(new MasterEyesLayer(parent));
+			}
+		});
+	}
+}
+```
+
+## src/client/java/com/itzbreadloaf/client/render/MasterEyesLayer.java
+
+```java
+package com.itzbreadloaf.client.render;
+
+import com.itzbreadloaf.ItzBreadLoaf;
+import com.itzbreadloaf.client.CharacterSkins;
+import com.mojang.blaze3d.vertex.PoseStack;
+import net.minecraft.client.model.player.PlayerModel;
+import net.minecraft.client.renderer.SubmitNodeCollector;
+import net.minecraft.client.renderer.entity.RenderLayerParent;
+import net.minecraft.client.renderer.entity.layers.EyesLayer;
+import net.minecraft.client.renderer.entity.state.AvatarRenderState;
+import net.minecraft.client.renderer.rendertype.RenderType;
+import net.minecraft.client.renderer.rendertype.RenderTypes;
+
+/**
+ * Master BreadLoaf's glowing purple eyes, drawn at full brightness like spider and enderman eyes.
+ * Added to the player renderer, and only drawn for players wearing his skin.
+ */
+public class MasterEyesLayer extends EyesLayer<AvatarRenderState, PlayerModel> {
+	private static final RenderType EYES = RenderTypes.eyes(ItzBreadLoaf.id("textures/entity/master_breadloaf_eyes.png"));
+
+	public MasterEyesLayer(RenderLayerParent<AvatarRenderState, PlayerModel> parent) {
+		super(parent);
+	}
+
+	@Override
+	public void submit(PoseStack poseStack, SubmitNodeCollector collector, int light, AvatarRenderState state, float yRot, float xRot) {
+		if (CharacterSkins.isMaster(state.skin) && !state.isInvisible) {
+			super.submit(poseStack, collector, light, state, yRot, xRot);
+		}
+	}
+
+	@Override
+	public RenderType renderType() {
+		return EYES;
+	}
+}
+```
+
+## src/client/java/com/itzbreadloaf/mixin/client/AbstractClientPlayerMixin.java
+
+```java
+package com.itzbreadloaf.mixin.client;
+
+import com.itzbreadloaf.character.CharacterVariant;
+import com.itzbreadloaf.character.LoafIds;
+import com.itzbreadloaf.client.CharacterSkins;
+import net.minecraft.client.player.AbstractClientPlayer;
+import net.minecraft.world.entity.player.PlayerSkin;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+
+/**
+ * Characters wear their LoafCraft skin instead of a Steve/Alex default: chosen by their type (from the UUID) and
+ * whether they're a baby (the scale attribute, synced like any attribute).
+ */
+@Mixin(AbstractClientPlayer.class)
+public abstract class AbstractClientPlayerMixin {
+	@Inject(method = "getSkin", at = @At("HEAD"), cancellable = true)
+	private void loaf$characterSkin(CallbackInfoReturnable<PlayerSkin> cir) {
+		AbstractClientPlayer self = (AbstractClientPlayer) (Object) this;
+		CharacterVariant variant = LoafIds.variant(self.getUUID());
+		if (variant != null) {
+			cir.setReturnValue(CharacterSkins.get(variant, self.getScale() < 0.95F, self.getUUID()));
+		}
+	}
+}
+```
+
+## src/client/java/com/itzbreadloaf/mixin/client/PlayerTabOverlayMixin.java
+
+```java
+package com.itzbreadloaf.mixin.client;
+
+import com.itzbreadloaf.character.LoafIds;
+import java.util.List;
+import net.minecraft.client.gui.components.PlayerTabOverlay;
+import net.minecraft.client.multiplayer.PlayerInfo;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+
+/** Characters don't show up in the Tab player list. */
+@Mixin(PlayerTabOverlay.class)
+public abstract class PlayerTabOverlayMixin {
+	@Inject(method = "getPlayerInfos", at = @At("RETURN"), cancellable = true)
+	private void loaf$hideCharacters(CallbackInfoReturnable<List<PlayerInfo>> cir) {
+		List<PlayerInfo> infos = cir.getReturnValue();
+		for (PlayerInfo info : infos) {
+			if (LoafIds.isCharacter(info.getProfile().id())) {
+				cir.setReturnValue(infos.stream().filter(i -> !LoafIds.isCharacter(i.getProfile().id())).toList());
+				return;
+			}
+		}
+	}
+}
+```
+
+## src/client/resources/itzbreadloaf.client.mixins.json
+
+```json
+{
+	"required": true,
+	"minVersion": "0.8",
+	"package": "com.itzbreadloaf.mixin.client",
+	"compatibilityLevel": "JAVA_21",
+	"client": [
+		"AbstractClientPlayerMixin",
+		"PlayerTabOverlayMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/FriendCommand.java
+
+```java
+package com.itzbreadloaf;
+
+import com.itzbreadloaf.character.LoafIds;
+import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.brigadier.context.CommandContext;
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import com.mojang.brigadier.exceptions.SimpleCommandExceptionType;
+import com.mojang.brigadier.suggestion.SuggestionProvider;
+import com.mojang.serialization.Codec;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.minecraft.ChatFormatting;
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.commands.Commands;
+import net.minecraft.commands.SharedSuggestionProvider;
+import net.minecraft.commands.arguments.EntityArgument;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.saveddata.SavedData;
+import net.minecraft.world.level.saveddata.SavedDataType;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * Friend list (anyone can use it, no operator needed):
+ * <pre>
+ *   /friend add &lt;player&gt;      your tamed characters (Breads, Lily, Madison, Harley) never attack them or their pets
+ *   /friend remove &lt;name&gt;
+ *   /friend list
+ * </pre>
+ * It is one-way: your friends' tamed characters still follow their own owner's list. Saved with the world.
+ */
+public final class FriendCommand {
+	private static final SimpleCommandExceptionType NOT_A_PLAYER = new SimpleCommandExceptionType(
+			Component.literal("You can only friend real players, not LoafCraft characters."));
+	private static final SimpleCommandExceptionType SELF = new SimpleCommandExceptionType(
+			Component.literal("You're already your own best friend."));
+
+	private static final SuggestionProvider<CommandSourceStack> MY_FRIENDS = (context, builder) -> {
+		ServerPlayer self = context.getSource().getPlayer();
+		if (self == null) {
+			return builder.buildFuture();
+		}
+		return SharedSuggestionProvider.suggest(Data.get(context.getSource().getServer()).friendsOf(self.getUUID()).values(), builder);
+	};
+
+	private FriendCommand() {
+	}
+
+	public static void register() {
+		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> dispatcher.register(
+				Commands.literal("friend")
+						.then(Commands.literal("add").then(Commands.argument("player", EntityArgument.player()).executes(FriendCommand::add)))
+						.then(Commands.literal("remove").then(Commands.argument("name", StringArgumentType.word()).suggests(MY_FRIENDS)
+								.executes(FriendCommand::remove)))
+						.then(Commands.literal("list").executes(FriendCommand::list))));
+	}
+
+	/** True if {@code friend} is on {@code owner}'s friend list. */
+	public static boolean isFriend(@Nullable MinecraftServer server, UUID owner, UUID friend) {
+		if (server == null) {
+			return false;
+		}
+		Map<UUID, String> friends = Data.get(server).friends.get(owner);
+		return friends != null && friends.containsKey(friend);
+	}
+
+	private static int add(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+		ServerPlayer self = context.getSource().getPlayerOrException();
+		ServerPlayer friend = EntityArgument.getPlayer(context, "player");
+		if (!LoafIds.isRealPlayer(friend)) {
+			throw NOT_A_PLAYER.create();
+		}
+		if (friend == self) {
+			throw SELF.create();
+		}
+		Data data = Data.get(context.getSource().getServer());
+		data.friends.computeIfAbsent(self.getUUID(), id -> new LinkedHashMap<>()).put(friend.getUUID(), friend.getGameProfile().name());
+		data.setDirty();
+		context.getSource().sendSuccess(() -> Component.literal(friend.getGameProfile().name() + " is now your friend. Your tamed characters won't attack them.")
+				.withStyle(ChatFormatting.GREEN), false);
+		friend.sendSystemMessage(Component.literal(self.getGameProfile().name() + " added you as a friend. Their tamed characters won't attack you.")
+				.withStyle(ChatFormatting.GREEN));
+		return 1;
+	}
+
+	private static int remove(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+		ServerPlayer self = context.getSource().getPlayerOrException();
+		String name = StringArgumentType.getString(context, "name");
+		Data data = Data.get(context.getSource().getServer());
+		Map<UUID, String> friends = data.friendsOf(self.getUUID());
+		boolean removed = friends.values().removeIf(friendName -> friendName.equalsIgnoreCase(name));
+		if (!removed) {
+			context.getSource().sendFailure(Component.literal(name + " isn't on your friend list."));
+			return 0;
+		}
+		data.setDirty();
+		context.getSource().sendSuccess(() -> Component.literal(name + " is no longer your friend.").withStyle(ChatFormatting.YELLOW), false);
+		return 1;
+	}
+
+	private static int list(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+		ServerPlayer self = context.getSource().getPlayerOrException();
+		Map<UUID, String> friends = Data.get(context.getSource().getServer()).friendsOf(self.getUUID());
+		if (friends.isEmpty()) {
+			context.getSource().sendSuccess(() -> Component.literal("You have no friends on your list yet. Use /friend add <player>."), false);
+			return 0;
+		}
+		context.getSource().sendSuccess(() -> Component.literal("Friends (" + friends.size() + "): " + String.join(", ", friends.values())), false);
+		return friends.size();
+	}
+
+	/** owner UUID -> (friend UUID -> friend name). Stored as "owner" -> ["friendUuid|name", ...]. */
+	public static class Data extends SavedData {
+		public static final Codec<Data> CODEC = Codec.unboundedMap(Codec.STRING, Codec.STRING.listOf()).fieldOf("friends").codec()
+				.xmap(Data::new, Data::encode);
+		public static final SavedDataType<Data> TYPE = new SavedDataType<>("itzbreadloaf_friends", Data::new, CODEC, null);
+
+		final Map<UUID, Map<UUID, String>> friends = new HashMap<>();
+
+		public Data() {
+		}
+
+		public Data(Map<String, List<String>> stored) {
+			stored.forEach((owner, entries) -> {
+				Map<UUID, String> map = new LinkedHashMap<>();
+				for (String entry : entries) {
+					int bar = entry.indexOf('|');
+					try {
+						map.put(UUID.fromString(bar < 0 ? entry : entry.substring(0, bar)), bar < 0 ? "?" : entry.substring(bar + 1));
+					} catch (IllegalArgumentException ignored) {
+						// Skip broken entries.
+					}
+				}
+				try {
+					this.friends.put(UUID.fromString(owner), map);
+				} catch (IllegalArgumentException ignored) {
+					// Skip broken entries.
+				}
+			});
+		}
+
+		static Data get(MinecraftServer server) {
+			return server.overworld().getDataStorage().computeIfAbsent(TYPE);
+		}
+
+		Map<UUID, String> friendsOf(UUID owner) {
+			return this.friends.computeIfAbsent(owner, id -> new LinkedHashMap<>());
+		}
+
+		private Map<String, List<String>> encode() {
+			Map<String, List<String>> out = new HashMap<>();
+			this.friends.forEach((owner, map) -> {
+				if (!map.isEmpty()) {
+					List<String> entries = new ArrayList<>();
+					map.forEach((id, name) -> entries.add(id + "|" + name));
+					out.put(owner.toString(), entries);
+				}
+			});
+			return out;
+		}
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/ItzBreadLoaf.java
+
+```java
+package com.itzbreadloaf;
+
+import com.itzbreadloaf.block.ModBlocks;
+import com.itzbreadloaf.boss.BossSpawner;
+import com.itzbreadloaf.character.CharacterManager;
+import com.itzbreadloaf.character.NaturalSpawner;
+import com.itzbreadloaf.config.ModConfig;
+import com.itzbreadloaf.item.ModItems;
+import com.itzbreadloaf.sound.ModSounds;
+import com.itzbreadloaf.worldgen.ModStructures;
+import net.fabricmc.api.ModInitializer;
+import net.minecraft.resources.Identifier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * LoafCraft: Friends & Foes. Every character (ItzBreadLoaf, ImLilyLol, Madison, Master BreadLoaf) is a Carpet fake
+ * player driven by a brain through Carpet's player action pack. Requires Carpet.
+ */
+public class ItzBreadLoaf implements ModInitializer {
+	public static final String MOD_ID = "itzbreadloaf";
+	public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
+
+	@Override
+	public void onInitialize() {
+		ModConfig.load();
+		ModSounds.register();
+		ModBlocks.register();
+		ModItems.register();
+		ModStructures.register();
+		CharacterManager.register();
+		NaturalSpawner.register();
+		com.itzbreadloaf.character.VillageSpawner.register();
+		BossSpawner.register();
+		LoafCraftCommands.register();
+		FriendCommand.register();
+		com.itzbreadloaf.character.StructureTracker.register();
+		com.itzbreadloaf.character.BastionThrones.register();
+		LOGGER.info("LoafCraft loaded (characters are Carpet fake players)");
+	}
+
+	public static Identifier id(String path) {
+		return Identifier.fromNamespaceAndPath(MOD_ID, path);
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/LoafCraftCommands.java
+
+```java
+package com.itzbreadloaf;
+
+import carpet.helpers.EntityPlayerActionPack;
+import carpet.helpers.EntityPlayerActionPack.Action;
+import carpet.helpers.EntityPlayerActionPack.ActionType;
+import com.itzbreadloaf.boss.BossSpawner;
+import com.itzbreadloaf.brain.LoafBrain;
+import com.itzbreadloaf.character.CharacterKind;
+import com.itzbreadloaf.character.CharacterVariant;
+import com.itzbreadloaf.character.CharacterManager;
+import com.itzbreadloaf.character.CharacterRecord;
+import com.itzbreadloaf.character.LoafCharacter;
+import com.itzbreadloaf.character.LoafWorldData;
+import com.mojang.brigadier.arguments.FloatArgumentType;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.brigadier.builder.RequiredArgumentBuilder;
+import com.mojang.brigadier.context.CommandContext;
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import com.mojang.brigadier.exceptions.SimpleCommandExceptionType;
+import com.mojang.brigadier.suggestion.SuggestionProvider;
+import java.util.Locale;
+import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.minecraft.ChatFormatting;
+import net.minecraft.commands.CommandBuildContext;
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.commands.Commands;
+import net.minecraft.commands.SharedSuggestionProvider;
+import net.minecraft.commands.arguments.EntityArgument;
+import net.minecraft.commands.arguments.SlotArgument;
+import net.minecraft.commands.arguments.coordinates.Vec3Argument;
+import net.minecraft.commands.arguments.item.ItemArgument;
+import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.SlotAccess;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.phys.Vec3;
+
+/**
+ * LoafCraft commands (operators only). {@code <name>} is a character's player name: ItzBreadLoaf, ItzBreadLoaf_2,
+ * ImLilyLol, Madison, MasterBreadLoaf...
+ * <pre>
+ *   /loafcraft spawn &lt;type&gt; [pos]   (itzbreadloaf, knight, archer, miner, pirate, nether, sweaty, captain, bandit, villager,
+ *                                       imlilylol, bookworm, gardener, witchy, archer_lily,
+ *                                       madison, farmer, baker, fisher, beekeeper, master_breadloaf)
+ *   /loafcraft list
+ *   /loafcraft despawn &lt;name&gt;                    (removes them for good)
+ *   /loafcraft brain &lt;name&gt; pause|resume
+ *   /loafcraft action &lt;name&gt; use|attack|jump|sneak|unsneak|sprint|walk|swap|stop   (pauses the brain)
+ *   /loafcraft action &lt;name&gt; slot &lt;1-9&gt;
+ *   /loafcraft boss [pos]
+ *   /loafcraft inventory &lt;name&gt; list
+ *   /loafcraft inventory &lt;name&gt; give &lt;item&gt; [count]
+ *   /loafcraft inventory &lt;name&gt; set &lt;slot&gt; &lt;item&gt; [count]   (slots like /item: hotbar.0, armor.head, weapon.offhand)
+ *   /loafcraft inventory &lt;name&gt; clear [slot]
+ *   /loafcraft data &lt;name&gt; health|food|saturation &lt;value&gt;
+ * </pre>
+ * Characters are real players, so vanilla /item, /effect, /attribute, /give and /tp also work on them while spawned.
+ */
+public final class LoafCraftCommands {
+	private static final SimpleCommandExceptionType NOT_SPAWNED = new SimpleCommandExceptionType(
+			Component.literal("That character isn't spawned right now (no real player within ~4 chunks), or doesn't exist."));
+	private static final SimpleCommandExceptionType NO_SUCH_KIND = new SimpleCommandExceptionType(
+			Component.literal("Unknown character type. Try itzbreadloaf, knight, archer, miner, pirate, nether, sweaty, captain, bandit, villager, imlilylol, bookworm, gardener, witchy, archer_lily, madison, farmer, baker, fisher, beekeeper or master_breadloaf."));
+
+	private static final SuggestionProvider<CommandSourceStack> NAMES = (context, builder) -> SharedSuggestionProvider.suggest(
+			LoafWorldData.get(context.getSource().getServer()).records().stream().map(CharacterRecord::profileName), builder);
+	private static final SuggestionProvider<CommandSourceStack> KINDS = (context, builder) -> SharedSuggestionProvider.suggest(
+			java.util.Arrays.stream(CharacterVariant.values()).map(variant -> variant.id), builder);
+
+	private LoafCraftCommands() {
+	}
+
+	public static void register() {
+		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> dispatcher.register(
+				Commands.literal("loafcraft").requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+						.then(Commands.literal("spawn").then(Commands.argument("character", StringArgumentType.word()).suggests(KINDS)
+								.executes(c -> spawn(c, c.getSource().getPosition()))
+								.then(Commands.argument("pos", Vec3Argument.vec3()).executes(c -> spawn(c, Vec3Argument.getVec3(c, "pos"))))))
+						.then(Commands.literal("list").executes(LoafCraftCommands::list))
+						.then(Commands.literal("despawn").then(name().executes(LoafCraftCommands::despawn)))
+						.then(Commands.literal("brain").then(name()
+								.then(Commands.literal("pause").executes(c -> pause(c, true)))
+								.then(Commands.literal("resume").executes(c -> pause(c, false)))))
+						.then(Commands.literal("action").then(actions(name())))
+						.then(Commands.literal("boss")
+								.executes(c -> boss(c, c.getSource().getPosition()))
+								.then(Commands.argument("pos", Vec3Argument.vec3()).executes(c -> boss(c, Vec3Argument.getVec3(c, "pos")))))
+						.then(Commands.literal("inventory").then(inventory(name(), registryAccess)))
+						.then(Commands.literal("data").then(name()
+								.then(Commands.literal("health").then(Commands.argument("value", FloatArgumentType.floatArg(0.5F, 1024.0F))
+										.executes(c -> setData(c, "health"))))
+								.then(Commands.literal("food").then(Commands.argument("value", FloatArgumentType.floatArg(0.0F, 20.0F))
+										.executes(c -> setData(c, "food"))))
+								.then(Commands.literal("saturation").then(Commands.argument("value", FloatArgumentType.floatArg(0.0F, 20.0F))
+										.executes(c -> setData(c, "saturation"))))))));
+	}
+
+	private static RequiredArgumentBuilder<CommandSourceStack, String> name() {
+		return Commands.argument("name", StringArgumentType.word()).suggests(NAMES);
+	}
+
+	private static LoafCharacter character(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+		LoafCharacter character = CharacterManager.byName(StringArgumentType.getString(context, "name"));
+		if (character == null) {
+			throw NOT_SPAWNED.create();
+		}
+		return character;
+	}
+
+	private static void reply(CommandContext<CommandSourceStack> context, String text) {
+		context.getSource().sendSuccess(() -> Component.literal(text), false);
+	}
+
+	// ---------------------------------------------------------------- spawn, list, despawn, brain
+
+	private static int spawn(CommandContext<CommandSourceStack> context, Vec3 pos) throws CommandSyntaxException {
+		CharacterVariant kind = CharacterVariant.byId(StringArgumentType.getString(context, "character"));
+		if (kind == null) {
+			throw NO_SUCH_KIND.create();
+		}
+		CommandSourceStack source = context.getSource();
+		LoafCharacter character = kind.kind == CharacterKind.MASTER
+				? BossSpawner.spawnBoss(source.getLevel(), BlockPos.containing(pos))
+				: kind.kind == CharacterKind.FELIXSYN
+				? com.itzbreadloaf.brain.FelixBrain.spawnDuo(source.getLevel(), pos, BlockPos.containing(pos))
+				: CharacterManager.create(source.getLevel(), kind, pos, source.getRotation().y, null);
+		if (character == null) {
+			source.sendFailure(Component.literal("Could not spawn " + kind.displayName() + " (see the log)."));
+			return 0;
+		}
+		source.sendSuccess(() -> Component.literal("Spawned " + character.record.profileName()), true);
+		return 1;
+	}
+
+	private static int list(CommandContext<CommandSourceStack> context) {
+		LoafWorldData data = LoafWorldData.get(context.getSource().getServer());
+		if (data.records().isEmpty()) {
+			reply(context, "No LoafCraft characters in this world yet.");
+			return 0;
+		}
+		for (CharacterRecord record : data.records()) {
+			LoafCharacter active = CharacterManager.get(record.id);
+			Vec3 pos = active != null ? active.player.position() : record.pos;
+			String where = String.format(Locale.ROOT, "%s %d %d %d", (active != null ? active.player.level().dimension() : record.dimension).identifier().getPath(),
+					(int) pos.x, (int) pos.y, (int) pos.z);
+			String state = active == null ? "saved" : active.brain.isPaused() ? "active, paused" : "active";
+			float health = active != null ? active.player.getHealth() : record.health;
+			String owner = "";
+			if (active != null && active.brain.getOwner() != null) {
+				ServerPlayer ownerPlayer = active.brain.getOwnerPlayer();
+				owner = ", owner " + (ownerPlayer != null ? ownerPlayer.getGameProfile().name() : active.brain.getOwner().toString().substring(0, 8));
+			}
+			String line = record.profileName() + " (" + record.variant().displayName() + ") - " + state + ", " + where
+					+ String.format(Locale.ROOT, ", %.0f HP", health) + owner;
+			context.getSource().sendSuccess(() -> Component.literal(line).withStyle(active != null ? ChatFormatting.GREEN : ChatFormatting.GRAY), false);
+		}
+		reply(context, CharacterManager.active().size() + " active of " + data.records().size() + " (max active "
+				+ com.itzbreadloaf.config.ModConfig.get().maxActiveCharacters + ")");
+		return data.records().size();
+	}
+
+	private static int despawn(CommandContext<CommandSourceStack> context) {
+		String name = StringArgumentType.getString(context, "name");
+		LoafCharacter character = CharacterManager.byName(name);
+		if (character != null) {
+			CharacterManager.delete(character);
+		} else {
+			LoafWorldData data = LoafWorldData.get(context.getSource().getServer());
+			CharacterRecord record = data.byName(name);
+			if (record == null) {
+				context.getSource().sendFailure(Component.literal("No character named " + name));
+				return 0;
+			}
+			data.remove(record.id);
+		}
+		context.getSource().sendSuccess(() -> Component.literal("Removed " + name + " for good"), true);
+		return 1;
+	}
+
+	private static int pause(CommandContext<CommandSourceStack> context, boolean paused) throws CommandSyntaxException {
+		LoafCharacter character = character(context);
+		character.brain.setPaused(paused);
+		reply(context, character.record.profileName() + "'s brain " + (paused ? "paused (they stand still; /loafcraft action works)" : "resumed"));
+		return 1;
+	}
+
+	// ---------------------------------------------------------------- actions (Carpet action pack)
+
+	private static RequiredArgumentBuilder<CommandSourceStack, String> actions(RequiredArgumentBuilder<CommandSourceStack, String> name) {
+		for (String action : new String[]{"use", "attack", "jump", "sneak", "unsneak", "sprint", "walk", "swap", "stop"}) {
+			name.then(Commands.literal(action).executes(c -> action(c, action)));
+		}
+		return name.then(Commands.literal("slot").then(Commands.argument("slot", IntegerArgumentType.integer(1, 9))
+				.executes(c -> action(c, "slot"))));
+	}
+
+	private static int action(CommandContext<CommandSourceStack> context, String action) throws CommandSyntaxException {
+		LoafCharacter character = character(context);
+		LoafBrain brain = character.brain;
+		if (!brain.isPaused()) {
+			brain.setPaused(true);
+		}
+		EntityPlayerActionPack pack = character.actions();
+		switch (action) {
+			case "use" -> pack.start(ActionType.USE, Action.once());
+			case "attack" -> pack.start(ActionType.ATTACK, Action.once());
+			case "jump" -> pack.start(ActionType.JUMP, Action.once());
+			case "sneak" -> pack.setSneaking(true);
+			case "unsneak" -> pack.setSneaking(false);
+			case "sprint" -> pack.setSprinting(true);
+			case "walk" -> pack.setSprinting(false);
+			case "swap" -> pack.start(ActionType.SWAP_HANDS, Action.once());
+			case "stop" -> pack.stopAll();
+			case "slot" -> pack.setSlot(IntegerArgumentType.getInteger(context, "slot"));
+			default -> {
+			}
+		}
+		reply(context, character.record.profileName() + ": " + action + " (holding " + character.player.getMainHandItem().getHoverName().getString()
+				+ "). Brain is paused: /loafcraft brain " + character.record.profileName() + " resume");
+		return 1;
+	}
+
+	private static int boss(CommandContext<CommandSourceStack> context, Vec3 pos) {
+		return BossSpawner.spawnBoss(context.getSource().getLevel(), BlockPos.containing(pos)) != null ? 1 : 0;
+	}
+
+	// ---------------------------------------------------------------- inventory and player data
+
+	private static RequiredArgumentBuilder<CommandSourceStack, String> inventory(RequiredArgumentBuilder<CommandSourceStack, String> name,
+			CommandBuildContext registryAccess) {
+		return name
+				.then(Commands.literal("list").executes(LoafCraftCommands::listInventory))
+				.then(Commands.literal("give").then(Commands.argument("item", ItemArgument.item(registryAccess))
+						.executes(c -> give(c, 1))
+						.then(Commands.argument("count", IntegerArgumentType.integer(1, 6400))
+								.executes(c -> give(c, IntegerArgumentType.getInteger(c, "count"))))))
+				.then(Commands.literal("set").then(Commands.argument("slot", SlotArgument.slot())
+						.then(Commands.argument("item", ItemArgument.item(registryAccess))
+								.executes(c -> setSlot(c, 1))
+								.then(Commands.argument("count", IntegerArgumentType.integer(1, 99))
+										.executes(c -> setSlot(c, IntegerArgumentType.getInteger(c, "count")))))))
+				.then(Commands.literal("clear")
+						.executes(c -> clear(c, false))
+						.then(Commands.argument("slot", SlotArgument.slot()).executes(c -> clear(c, true))));
+	}
+
+	private static int listInventory(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+		LoafCharacter character = character(context);
+		Inventory inventory = character.player.getInventory();
+		reply(context, character.record.profileName() + " (hotbar slot " + (inventory.getSelectedSlot() + 1) + " selected, "
+				+ String.format(Locale.ROOT, "%.1f", character.player.getHealth()) + " HP, food " + character.player.getFoodData().getFoodLevel() + "):");
+		for (int i = 0; i < inventory.getContainerSize(); i++) {
+			ItemStack stack = inventory.getItem(i);
+			if (!stack.isEmpty()) {
+				String slot = i < 9 ? "hotbar " + (i + 1) : i < 36 ? "inventory " + (i - 9) : i == 40 ? "offhand"
+						: new String[]{"feet", "legs", "chest", "head"}[i - 36];
+				reply(context, "  " + slot + ": " + stack.getCount() + "x " + stack.getHoverName().getString());
+			}
+		}
+		return 1;
+	}
+
+	private static int give(CommandContext<CommandSourceStack> context, int count) throws CommandSyntaxException {
+		LoafCharacter character = character(context);
+		ItemStack stack = ItemArgument.getItem(context, "item").createItemStack(count, false);
+		String what = stack.getCount() + "x " + stack.getHoverName().getString();
+		boolean added = character.player.getInventory().add(stack);
+		reply(context, (added ? "Gave " : "Inventory full, gave part of ") + what + " to " + character.record.profileName());
+		return added ? 1 : 0;
+	}
+
+	private static int setSlot(CommandContext<CommandSourceStack> context, int count) throws CommandSyntaxException {
+		LoafCharacter character = character(context);
+		int slot = SlotArgument.getSlot(context, "slot");
+		ItemStack stack = ItemArgument.getItem(context, "item").createItemStack(count, false);
+		SlotAccess access = character.player.getSlot(slot);
+		if (access == null || !access.set(stack)) {
+			context.getSource().sendFailure(Component.literal("Can't put that in that slot."));
+			return 0;
+		}
+		reply(context, "Set " + character.record.profileName() + "'s slot to " + stack.getCount() + "x " + stack.getHoverName().getString());
+		return 1;
+	}
+
+	private static int clear(CommandContext<CommandSourceStack> context, boolean oneSlot) throws CommandSyntaxException {
+		LoafCharacter character = character(context);
+		if (oneSlot) {
+			SlotAccess access = character.player.getSlot(SlotArgument.getSlot(context, "slot"));
+			if (access != null) {
+				access.set(ItemStack.EMPTY);
+			}
+		} else {
+			character.player.getInventory().clearContent();
+		}
+		reply(context, "Cleared " + character.record.profileName() + (oneSlot ? "'s slot" : "'s inventory"));
+		return 1;
+	}
+
+	private static int setData(CommandContext<CommandSourceStack> context, String what) throws CommandSyntaxException {
+		LoafCharacter character = character(context);
+		float value = FloatArgumentType.getFloat(context, "value");
+		switch (what) {
+			case "health" -> character.player.setHealth(Math.min(value, character.player.getMaxHealth()));
+			case "food" -> character.player.getFoodData().setFoodLevel((int) value);
+			default -> character.player.getFoodData().setSaturation(value);
+		}
+		CharacterManager.snapshot(character);
+		reply(context, character.record.profileName() + " " + what + " = " + value);
+		return 1;
+	}
+
+}
+```
+
+## src/main/java/com/itzbreadloaf/ModAdvancements.java
+
+```java
+package com.itzbreadloaf;
+
+import net.minecraft.advancements.AdvancementHolder;
+import net.minecraft.resources.Identifier;
+import net.minecraft.server.level.ServerPlayer;
+
+/**
+ * The "LoafCraft" advancement tab (data/itzbreadloaf/advancement/*.json).
+ * Most use the "impossible" trigger and are granted from code here (including "Grounded", since Master BreadLoaf is
+ * a Carpet fake player now). "Tent Raider" (standing in a tent) uses a vanilla trigger and needs no code.
+ */
+public final class ModAdvancements {
+	public static final Identifier BREAD_WINNER = ItzBreadLoaf.id("bread_winner");
+	public static final Identifier EARNED_HER_TRUST = ItzBreadLoaf.id("earned_her_trust");
+	public static final Identifier HANDS_OFF_THE_PANTRY = ItzBreadLoaf.id("hands_off_the_pantry");
+	public static final Identifier PEACE_OFFERING = ItzBreadLoaf.id("peace_offering");
+	/** Criteria: "lily", "madison". */
+	public static final Identifier COUSIN_CLUB = ItzBreadLoaf.id("cousin_club");
+	public static final Identifier FAMILY_REUNION = ItzBreadLoaf.id("family_reunion");
+	public static final Identifier LITTLE_LOAF = ItzBreadLoaf.id("little_loaf");
+	public static final Identifier MACE_MASTER = ItzBreadLoaf.id("mace_master");
+	/** Defeat Master BreadLoaf (granted from code: he is a fake player, not an entity type). */
+	public static final Identifier GROUNDED = ItzBreadLoaf.id("grounded");
+	/** Defeat a Captain ItzBreadLoaf (the Bread Fort mini-boss). */
+	public static final Identifier STORM_THE_FORT = ItzBreadLoaf.id("storm_the_fort");
+	/** Buy something from Baker Madison. */
+	public static final Identifier FRESH_FROM_THE_OVEN = ItzBreadLoaf.id("fresh_from_the_oven");
+	/** Watch FelixSyn and ItzBreadLoaf fight. */
+	public static final Identifier RIVAL_SHOWDOWN = ItzBreadLoaf.id("rival_showdown");
+	/** Find FelixSyn in a village. */
+	public static final Identifier VILLAGE_DRIFTER = ItzBreadLoaf.id("village_drifter");
+	/** Tame Harley. */
+	public static final Identifier TAKEN_IN = ItzBreadLoaf.id("taken_in");
+	/** Defeat a wild Harley. */
+	public static final Identifier UNTOUCHABLE = ItzBreadLoaf.id("untouchable");
+	/** Find 10 different LoafCraft structures. */
+	public static final Identifier STRUCTURE_HUNTER = ItzBreadLoaf.id("structure_hunter");
+	/** Find Lily's houses in 3 different biomes. */
+	public static final Identifier LILYS_TRAVELS = ItzBreadLoaf.id("lilys_travels");
+	/** Visit the Bread Mill or the Riverside Mill. */
+	public static final Identifier MILL_WORKER = ItzBreadLoaf.id("mill_worker");
+	/** Reach a Floating Island Cottage. */
+	public static final Identifier SKY_COTTAGE = ItzBreadLoaf.id("sky_cottage");
+	/** Find the Friendship Festival grounds. */
+	public static final Identifier FESTIVAL_GOER = ItzBreadLoaf.id("festival_goer");
+	/** Walk into Master BreadLoaf's throne room in a bastion. */
+	public static final Identifier THRONE_ROOM_CRASHER = ItzBreadLoaf.id("throne_room_crasher");
+	/** Find a Mountain Outpost. */
+	public static final Identifier PEAK_PERFORMANCE = ItzBreadLoaf.id("peak_performance");
+	/** Find FelixSyn and Harley's campsite at a village. */
+	public static final Identifier CAMPFIRE_STORIES = ItzBreadLoaf.id("campfire_stories");
+
+	private ModAdvancements() {
+	}
+
+	public static void award(ServerPlayer player, Identifier id) {
+		award(player, id, "done");
+	}
+
+	public static void award(ServerPlayer player, Identifier id, String criterion) {
+		AdvancementHolder advancement = player.level().getServer().getAdvancements().get(id);
+		if (advancement != null) {
+			player.getAdvancements().award(advancement, criterion);
+		}
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/ModMessages.java
+
+```java
+package com.itzbreadloaf;
+
+import com.itzbreadloaf.config.ModConfig;
+import net.minecraft.ChatFormatting;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.entity.Entity;
+
+/** Short action-bar lines like "<ItzBreadLoaf> get over here!". Turned off with actionBarMessages=false in the config. */
+public final class ModMessages {
+	private ModMessages() {
+	}
+
+	public static void say(ServerPlayer player, Entity speaker, String text) {
+		if (!ModConfig.get().actionBarMessages) {
+			return;
+		}
+		Component line = Component.literal("<").append(speaker.getDisplayName()).append("> ")
+				.append(Component.literal(text).withStyle(ChatFormatting.ITALIC));
+		player.displayClientMessage(line, true);
+	}
+
+	public static String pick(RandomSource random, String... lines) {
+		return lines[random.nextInt(lines.length)];
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/block/ModBlocks.java
+
+```java
+package com.itzbreadloaf.block;
+
+import com.itzbreadloaf.ItzBreadLoaf;
+import com.mojang.serialization.MapCodec;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Registry;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.SoundType;
+import net.minecraft.world.level.block.state.BlockBehaviour;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.phys.shapes.VoxelShape;
+
+public final class ModBlocks {
+	public static final ResourceKey<Block> MASTER_LOAF_TROPHY_KEY =
+			ResourceKey.create(Registries.BLOCK, ItzBreadLoaf.id("master_loaf_trophy"));
+
+	/** Decorative trophy dropped by Master BreadLoaf: a gold cup with a loaf on top. */
+	public static final Block MASTER_LOAF_TROPHY = Registry.register(BuiltInRegistries.BLOCK, MASTER_LOAF_TROPHY_KEY,
+			new TrophyBlock(BlockBehaviour.Properties.of().setId(MASTER_LOAF_TROPHY_KEY)
+					.strength(1.0F).sound(SoundType.METAL).noOcclusion()));
+
+	public static final ResourceKey<Block> RESIDENT_MARKER_KEY =
+			ResourceKey.create(Registries.BLOCK, ItzBreadLoaf.id("resident_marker"));
+
+	/** Invisible marker placed by structures: spawns the residents when a real player first comes near. */
+	public static final Block RESIDENT_MARKER = Registry.register(BuiltInRegistries.BLOCK, RESIDENT_MARKER_KEY,
+			new ResidentMarkerBlock(BlockBehaviour.Properties.of().setId(RESIDENT_MARKER_KEY)
+					.noCollision().noLootTable().noOcclusion().strength(-1.0F, 3600000.0F).replaceable()));
+
+	public static final net.minecraft.world.level.block.entity.BlockEntityType<ResidentMarkerBlockEntity> RESIDENT_MARKER_ENTITY =
+			Registry.register(BuiltInRegistries.BLOCK_ENTITY_TYPE, ItzBreadLoaf.id("resident_marker"),
+					net.fabricmc.fabric.api.object.builder.v1.block.entity.FabricBlockEntityTypeBuilder
+							.create(ResidentMarkerBlockEntity::new, RESIDENT_MARKER).build());
+
+	private ModBlocks() {
+	}
+
+	public static void register() {
+		// Loads the class so the static fields above run.
+	}
+
+	public static class TrophyBlock extends Block {
+		public static final MapCodec<TrophyBlock> CODEC = simpleCodec(TrophyBlock::new);
+		private static final VoxelShape SHAPE = Block.box(3, 0, 3, 13, 13, 13);
+
+		public TrophyBlock(BlockBehaviour.Properties properties) {
+			super(properties);
+		}
+
+		@Override
+		protected MapCodec<? extends Block> codec() {
+			return CODEC;
+		}
+
+		@Override
+		protected VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
+			return SHAPE;
+		}
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/block/ResidentMarkerBlock.java
+
+```java
+package com.itzbreadloaf.block;
+
+import com.mojang.serialization.MapCodec;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.BaseEntityBlock;
+import net.minecraft.world.level.block.RenderShape;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntityTicker;
+import net.minecraft.world.level.block.entity.BlockEntityType;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.phys.shapes.Shapes;
+import net.minecraft.world.phys.shapes.VoxelShape;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * Invisible, untouchable block placed by LoafCraft structures where their residents will appear. Its block entity
+ * spawns them (as Carpet fake players) when a real player first comes within 48 blocks, then the marker removes itself.
+ */
+public class ResidentMarkerBlock extends BaseEntityBlock {
+	public static final MapCodec<ResidentMarkerBlock> CODEC = simpleCodec(ResidentMarkerBlock::new);
+
+	public ResidentMarkerBlock(Properties properties) {
+		super(properties);
+	}
+
+	@Override
+	protected MapCodec<? extends BaseEntityBlock> codec() {
+		return CODEC;
+	}
+
+	@Override
+	public @Nullable BlockEntity newBlockEntity(BlockPos pos, BlockState state) {
+		return new ResidentMarkerBlockEntity(pos, state);
+	}
+
+	@Override
+	protected RenderShape getRenderShape(BlockState state) {
+		return RenderShape.INVISIBLE;
+	}
+
+	@Override
+	protected VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
+		return Shapes.empty();
+	}
+
+	@Override
+	public <T extends BlockEntity> @Nullable BlockEntityTicker<T> getTicker(Level level, BlockState state, BlockEntityType<T> type) {
+		return level.isClientSide() ? null : createTickerHelper(type, ModBlocks.RESIDENT_MARKER_ENTITY, ResidentMarkerBlockEntity::serverTick);
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/block/ResidentMarkerBlockEntity.java
+
+```java
+package com.itzbreadloaf.block;
+
+import com.itzbreadloaf.brain.BreadLoafBrain;
+import com.itzbreadloaf.brain.MadisonBrain;
+import com.itzbreadloaf.boss.BossSpawner;
+import com.itzbreadloaf.brain.LoafBrain;
+import com.itzbreadloaf.character.CharacterKind;
+import com.itzbreadloaf.character.CharacterVariant;
+import com.itzbreadloaf.character.LoafCharacter;
+import com.itzbreadloaf.character.CharacterManager;
+import com.itzbreadloaf.character.LoafIds;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.UUIDUtil;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.storage.ValueInput;
+import net.minecraft.world.level.storage.ValueOutput;
+import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
+
+/** Who lives at this house or tent, waiting to be created when a real player first comes near. */
+public class ResidentMarkerBlockEntity extends BlockEntity {
+	public static final double WAKE_DISTANCE = 48.0;
+
+	private final List<CompoundTag> residents = new ArrayList<>();
+
+	public ResidentMarkerBlockEntity(BlockPos pos, BlockState state) {
+		super(ModBlocks.RESIDENT_MARKER_ENTITY, pos, state);
+	}
+
+	public void addResident(CharacterVariant kind, BlockPos spawn, BlockPos home, int radius, @Nullable BlockPos bed,
+			@Nullable UUID group, @Nullable BlockPos pantry) {
+		CompoundTag tag = new CompoundTag();
+		tag.putString("Kind", kind.id);
+		tag.store("Spawn", BlockPos.CODEC, spawn.immutable());
+		tag.store("Home", BlockPos.CODEC, home.immutable());
+		tag.putInt("Radius", radius);
+		if (bed != null) {
+			tag.store("Bed", BlockPos.CODEC, bed.immutable());
+		}
+		if (group != null) {
+			tag.store("Group", UUIDUtil.CODEC, group);
+		}
+		if (pantry != null) {
+			tag.store("Pantry", BlockPos.CODEC, pantry.immutable());
+		}
+		this.residents.add(tag);
+		this.setChanged();
+	}
+
+	public static void serverTick(Level level, BlockPos pos, BlockState state, ResidentMarkerBlockEntity marker) {
+		if (!(level instanceof ServerLevel serverLevel) || level.getGameTime() % 20 != 0) {
+			return;
+		}
+		Player near = serverLevel.getNearestPlayer(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5, WAKE_DISTANCE,
+				player -> LoafIds.isRealPlayer(player) && !player.isSpectator());
+		if (near == null) {
+			return;
+		}
+		for (CompoundTag tag : marker.residents) {
+			CharacterVariant kind = CharacterVariant.byId(tag.getStringOr("Kind", "itzbreadloaf"));
+			BlockPos spawn = tag.read("Spawn", BlockPos.CODEC).orElse(pos);
+			BlockPos home = tag.read("Home", BlockPos.CODEC).orElse(spawn);
+			int radius = tag.getIntOr("Radius", 10);
+			BlockPos bed = tag.read("Bed", BlockPos.CODEC).orElse(null);
+			UUID group = tag.read("Group", UUIDUtil.CODEC).orElse(null);
+			BlockPos pantry = tag.read("Pantry", BlockPos.CODEC).orElse(null);
+			CharacterVariant variant = kind == null ? CharacterVariant.BREADLOAF : kind;
+			java.util.function.Consumer<LoafBrain> setup = brain -> {
+				brain.setupHome(home, radius, bed);
+				if (brain instanceof BreadLoafBrain bread) {
+					bread.setGroupId(group);
+				}
+				if (brain instanceof MadisonBrain madison) {
+					madison.setPantryPos(pantry);
+				}
+			};
+			if (variant.kind == CharacterKind.FELIXSYN) {
+				// FelixSyn never comes alone: Harley is with him.
+				com.itzbreadloaf.brain.FelixBrain.spawnDuo(serverLevel, Vec3.atBottomCenterOf(spawn), home);
+			} else if (variant.kind == CharacterKind.MASTER) {
+				// The boss makes an entrance (sound and message).
+				LoafCharacter boss = BossSpawner.spawnBoss(serverLevel, spawn);
+				if (boss != null) {
+					setup.accept(boss.brain);
+				}
+			} else {
+				CharacterManager.create(serverLevel, variant, Vec3.atBottomCenterOf(spawn), serverLevel.getRandom().nextFloat() * 360.0F, setup);
+			}
+		}
+		marker.residents.clear();
+		level.removeBlock(pos, false);
+	}
+
+	@Override
+	protected void saveAdditional(ValueOutput output) {
+		super.saveAdditional(output);
+		output.store("Residents", CompoundTag.CODEC.listOf(), List.copyOf(this.residents));
+	}
+
+	@Override
+	protected void loadAdditional(ValueInput input) {
+		super.loadAdditional(input);
+		this.residents.clear();
+		input.read("Residents", CompoundTag.CODEC.listOf()).ifPresent(this.residents::addAll);
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/boss/BossSpawner.java
+
+```java
+package com.itzbreadloaf.boss;
+
+import com.itzbreadloaf.brain.MasterBreadLoafBrain;
+import com.itzbreadloaf.character.CharacterKind;
+import com.itzbreadloaf.character.CharacterManager;
+import com.itzbreadloaf.character.LoafCharacter;
+import com.mojang.serialization.Codec;
+import com.mojang.serialization.codecs.RecordCodecBuilder;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.minecraft.ChatFormatting;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.core.UUIDUtil;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.tags.DamageTypeTags;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.entity.boss.enderdragon.EnderDragon;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
+import net.minecraft.world.level.levelgen.structure.BuiltinStructures;
+import net.minecraft.world.level.levelgen.structure.Structure;
+import net.minecraft.world.level.levelgen.structure.StructurePiece;
+import net.minecraft.world.level.levelgen.structure.StructureStart;
+import net.minecraft.world.level.saveddata.SavedData;
+import net.minecraft.world.level.saveddata.SavedDataType;
+
+/**
+ * Where Master BreadLoaf appears. Never in the Overworld naturally.
+ * - Nether fortresses and bastion remnants: when a player first enters one, a single roll (25%); at most one per structure.
+ * - End cities: one per city, on its highest part (end ship / top tower).
+ * - The Ender Dragon fight: once per dragon, when it drops to half health.
+ * Which structures and dragons were already handled is saved with the world.
+ */
+public final class BossSpawner {
+	public static final float NETHER_CHANCE = 0.25F;
+
+	private BossSpawner() {
+	}
+
+	public static void register() {
+		ServerTickEvents.END_WORLD_TICK.register(BossSpawner::tick);
+		// "Mace Master": remember who took fall damage near a living boss.
+		ServerLivingEntityEvents.AFTER_DAMAGE.register((entity, source, baseDamage, damage, blocked) -> {
+			if (entity instanceof ServerPlayer player && source.is(DamageTypeTags.IS_FALL)
+					&& !com.itzbreadloaf.character.LoafIds.isCharacter(player)) {
+				for (LoafCharacter character : CharacterManager.active()) {
+					if (character.brain instanceof MasterBreadLoafBrain boss && character.player.level() == player.level()
+							&& character.player.distanceTo(player) < 96.0) {
+						boss.markFallDamage(player.getUUID());
+					}
+				}
+			}
+		});
+	}
+
+	private static void tick(ServerLevel level) {
+		if (level.getGameTime() % 100 != 0) {
+			return;
+		}
+		if (level.dimension() == Level.NETHER) {
+			checkStructures(level, BuiltinStructures.FORTRESS, NETHER_CHANCE, false);
+			checkStructures(level, BuiltinStructures.BASTION_REMNANT, NETHER_CHANCE, false);
+		} else if (level.dimension() == Level.END) {
+			checkStructures(level, BuiltinStructures.END_CITY, 1.0F, true);
+			checkDragon(level);
+		}
+	}
+
+	private static Data data(ServerLevel level) {
+		return level.getServer().overworld().getDataStorage().computeIfAbsent(Data.TYPE);
+	}
+
+	private static void checkStructures(ServerLevel level, ResourceKey<Structure> key, float chance, boolean top) {
+		Structure structure = level.registryAccess().lookupOrThrow(Registries.STRUCTURE).getValue(key);
+		if (structure == null) {
+			return;
+		}
+		for (ServerPlayer player : level.players()) {
+			if (com.itzbreadloaf.character.LoafIds.isCharacter(player) || player.isSpectator()) {
+				continue;
+			}
+			StructureStart start = level.structureManager().getStructureWithPieceAt(player.blockPosition(), structure);
+			if (!start.isValid()) {
+				continue;
+			}
+			String id = level.dimension().identifier() + "|" + key.identifier() + "|" + start.getChunkPos().toLong();
+			Data data = data(level);
+			if (!data.structures.add(id)) {
+				continue;
+			}
+			data.setDirty();
+			if (level.getRandom().nextFloat() < chance) {
+				BlockPos spot = findSpot(level, start, top, player);
+				if (spot != null) {
+					spawnBoss(level, spot);
+				}
+			}
+		}
+	}
+
+	private static void checkDragon(ServerLevel level) {
+		for (EnderDragon dragon : level.getDragons()) {
+			if (dragon.isAlive() && dragon.getHealth() <= dragon.getMaxHealth() * 0.5F) {
+				Data data = data(level);
+				if (data.dragons.add(dragon.getUUID())) {
+					data.setDirty();
+					int y = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, 6, 0);
+					spawnBoss(level, new BlockPos(6, y, 0));
+				}
+			}
+		}
+	}
+
+	/** A standable spot inside the structure: on its highest piece for end cities, a random piece otherwise. */
+	private static BlockPos findSpot(ServerLevel level, StructureStart start, boolean top, ServerPlayer player) {
+		List<StructurePiece> pieces = new ArrayList<>(start.getPieces());
+		if (pieces.isEmpty()) {
+			return null;
+		}
+		RandomSource random = level.getRandom();
+		if (top) {
+			pieces.sort((a, b) -> Integer.compare(b.getBoundingBox().maxY(), a.getBoundingBox().maxY()));
+		}
+		for (int p = 0; p < Math.min(pieces.size(), top ? 4 : 12); p++) {
+			StructurePiece piece = top ? pieces.get(p) : pieces.get(random.nextInt(pieces.size()));
+			BoundingBox box = piece.getBoundingBox();
+			for (int attempt = 0; attempt < 24; attempt++) {
+				int x = box.minX() + random.nextInt(box.getXSpan());
+				int z = box.minZ() + random.nextInt(box.getZSpan());
+				for (int y = box.maxY(); y > box.minY(); y--) {
+					BlockPos pos = new BlockPos(x, y, z);
+					if (!level.isLoaded(pos)) {
+						break;
+					}
+					if (level.getBlockState(pos).isAir() && level.getBlockState(pos.above()).isAir()
+							&& level.getBlockState(pos.below()).isFaceSturdy(level, pos.below(), Direction.UP)
+							&& (top || pos.distSqr(player.blockPosition()) > 10 * 10)) {
+						return pos;
+					}
+				}
+			}
+		}
+		return null;
+	}
+
+	/** Master BreadLoaf arrives (a new Carpet fake player), with a sound and a message to everyone near. */
+	public static LoafCharacter spawnBoss(ServerLevel level, BlockPos pos) {
+		LoafCharacter boss = CharacterManager.create(level, CharacterKind.MASTER, net.minecraft.world.phys.Vec3.atBottomCenterOf(pos),
+				level.getRandom().nextFloat() * 360.0F, null);
+		if (boss == null) {
+			return null;
+		}
+		level.playSound(null, pos, SoundEvents.WITHER_SPAWN, SoundSource.HOSTILE, 2.0F, 1.2F);
+		for (ServerPlayer player : level.players()) {
+			if (player.blockPosition().distSqr(pos) < 128 * 128 && !com.itzbreadloaf.character.LoafIds.isCharacter(player)) {
+				player.sendSystemMessage(Component.literal("Master BreadLoaf has appeared!").withStyle(ChatFormatting.DARK_PURPLE, ChatFormatting.BOLD));
+			}
+		}
+		return boss;
+	}
+
+	/** Saved per world: structures already rolled and dragons already handled. */
+	public static class Data extends SavedData {
+		public static final Codec<Data> CODEC = RecordCodecBuilder.create(instance -> instance.group(
+				Codec.STRING.listOf().fieldOf("structures").forGetter(data -> List.copyOf(data.structures)),
+				UUIDUtil.CODEC.listOf().fieldOf("dragons").forGetter(data -> List.copyOf(data.dragons))
+		).apply(instance, Data::new));
+		public static final SavedDataType<Data> TYPE = new SavedDataType<>("itzbreadloaf_boss_spawns", Data::new, CODEC, null);
+
+		final Set<String> structures;
+		final Set<UUID> dragons;
+
+		public Data() {
+			this(List.of(), List.of());
+		}
+
+		public Data(List<String> structures, List<UUID> dragons) {
+			this.structures = new HashSet<>(structures);
+			this.dragons = new HashSet<>(dragons);
+		}
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/brain/BreadLoafBrain.java
+
+```java
+package com.itzbreadloaf.brain;
+
+import com.itzbreadloaf.ModAdvancements;
+import com.itzbreadloaf.ModMessages;
+import com.itzbreadloaf.character.CharacterManager;
+import com.itzbreadloaf.character.CharacterVariant;
+import com.itzbreadloaf.character.LoafCharacter;
+import com.itzbreadloaf.character.LoafIds;
+import com.itzbreadloaf.sound.ModSounds;
+import java.util.List;
+import java.util.UUID;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.core.UUIDUtil;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvent;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.tags.ItemTags;
+import net.minecraft.world.Difficulty;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.animal.golem.IronGolem;
+import net.minecraft.world.entity.monster.Creeper;
+import net.minecraft.world.entity.monster.Enemy;
+import net.minecraft.world.entity.npc.villager.AbstractVillager;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.projectile.arrow.ThrownTrident;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.LightLayer;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * ItzBreadLoaf and his types. Hostile until tamed (steak, 1 in 3): hunts real players within 32 blocks, fights like
+ * a PvP player, pillars and bridges toward targets he can't walk to and digs through soft walls (mobGriefing), lives
+ * in his home and sleeps in his bed at night. Group mates (tents, forts, camps, ships) defend each other.
+ *
+ * Types:
+ * - Knight: iron armor, sword and shield, patrols close to the fort. Captain: the fort's mini-boss (40 health,
+ *   netherite chestplate, diamond axe, golden apples, a banner on his head).
+ * - Archer: bow and arrows, keeps his distance, stone sword up close. Lives in a watchtower.
+ * - Miner: pickaxe, places torches in the dark, tunnels through stone toward his target. Found underground.
+ * - Pirate: trident, swims fast and breathes underwater. Lives on shipwrecks.
+ * - Nether: gold armor (piglins leave him alone), never burns. Found in the Nether.
+ * - Sweaty: rare. Diamond gear, throws pearls to catch you and eats golden apples when low.
+ * - Bandit: camps in the woods; at night the camp raids villages (villagers and golems too).
+ * - Village: lives in a LoafCraft village, never hunts players, fights off monsters near the village.
+ */
+public class BreadLoafBrain extends LoafBrain {
+	public static final float STEAK_FEED_HEAL = 4.0F;
+	public static final double HUNT_RANGE = 32.0;
+
+	/** Shared by everyone living in the same tent, fort, camp or ship. They defend each other. */
+	private @Nullable UUID groupId;
+	private int nextTauntTick;
+	private int nextAmbientTick = 200;
+	private int nextCritVoiceTick;
+	private final DailyDuties duties = new DailyDuties(this);
+	/** The player (or character) he's fighting, to cheer when they go down. */
+	private @Nullable LivingEntity duelTarget;
+	private int buildTicks;
+	private int lostSightTicks;
+	private int pearlCooldown;
+	private int torchCooldown;
+	private final Fishing fishing = new Fishing(this);
+
+	public BreadLoafBrain(LoafCharacter character) {
+		super(character);
+		// Scrappy: only backs off when it's really bad.
+		this.combat.retreatBelow = (float) com.itzbreadloaf.config.ModConfig.get().breadRetreatHealth;
+	}
+
+	// ---------------------------------------------------------------- gear and supplies
+
+	@Override
+	protected double baseMaxHealth() {
+		return this.variantHealth() * com.itzbreadloaf.config.ModConfig.get().breadHealthMultiplier;
+	}
+
+	private double variantHealth() {
+		return switch (this.variant) {
+			case CAPTAIN -> 40.0;
+			case KNIGHT, SWEATY -> 24.0;
+			default -> 20.0;
+		};
+	}
+
+	@Override
+	protected void rollGear() {
+		ServerLevel level = this.player.level();
+		if (this.variant == CharacterVariant.BREADLOAF) {
+			Gear.rollBreadLoaf(this.player, level, this.random, level.getCurrentDifficultyAt(this.player.blockPosition()));
+		} else {
+			Kits.breadLoaf(this.player, level, this.variant, this.random);
+		}
+	}
+
+	@Override
+	protected void restock() {
+		if (this.baby) {
+			return;
+		}
+		Kits.passiveEffects(this.player, this.variant);
+		if (Inv.count(this.player, Inv::isFood) < 4) {
+			Inv.give(this.player, new ItemStack(this.variant == CharacterVariant.PIRATE ? Items.COOKED_COD
+					: this.variant == CharacterVariant.NETHER ? Items.COOKED_PORKCHOP : Items.BREAD, 8));
+		}
+		// Building blocks for pillars and bridges.
+		if (Inv.count(this.player, Inv::isBuildingBlock) < 16) {
+			Item block = switch (this.variant) {
+				case NETHER -> Items.NETHERRACK;
+				case PIRATE -> Items.OAK_PLANKS;
+				case MINER -> Items.COBBLED_DEEPSLATE;
+				default -> this.random.nextBoolean() ? Items.COBBLESTONE : Items.DIRT;
+			};
+			Inv.give(this.player, new ItemStack(block, 32));
+		}
+		if (Inv.find(this.player, s -> s.is(Items.BOW) || s.is(Items.CROSSBOW)) >= 0 && Inv.count(this.player, s -> s.is(ItemTags.ARROWS)) < 16) {
+			Inv.give(this.player, new ItemStack(Items.ARROW, this.variant == CharacterVariant.ARCHER ? 64 : 16));
+		}
+		if (this.variant == CharacterVariant.MINER && Inv.count(this.player, s -> s.is(Items.TORCH)) < 8) {
+			Inv.give(this.player, new ItemStack(Items.TORCH, 16));
+		}
+	}
+
+	@Override
+	public Item breedFood() {
+		return Items.COOKED_BEEF;
+	}
+
+	@Override
+	public boolean isFriendlyToMobs() {
+		return this.isTame();
+	}
+
+	@Override
+	public boolean isAngry() {
+		return this.target != null;
+	}
+
+	@Override
+	protected SoundSource soundSource() {
+		return this.isTame() || this.variant == CharacterVariant.VILLAGER || this.variant == CharacterVariant.FISHERMAN ? SoundSource.NEUTRAL : SoundSource.HOSTILE;
+	}
+
+	@Override
+	public SoundEvent deathSound() {
+		return ModSounds.DEATH;
+	}
+
+	@Override
+	public @Nullable SoundEvent hurtSound() {
+		return ModSounds.HURT;
+	}
+
+	@Override
+	public int experienceReward() {
+		if (this.baby) {
+			return 0;
+		}
+		return switch (this.variant) {
+			case CAPTAIN -> 40;
+			case SWEATY -> 25;
+			default -> 5 + this.random.nextInt(4);
+		};
+	}
+
+	/** Better weapons and armor, food, arrows, building blocks and his own thrown trident. */
+	@Override
+	public boolean wantsToPickUp(ItemStack stack) {
+		if (this.baby || this.isEating()) {
+			return false;
+		}
+		return stack.is(ItemTags.SWORDS) || stack.is(ItemTags.AXES) || stack.is(Items.TRIDENT) || stack.is(Items.SHIELD)
+				|| stack.has(DataComponents.EQUIPPABLE) && stack.get(DataComponents.EQUIPPABLE).slot().getType() == EquipmentSlot.Type.HUMANOID_ARMOR
+				|| Inv.isFood(stack) || stack.is(ItemTags.ARROWS)
+				|| Inv.isBuildingBlock(stack) && Inv.count(this.player, Inv::isBuildingBlock) < 64
+				|| this.variant == CharacterVariant.MINER && (stack.is(ItemTags.PICKAXES) || stack.is(Items.RAW_IRON) || stack.is(Items.COAL))
+				|| this.variant == CharacterVariant.FISHERMAN && (this.fishing.isCollecting() || stack.is(ItemTags.FISHES));
+	}
+
+	@Override
+	public boolean onDeath(DamageSource source) {
+		if (this.variant == CharacterVariant.CAPTAIN && source.getEntity() instanceof ServerPlayer killer && LoafIds.isRealPlayer(killer)) {
+			ModAdvancements.award(killer, ModAdvancements.STORM_THE_FORT);
+		}
+		return super.onDeath(source);
+	}
+
+	// ---------------------------------------------------------------- groups
+
+	public void setGroupId(@Nullable UUID groupId) {
+		this.groupId = groupId;
+	}
+
+	public boolean isTentMate(LoafBrain other) {
+		return this.groupId != null && other instanceof BreadLoafBrain bread && this.groupId.equals(bread.groupId);
+	}
+
+	// ---------------------------------------------------------------- behavior
+
+	@Override
+	protected void tickBehavior() {
+		if (this.pearlCooldown > 0) {
+			this.pearlCooldown--;
+		}
+		if (this.torchCooldown > 0) {
+			this.torchCooldown--;
+		}
+		if (this.ticks % 40 == 0 && !this.baby) {
+			this.tidyInventory();
+		}
+		if (this.ticks >= this.nextAmbientTick) {
+			// Voice lines, so less often than the old meow (every 20-45 seconds), and only when not fighting.
+			this.nextAmbientTick = this.ticks + 400 + this.random.nextInt(500);
+			if (!this.player.isSleeping() && this.target == null) {
+				this.playSound(ModSounds.AMBIENT, 1.0F, 1.0F);
+			}
+		}
+		if (this.isTame() && !this.baby && this.target == null) {
+			this.duties.tick();
+		}
+		if (this.combat.onCrit == null) {
+			this.combat.onCrit = () -> {
+				if (this.ticks >= this.nextCritVoiceTick && this.random.nextInt(3) == 0) {
+					this.playSound(ModSounds.CRIT, 1.0F, 1.0F);
+					this.nextCritVoiceTick = this.ticks + 100;
+				}
+			};
+		}
+		if (this.duelTarget != null && (!this.duelTarget.isAlive() || this.duelTarget.isRemoved())) {
+			if (this.duelTarget.isDeadOrDying() && this.duelTarget.distanceTo(this.player) < 32.0 && !this.baby) {
+				this.playSound(ModSounds.END_DUEL, 1.0F, 1.0F);
+			}
+			this.duelTarget = null;
+		}
+		if (this.ticks % 10 == 0) {
+			this.chooseTarget();
+		}
+		if (this.target != null) {
+			this.fight();
+			return;
+		}
+		this.builder.stopDigging();
+		this.buildTicks = 0;
+		if (this.tryEat()) {
+			return;
+		}
+		if (this.tickLove() || this.followParent()) {
+			return;
+		}
+		if (this.fetchTrident()) {
+			return;
+		}
+		if (this.variant == CharacterVariant.MINER && this.placeTorch()) {
+			return;
+		}
+		if (this.variant == CharacterVariant.FISHERMAN && !this.isTame()
+				&& this.fishing.tick(this.home != null ? this.home : this.player.blockPosition(), 1)) {
+			return;
+		}
+		if (this.isTame()) {
+			if (!this.followOwner()) {
+				this.lookAround(8.0);
+			}
+			return;
+		}
+		if (this.goToBed() || this.returnHome()) {
+			return;
+		}
+		double radius = switch (this.variant) {
+			case KNIGHT, CAPTAIN -> 6.0;
+			case ARCHER -> 2.0;
+			default -> this.home != null ? this.homeRadius : 12.0;
+		};
+		this.wander(radius);
+		if (this.ticks % 40 == 0) {
+			this.provokeGolems();
+		}
+	}
+
+	/** Puts on better armor, keeps a shield in the offhand (swap-hands key). */
+	private void tidyInventory() {
+		Gear.equipBestArmor(this.player);
+		if (this.player.getOffhandItem().isEmpty() && !this.player.isUsingItem()) {
+			int shield = Inv.ready(this.player, stack -> stack.is(Items.SHIELD), 6);
+			if (shield >= 0) {
+				this.controls.selectSlot(shield);
+				this.controls.swapHands();
+			}
+		}
+	}
+
+	private void chooseTarget() {
+		if (this.baby) {
+			this.setTarget(null);
+			return;
+		}
+		if (this.isTame()) {
+			this.protectOwner(true);
+			this.retaliate();
+			this.fightRival();
+			return;
+		}
+		this.retaliate();
+		if (this.target != null) {
+			return;
+		}
+		if (this.fightRival()) {
+			return;
+		}
+		ServerLevel level = this.player.level();
+		if (this.variant == CharacterVariant.VILLAGER || this.variant == CharacterVariant.FISHERMAN) {
+			// Peaceful workers: they never hunt players. Village ones fight off monsters.
+			if (this.variant == CharacterVariant.VILLAGER) {
+				this.defendVillage();
+			}
+			return;
+		}
+		if (level.getDifficulty() == Difficulty.PEACEFUL || this.player.isSleeping()) {
+			return;
+		}
+		Player nearest = level.getNearestPlayer(this.player.getX(), this.player.getY(), this.player.getZ(), HUNT_RANGE, p ->
+				p != this.player && p instanceof Player pl && LoafIds.isRealPlayer(pl) && !pl.isSpectator() && !pl.isCreative()
+						&& (this.player.hasLineOfSight(pl) || this.player.distanceTo(pl) < 12.0));
+		if (nearest != null) {
+			this.setTarget(nearest);
+			return;
+		}
+		if (this.variant == CharacterVariant.BANDIT) {
+			this.raid();
+		}
+	}
+
+	/** FelixSyn within 24 blocks in sight: they always fight (even tamed ones, unless told to sit). */
+	private boolean fightRival() {
+		if (this.target != null) {
+			return false;
+		}
+		LivingEntity rival = FelixBrain.findRival(this.player, com.itzbreadloaf.character.CharacterKind.FELIXSYN);
+		if (rival == null) {
+			return false;
+		}
+		this.setTarget(rival);
+		if (this.target == rival) {
+			this.playSound(ModSounds.START_DUEL, 1.0F, 1.0F);
+		}
+		FelixBrain.announceRivalry(this.player.level(), this.player.position());
+		return true;
+	}
+
+	/** Village ItzBreadLoafs fight monsters that come near (not creepers, he's not silly). */
+	private void defendVillage() {
+		List<LivingEntity> monsters = this.player.level().getEntitiesOfClass(LivingEntity.class, this.player.getBoundingBox().inflate(16.0),
+				entity -> entity instanceof Enemy && !(entity instanceof Creeper) && entity.isAlive() && CharacterManager.brain(entity) == null
+						&& this.player.hasLineOfSight(entity));
+		LivingEntity closest = null;
+		for (LivingEntity monster : monsters) {
+			if (closest == null || monster.distanceTo(this.player) < closest.distanceTo(this.player)) {
+				closest = monster;
+			}
+		}
+		if (closest != null) {
+			this.setTarget(closest);
+		}
+	}
+
+	/** Bandits go after villagers and golems too: far at night (raids), close during the day. */
+	private void raid() {
+		boolean night = !this.player.level().isBrightOutside();
+		double range = night ? 64.0 : 20.0;
+		List<LivingEntity> victims = this.player.level().getEntitiesOfClass(LivingEntity.class, this.player.getBoundingBox().inflate(range),
+				entity -> (entity instanceof AbstractVillager || entity instanceof IronGolem) && entity.isAlive());
+		LivingEntity closest = null;
+		for (LivingEntity victim : victims) {
+			if (closest == null || victim.distanceTo(this.player) < closest.distanceTo(this.player)) {
+				closest = victim;
+			}
+		}
+		if (closest != null) {
+			this.setTarget(closest);
+		}
+	}
+
+	/** Fights back against whoever hit him in the last 10 seconds. */
+	private void retaliate() {
+		LivingEntity attacker = this.lastAttacker;
+		if (attacker == null || !attacker.isAlive() || this.ticks - this.lastHurtTick > 200 || attacker == this.target
+				|| this.isFriendlyWith(attacker) || attacker.distanceTo(this.player) > HUNT_RANGE
+				|| attacker instanceof Player p && (p.isCreative() || p.isSpectator())) {
+			return;
+		}
+		LoafBrain other = CharacterManager.brain(attacker);
+		if (other != null && this.isTentMate(other)) {
+			return;
+		}
+		this.setTarget(attacker);
+	}
+
+	@Override
+	protected void onNewTarget(LivingEntity target) {
+		super.onNewTarget(target);
+		this.fishing.stop();
+		this.duelTarget = target instanceof Player ? target : null;
+		// Taunt when he spots a new player.
+		if (target instanceof ServerPlayer player && LoafIds.isRealPlayer(player) && this.ticks >= this.nextTauntTick && !this.isTame()) {
+			this.playSound(ModSounds.TAUNT, 1.0F, 1.0F);
+			this.nextTauntTick = this.ticks + 200;
+			String line = switch (this.variant) {
+				case KNIGHT, CAPTAIN -> ModMessages.pick(this.random, "halt! intruder!", "for the fort!", "you shall not pass!");
+				case PIRATE -> ModMessages.pick(this.random, "arr, a landlubber!", "walk the plank!", "yer treasure is mine!");
+				case BANDIT -> ModMessages.pick(this.random, "hand over the loot!", "nice stuff you got there...", "get 'em!");
+				case SWEATY -> ModMessages.pick(this.random, "1v1 me", "ez", "you're not ready");
+				default -> ModMessages.pick(this.random, "get over here!", "found you!", "you're mine!", "there you are!");
+			};
+			ModMessages.say(player, this.player, line);
+		}
+	}
+
+	private void fight() {
+		LivingEntity target = this.target;
+		if (target == null) {
+			return;
+		}
+		double distance = this.player.distanceTo(target);
+		if (this.player.hasLineOfSight(target)) {
+			this.lostSightTicks = 0;
+		} else if (++this.lostSightTicks > 300 || distance > 48.0) {
+			this.setTarget(null);
+			return;
+		}
+		if (this.isTame() && this.isOwnedBy(target)) {
+			this.setTarget(null);
+			return;
+		}
+		// Golden apples when low (Sweaty, Captain); everyone else eats normal food with some room.
+		if (this.player.getHealth() < this.player.getMaxHealth() * 0.5F
+				&& this.eatNow(stack -> stack.is(Items.GOLDEN_APPLE))) {
+			return;
+		}
+		if (this.player.getHealth() < this.player.getMaxHealth() * 0.35F && distance > 4.0 && this.tryEat()) {
+			return;
+		}
+		// Sweaty: pearl in when they run.
+		if (this.variant == CharacterVariant.SWEATY && distance > 14.0 && this.pearlCooldown <= 0 && this.throwPearl(target)) {
+			return;
+		}
+		if (this.buildOrDigToward(target)) {
+			return;
+		}
+		this.builder.stopDigging();
+		this.fightTarget(true);
+	}
+
+	private boolean throwPearl(LivingEntity target) {
+		int slot = Inv.ready(this.player, stack -> stack.is(Items.ENDER_PEARL), 5);
+		if (slot < 0) {
+			return false;
+		}
+		this.combat.stop();
+		this.controls.selectSlot(slot);
+		this.combat.aimProjectile(target, 1.5, 0.03);
+		this.controls.useOnce();
+		this.pearlCooldown = 100;
+		return true;
+	}
+
+	/**
+	 * When walking can't reach the target: pillar up to them, bridge across a gap, or dig through a soft wall.
+	 * Real blocks from his inventory, real placing and mining. Only with mobGriefing on.
+	 * Miners dig through stone too, and dig as soon as the path is blocked.
+	 */
+	private boolean buildOrDigToward(LivingEntity target) {
+		boolean stuck = this.nav.isAtDeadEnd() || this.nav.failed() || this.variant == CharacterVariant.MINER && this.nav.isPartial();
+		if (!stuck || !Builder.allowed(this.player.level())) {
+			this.buildTicks = 0;
+			return false;
+		}
+		if (++this.buildTicks > 400) {
+			this.buildTicks = 0;
+			this.nav.retry();
+			return false;
+		}
+		Vec3 pos = this.player.position();
+		double dy = target.getY() - pos.y;
+		double horizontal = Math.sqrt(Math.pow(target.getX() - pos.x, 2) + Math.pow(target.getZ() - pos.z, 2));
+		Direction toward = Direction.getApproximateNearest(target.getX() - pos.x, 0.0, target.getZ() - pos.z);
+		this.controls.lookAt(target.getEyePosition());
+
+		if (dy >= 1.5 && horizontal < 4.0 && this.builder.hasBlocks()) {
+			this.combat.stop();
+			if (this.builder.pillar()) {
+				if (this.player.getY() >= target.getY() - 0.5) {
+					this.nav.retry();
+				}
+				return true;
+			}
+		}
+		BlockPos feet = this.player.blockPosition();
+		BlockPos ahead = feet.relative(toward);
+		ServerLevel level = this.player.level();
+		boolean gap = level.getBlockState(ahead.below()).canBeReplaced() && level.getBlockState(ahead).canBeReplaced();
+		if (gap && dy > -3.0 && this.builder.hasBlocks() && this.player.onGround()) {
+			this.combat.stop();
+			if (this.builder.bridge(toward)) {
+				return true;
+			}
+		}
+		// Miners hold their pickaxe to dig.
+		if (this.variant == CharacterVariant.MINER) {
+			int pickaxe = Inv.ready(this.player, stack -> stack.is(ItemTags.PICKAXES), 0);
+			if (pickaxe >= 0) {
+				this.controls.selectSlot(pickaxe);
+			}
+		}
+		for (BlockPos block : new BlockPos[]{ahead.above(), ahead}) {
+			BlockState state = level.getBlockState(block);
+			if (!state.canBeReplaced() && !state.getCollisionShape(level, block).isEmpty()) {
+				this.combat.stop();
+				if (this.builder.dig(block)) {
+					return true;
+				}
+			}
+		}
+		if (this.builder.isDigging()) {
+			this.builder.stopDigging();
+			this.nav.retry();
+		}
+		return false;
+	}
+
+	/** Miners light up dark spots: a torch on the floor (right-click the top of the block below). */
+	private boolean placeTorch() {
+		if (this.torchCooldown > 0) {
+			return false;
+		}
+		this.torchCooldown = 60;
+		ServerLevel level = this.player.level();
+		BlockPos feet = this.player.blockPosition();
+		if (level.getBrightness(LightLayer.BLOCK, feet) > 4 || level.getBrightness(LightLayer.SKY, feet) > 6
+				|| !level.getBlockState(feet).isAir() || !level.getBlockState(feet.below()).isFaceSturdy(level, feet.below(), Direction.UP)) {
+			return false;
+		}
+		return this.useItemOn(feet.below(), Direction.UP, stack -> stack.is(Items.TORCH));
+	}
+
+	/** Walks over to a trident he threw and picks it up. */
+	private boolean fetchTrident() {
+		if (Inv.find(this.player, stack -> stack.is(Items.TRIDENT)) >= 0) {
+			return false;
+		}
+		ThrownTrident trident = this.combat.findThrownTrident();
+		if (trident == null || trident.distanceTo(this.player) > 40.0) {
+			return false;
+		}
+		this.nav.moveTo(trident.position(), 0.5, Navigator.Speed.SPRINT);
+		return true;
+	}
+
+	/** Iron golems go after untamed hostile ItzBreadLoafs near them. */
+	private void provokeGolems() {
+		if (this.isTame() || this.baby || this.variant == CharacterVariant.VILLAGER) {
+			return;
+		}
+		for (IronGolem golem : this.player.level().getEntitiesOfClass(IronGolem.class, this.player.getBoundingBox().inflate(16.0),
+				golem -> golem.getTarget() == null && !golem.isPlayerCreated())) {
+			golem.setTarget(this.player);
+		}
+	}
+
+	@Override
+	public void onHurt(DamageSource source, float damage, boolean blocked) {
+		super.onHurt(source, damage, blocked);
+		// Group mates come to help.
+		if (this.groupId != null && !this.isTame() && source.getEntity() instanceof LivingEntity attacker && attacker != this.player) {
+			LoafBrain attackerBrain = CharacterManager.brain(attacker);
+			if (attackerBrain != null && this.isTentMate(attackerBrain)) {
+				return;
+			}
+			for (LoafCharacter character : CharacterManager.active()) {
+				if (character.brain instanceof BreadLoafBrain mate && mate != this && this.isTentMate(mate) && !mate.isTame()
+						&& character.player.distanceTo(this.player) < 32.0 && (mate.target == null || !mate.target.isAlive())) {
+					mate.setTarget(attacker);
+				}
+			}
+		}
+	}
+
+	// ---------------------------------------------------------------- chatter
+
+	@Override
+	protected String[] chatterLines() {
+		return switch (this.variant) {
+			case KNIGHT, CAPTAIN -> new String[]{"*polishes armor*", "the fort is safe with me", "stand tall, soldier!", "shields up, always"};
+			case PIRATE -> new String[]{"yo ho ho!", "smell that sea breeze?", "where'd I bury that chest...", "arr, land is boring"};
+			case MINER -> new String[]{"diamonds are down there somewhere", "*taps the stone*", "need more torches", "I can hear lava..."};
+			case FISHERMAN -> new String[]{"they're biting today!", "caught one THIS big", "shh, don't scare the fish", "nothing beats a quiet dock"};
+			case VILLAGER -> new String[]{"nice day in the village", "the farm's looking good", "anyone seen the iron golem?", "*waves*"};
+			case SWEATY -> new String[]{"1v1 me later", "my cps is insane", "practicing my combos", "ez"};
+			case BANDIT -> new String[]{"nothing to see here...", "*counts emeralds*", "that loot looks unguarded", "shh"};
+			default -> new String[]{"anyone up for a spar?", "I could eat like five loaves rn", "*practices sword swings*",
+					"where'd I put my steak...", "FelixSyn better not show up here", "bread is life", "I'm basically unbeatable"};
+		};
+	}
+
+	@Override
+	protected @Nullable String[] chatWith(LoafBrain other) {
+		return switch (other.kind()) {
+			case LILY -> new String[]{"hey Lily! still reading that book?", "Lily, look at this sword!", "nice flowers, Lily"};
+			case MADISON -> new String[]{"Madison, got any bread?", "I'm not touching your pantry, promise", "hey Madison!"};
+			case BREADLOAF -> new String[]{"race you to that tree!", "bet I can out-crit you", "loaf squad!"};
+			default -> null;
+		};
+	}
+
+	// ---------------------------------------------------------------- taming
+
+	public void tame(ServerPlayer tamer) {
+		this.setOwner(tamer);
+		this.groupId = null;
+		this.playSound(ModSounds.TAMED, 1.0F, 1.0F);
+		this.particles(ParticleTypes.HEART, 7);
+		ModAdvancements.award(tamer, ModAdvancements.BREAD_WINNER);
+	}
+
+	@Override
+	protected @Nullable InteractionResult interact(ServerPlayer clicker, ItemStack stack) {
+		if (!this.isTame()) {
+			if (stack.is(Items.COOKED_BEEF) && !this.baby) {
+				// Can't be tamed by the player he is currently fighting.
+				if (this.target == clicker) {
+					this.particles(ParticleTypes.SMOKE, 7);
+					return InteractionResult.FAIL;
+				}
+				ItemStack steak = stack.copyWithCount(1);
+				stack.consume(1, clicker);
+				Inv.give(this.player, steak);
+				this.playSound(ModSounds.GIVEN_GIFT, 1.0F, 1.0F);
+				if (this.random.nextInt(Math.max(1, com.itzbreadloaf.config.ModConfig.get().breadTameChance)) == 0) {
+					this.tame(clicker);
+				} else {
+					this.particles(ParticleTypes.SMOKE, 7);
+				}
+				return InteractionResult.SUCCESS;
+			}
+			return null;
+		}
+		if (!this.isOwnedBy(clicker)) {
+			return null;
+		}
+		if (!this.baby && this.duties.tryComplete(clicker, stack)) {
+			return InteractionResult.SUCCESS;
+		}
+		if (stack.isEmpty() && clicker.isShiftKeyDown() && !this.baby && this.duties.remind(clicker)) {
+			return InteractionResult.SUCCESS;
+		}
+		if (stack.is(Items.COOKED_BEEF)) {
+			if (this.baby) {
+				// Feeding a baby its parent's food makes it grow up faster.
+				stack.consume(1, clicker);
+				this.ageUp(GROW_UP_TICKS / 10);
+				this.particles(ParticleTypes.HAPPY_VILLAGER, 7);
+				return InteractionResult.SUCCESS;
+			}
+			if (this.player.getHealth() < this.player.getMaxHealth()) {
+				stack.consume(1, clicker);
+				this.player.heal(STEAK_FEED_HEAL);
+				this.playSound(SoundEvents.GENERIC_EAT.value(), 1.0F, 1.0F);
+				this.playSound(ModSounds.GIVEN_GIFT, 1.0F, 1.0F);
+				this.particles(ParticleTypes.HEART, 7);
+				return InteractionResult.SUCCESS;
+			}
+			if (this.canFallInLove()) {
+				stack.consume(1, clicker);
+				this.setInLove();
+				return InteractionResult.SUCCESS;
+			}
+		}
+		if (stack.isEmpty()) {
+			this.setSitting(!this.sitting);
+			this.setTarget(null);
+			return InteractionResult.SUCCESS;
+		}
+		return null;
+	}
+
+	// ---------------------------------------------------------------- saving
+
+	@Override
+	public void save(CompoundTag tag) {
+		super.save(tag);
+		this.duties.save(tag);
+		if (this.groupId != null) {
+			tag.store("Group", UUIDUtil.CODEC, this.groupId);
+		}
+	}
+
+	@Override
+	public void load(CompoundTag tag) {
+		super.load(tag);
+		this.duties.load(tag);
+		this.groupId = tag.read("Group", UUIDUtil.CODEC).orElse(null);
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/brain/Builder.java
+
+```java
+package com.itzbreadloaf.brain;
+
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.gamerules.GameRules;
+import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * Places and breaks blocks the way a player does: building blocks come from the real inventory, every block is
+ * placed with a right-click on the face of a neighbouring block, and digging holds left-click until the block
+ * breaks. Pillaring (jump, look down, place under yourself) and bridging (sneak to the edge, place on the side
+ * of the block you stand on) are built on that. Only when the mobGriefing game rule is on.
+ */
+public final class Builder {
+	public static final int BLOCK_SLOT = 8;
+
+	private final ServerPlayer player;
+	private final Controls controls;
+	private int clickCooldown;
+	private @Nullable BlockPos mining;
+	private int miningTicks;
+
+	public Builder(ServerPlayer player, Controls controls) {
+		this.player = player;
+		this.controls = controls;
+	}
+
+	public static boolean allowed(ServerLevel level) {
+		return level.getGameRules().get(GameRules.MOB_GRIEFING);
+	}
+
+	public void tick() {
+		if (this.clickCooldown > 0) {
+			this.clickCooldown--;
+		}
+	}
+
+	public boolean hasBlocks() {
+		return Inv.find(this.player, Inv::isBuildingBlock) >= 0;
+	}
+
+	/** Puts building blocks in hand. False if there are none. */
+	public boolean holdBlocks() {
+		int slot = Inv.ready(this.player, Inv::isBuildingBlock, BLOCK_SLOT);
+		if (slot < 0) {
+			return false;
+		}
+		this.controls.selectSlot(slot);
+		return true;
+	}
+
+	private ServerLevel level() {
+		return this.player.level();
+	}
+
+	// ---------------------------------------------------------------- placing
+
+	/**
+	 * Right-clicks the face of a solid neighbour so a block lands at {@code pos}. Returns true when a click was sent.
+	 * The block in hand must already be selected ({@link #holdBlocks()}).
+	 */
+	public boolean place(BlockPos pos) {
+		if (this.clickCooldown > 0 || !this.level().getBlockState(pos).canBeReplaced()) {
+			return false;
+		}
+		Vec3 eyes = this.player.getEyePosition();
+		Direction bestSide = null;
+		double best = Double.MAX_VALUE;
+		for (Direction side : Direction.values()) {
+			BlockPos neighbour = pos.relative(side);
+			BlockState state = this.level().getBlockState(neighbour);
+			if (state.canBeReplaced() || !state.isFaceSturdy(this.level(), neighbour, side.getOpposite())) {
+				continue;
+			}
+			Vec3 face = faceCenter(neighbour, side.getOpposite());
+			double distance = eyes.distanceTo(face);
+			if (distance < 4.4 && distance < best) {
+				best = distance;
+				bestSide = side;
+			}
+		}
+		if (bestSide == null) {
+			return false;
+		}
+		this.controls.aimAt(faceCenter(pos.relative(bestSide), bestSide.getOpposite()));
+		this.controls.useOnce();
+		this.clickCooldown = 4;
+		return true;
+	}
+
+	private static Vec3 faceCenter(BlockPos block, Direction face) {
+		return Vec3.atCenterOf(block).add(face.getStepX() * 0.499, face.getStepY() * 0.499, face.getStepZ() * 0.499);
+	}
+
+	// ---------------------------------------------------------------- pillar
+
+	/**
+	 * One tick of pillaring up: look straight down, jump, and at the top of the jump place a block where our
+	 * feet were. Returns false when there are no blocks left.
+	 */
+	public boolean pillar() {
+		if (!this.holdBlocks()) {
+			return false;
+		}
+		this.controls.lookInstantly(this.player.getYRot(), 90.0F);
+		BlockPos feet = BlockPos.containing(this.player.getX(), Math.floor(this.player.getY() - 0.9), this.player.getZ()).above();
+		if (this.player.onGround()) {
+			this.controls.jumpOnce();
+			return true;
+		}
+		// Feet above the top of the block we're placing: it won't collide with us.
+		BlockPos under = BlockPos.containing(this.player.getX(), this.player.getY() - 1.0, this.player.getZ());
+		if (this.player.getY() - under.getY() >= 1.05 && this.level().getBlockState(under).canBeReplaced()
+				&& !this.level().getBlockState(under.below()).canBeReplaced() && this.clickCooldown <= 0) {
+			this.controls.useOnce();
+			this.clickCooldown = 3;
+		}
+		return feet != null;
+	}
+
+	// ---------------------------------------------------------------- bridge
+
+	/**
+	 * One tick of bridging toward {@code direction}: sneak to the edge of the block we stand on, lean over it,
+	 * and place a block against its side. Returns false when there are no blocks left.
+	 */
+	public boolean bridge(Direction direction) {
+		BlockPos standing = BlockPos.containing(this.player.getX(), this.player.getY() - 0.2, this.player.getZ());
+		BlockPos next = standing.relative(direction);
+		this.controls.setSneaking(true);
+		if (!this.level().getBlockState(next).canBeReplaced()) {
+			// Already a block there: step onto it.
+			this.controls.walk(Vec3.atLowerCornerOf(direction.getUnitVec3i()), 0.6F);
+			return true;
+		}
+		if (!this.holdBlocks()) {
+			return false;
+		}
+		double edge = direction.getAxis().choose(standing.getX(), standing.getY(), standing.getZ()) + 0.5 + direction.getAxisDirection().getStep() * 0.5;
+		double position = direction.getAxis().choose(this.player.getX(), this.player.getY(), this.player.getZ());
+		double over = (position - edge) * direction.getAxisDirection().getStep();
+		Vec3 face = faceCenter(standing, direction);
+		if (over < 0.2) {
+			// Creep out over the edge (sneaking keeps us from falling).
+			this.controls.walk(Vec3.atLowerCornerOf(direction.getUnitVec3i()), 0.5F);
+			this.controls.lookAt(face);
+			return true;
+		}
+		this.controls.aimAt(face);
+		if (this.clickCooldown <= 0) {
+			this.controls.useOnce();
+			this.clickCooldown = 5;
+		}
+		return true;
+	}
+
+	// ---------------------------------------------------------------- digging
+
+	/** Mines a block by holding left-click on it. Returns true while still digging. */
+	public boolean dig(BlockPos pos) {
+		BlockState state = this.level().getBlockState(pos);
+		if (state.isAir() || state.getDestroySpeed(this.level(), pos) < 0 || state.getDestroySpeed(this.level(), pos) > 3.0F) {
+			this.stopDigging();
+			return false;
+		}
+		if (!pos.equals(this.mining)) {
+			this.mining = pos;
+			this.miningTicks = 0;
+		}
+		if (++this.miningTicks > 200) {
+			this.stopDigging();
+			return false;
+		}
+		this.controls.aimAt(Vec3.atCenterOf(pos));
+		this.controls.holdAttack(true);
+		return true;
+	}
+
+	public void stopDigging() {
+		if (this.mining != null) {
+			this.controls.holdAttack(false);
+			this.mining = null;
+		}
+	}
+
+	public boolean isDigging() {
+		return this.mining != null;
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/brain/Combat.java
+
+```java
+package com.itzbreadloaf.brain;
+
+import java.util.List;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.tags.ItemTags;
+import net.minecraft.util.Mth;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.projectile.arrow.ThrownTrident;
+import net.minecraft.world.item.CrossbowItem;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * Player-vs-player fighting with real inputs.
+ *
+ * Melee: waits for the real attack cooldown ({@code getAttackStrengthScale}), aims at the closest point of the
+ * target's hitbox, hits while sprinting for extra knockback, and jumps for critical hits (attacking while falling,
+ * not sprinting). Raises a shield (held right-click with a shield in the offhand) between hits.
+ * Ranged: bows are drawn for the real 20 ticks and released, crossbows are charged for their real charge time and
+ * then fired, tridents are held 10+ ticks and thrown. Arrows are aimed with gravity and target movement.
+ */
+public final class Combat {
+	public enum Weapon {
+		FISTS, MELEE, SPEAR, MACE, BOW, CROSSBOW, TRIDENT;
+
+		public boolean isRanged() {
+			return this == BOW || this == CROSSBOW || this == TRIDENT;
+		}
+	}
+
+	public static final int MELEE_SLOT = 0;
+	public static final int RANGED_SLOT = 1;
+
+	private final ServerPlayer player;
+	private final Controls controls;
+	private final RandomSource random;
+
+	private boolean critJump;
+	private int critTimer;
+	private int strafeDirection = 1;
+	private int strafeTimer;
+	private int releaseCooldown;
+	private boolean drawing;
+	private boolean shieldUp;
+	private @Nullable ThrownTrident thrownTrident;
+	public boolean useCrits = true;
+	/** How often a jump crit is attempted when the timing allows (Harley on Hard: every time). */
+	public float critChance = 0.5F;
+	/** Below this share of max health it backs off (shield up or sprinting away) so it can heal and eat. 0 = never. */
+	public float retreatBelow;
+	private int retreatTicks;
+	private int retreatCooldown;
+	/** Called when a jump crit swing goes off (ItzBreadLoaf yells). */
+	public @org.jetbrains.annotations.Nullable Runnable onCrit;
+	public boolean useShield = true;
+	public boolean strafe = true;
+
+	public Combat(ServerPlayer player, Controls controls, RandomSource random) {
+		this.player = player;
+		this.controls = controls;
+		this.random = random;
+	}
+
+	// ---------------------------------------------------------------- weapons
+
+	public static Weapon kindOf(ItemStack stack) {
+		if (stack.isEmpty()) {
+			return Weapon.FISTS;
+		}
+		if (stack.is(Items.BOW)) {
+			return Weapon.BOW;
+		}
+		if (stack.is(Items.CROSSBOW)) {
+			return Weapon.CROSSBOW;
+		}
+		if (stack.is(Items.TRIDENT)) {
+			return Weapon.TRIDENT;
+		}
+		if (stack.is(Items.MACE)) {
+			return Weapon.MACE;
+		}
+		if (stack.is(ItemTags.SPEARS) || stack.has(DataComponents.KINETIC_WEAPON)) {
+			return Weapon.SPEAR;
+		}
+		return Inv.attackDamage(stack) > 0.0 ? Weapon.MELEE : Weapon.FISTS;
+	}
+
+	public boolean hasAmmo() {
+		return Inv.count(this.player, stack -> stack.is(ItemTags.ARROWS)) > 0 || this.player.isCreative();
+	}
+
+	private boolean usable(ItemStack stack) {
+		Weapon weapon = kindOf(stack);
+		if (weapon == Weapon.BOW) {
+			return this.hasAmmo();
+		}
+		if (weapon == Weapon.CROSSBOW) {
+			return CrossbowItem.isCharged(stack) || this.hasAmmo();
+		}
+		return weapon != Weapon.FISTS;
+	}
+
+	/**
+	 * Puts the best weapon for this distance in hand: a usable ranged weapon when far (if allowed),
+	 * otherwise the hardest-hitting melee weapon. Returns what it picked.
+	 */
+	public Weapon equipBest(double distance, boolean allowRanged) {
+		int rangedSlot = -1;
+		int meleeSlot = -1;
+		double bestDamage = 0.0;
+		for (int i = 0; i < Inv.MAIN; i++) {
+			ItemStack stack = this.player.getInventory().getItem(i);
+			Weapon weapon = kindOf(stack);
+			if (weapon.isRanged()) {
+				if (rangedSlot < 0 && this.usable(stack)) {
+					rangedSlot = i;
+				}
+			} else if (weapon != Weapon.FISTS) {
+				double damage = Inv.attackDamage(stack) + (weapon == Weapon.MACE ? 1.0 : 0.0);
+				if (damage > bestDamage) {
+					bestDamage = damage;
+					meleeSlot = i;
+				}
+			}
+		}
+		boolean ranged = rangedSlot >= 0 && allowRanged && (distance > 6.0 || meleeSlot < 0);
+		int slot = ranged ? rangedSlot : meleeSlot;
+		if (slot < 0) {
+			// Fists: hold nothing (or anything that isn't a weapon).
+			int empty = -1;
+			for (int i = 0; i < Inv.HOTBAR; i++) {
+				if (this.player.getInventory().getItem(i).isEmpty()) {
+					empty = i;
+					break;
+				}
+			}
+			if (empty >= 0) {
+				this.controls.selectSlot(empty);
+			}
+			return Weapon.FISTS;
+		}
+		int hotbar = Inv.toHotbar(this.player, slot, ranged ? RANGED_SLOT : MELEE_SLOT);
+		this.controls.selectSlot(hotbar);
+		return kindOf(this.player.getInventory().getItem(hotbar));
+	}
+
+	public Weapon held() {
+		return kindOf(this.player.getMainHandItem());
+	}
+
+	// ---------------------------------------------------------------- fighting
+
+	/** One tick of fighting {@code target} with the weapon in hand, including moving toward or around it. */
+	public void fight(LivingEntity target, Navigator nav) {
+		if (this.releaseCooldown > 0) {
+			this.releaseCooldown--;
+		}
+		if (this.retreatCooldown > 0) {
+			this.retreatCooldown--;
+		}
+		if (this.strafeTimer-- <= 0) {
+			this.strafeTimer = 20 + this.random.nextInt(40);
+			this.strafeDirection = this.random.nextBoolean() ? 1 : -1;
+		}
+		Weapon weapon = this.held();
+		switch (weapon) {
+			case BOW -> this.bow(target, nav);
+			case CROSSBOW -> this.crossbow(target, nav);
+			case TRIDENT -> this.trident(target, nav);
+			default -> this.melee(target, nav);
+		}
+	}
+
+	/** Stops drawing, blocking and swinging (switching to something else). */
+	public void stop() {
+		if (this.drawing || this.shieldUp) {
+			this.controls.holdUse(false);
+		}
+		this.drawing = false;
+		this.shieldUp = false;
+		this.critJump = false;
+	}
+
+	/** The point of the target's hitbox closest to our eyes (what a player aims at). */
+	public Vec3 aimPoint(LivingEntity target) {
+		Vec3 eyes = this.player.getEyePosition();
+		AABB box = target.getBoundingBox().deflate(0.1);
+		return new Vec3(Mth.clamp(eyes.x, box.minX, box.maxX), Mth.clamp(eyes.y, box.minY, box.maxY), Mth.clamp(eyes.z, box.minZ, box.maxZ));
+	}
+
+	public double reach() {
+		return this.player.entityInteractionRange();
+	}
+
+	public boolean canSee(LivingEntity target) {
+		return this.player.hasLineOfSight(target);
+	}
+
+	private void melee(LivingEntity target, Navigator nav) {
+		Vec3 aim = this.aimPoint(target);
+		double distance = this.player.getEyePosition().distanceTo(aim);
+		double reach = this.reach() - 0.15;
+		float cooldown = this.player.getAttackStrengthScale(0.5F);
+		boolean closeEnough = distance <= reach;
+
+		if (distance < 7.0) {
+			this.controls.aimAt(aim);
+		} else {
+			this.controls.lookAt(aim);
+		}
+
+		// Low on health: back off for a couple of seconds (blocking if there's a shield) to make room to heal.
+		if (this.retreatBelow > 0.0F && this.retreatTicks <= 0 && this.retreatCooldown <= 0 && distance < 6.0
+				&& this.player.getHealth() < this.player.getMaxHealth() * this.retreatBelow) {
+			this.retreatTicks = 50;
+			this.retreatCooldown = 300;
+		}
+		if (this.retreatTicks > 0) {
+			this.retreatTicks--;
+			this.critJump = false;
+			nav.stop();
+			Vec3 away = this.player.position().subtract(target.position()).multiply(1.0, 0.0, 1.0);
+			away = away.lengthSqr() < 1.0E-4 ? new Vec3(1.0, 0.0, 0.0) : away.normalize();
+			Vec3 side = new Vec3(-away.z, 0.0, away.x).scale(this.strafeDirection * 0.4);
+			if (this.useShield && this.hasUsableShield()) {
+				// Walk backwards behind the shield, still facing them.
+				this.raiseShield(true);
+				this.controls.walk(away.add(side));
+				this.controls.setSprinting(false);
+			} else {
+				// No shield: turn and sprint away.
+				this.raiseShield(false);
+				this.controls.lookAt(this.player.getEyePosition().add(away.scale(5.0)));
+				this.controls.walk(away.add(side));
+				this.controls.setSprinting(true);
+			}
+			return;
+		}
+
+		// Movement: run in, then keep at about 2.5 blocks and circle a bit like a PvP player.
+		if (distance > 3.2 || !this.canSee(target)) {
+			nav.follow(target, 2.0, Navigator.Speed.SPRINT);
+		} else {
+			nav.stop();
+			Vec3 toTarget = target.position().subtract(this.player.position()).multiply(1.0, 0.0, 1.0);
+			Vec3 side = new Vec3(-toTarget.z, 0.0, toTarget.x).normalize().scale(this.strafe ? this.strafeDirection * 0.6 : 0.0);
+			Vec3 forward = toTarget.normalize().scale(distance > 2.6 ? 1.0 : distance < 1.6 ? -0.6 : 0.2);
+			this.controls.walk(forward.add(side));
+			this.controls.setSprinting(distance > 2.0 && !this.critJump);
+		}
+
+		// Shield up between hits, down to attack.
+		boolean shieldReady = this.useShield && this.hasUsableShield() && !this.critJump;
+		boolean threatened = distance < 4.5 && cooldown < 0.8 || this.targetIsAiming(target);
+		if (shieldReady && threatened && cooldown < 0.9F) {
+			this.raiseShield(true);
+		} else {
+			this.raiseShield(false);
+		}
+
+		// Critical hits: jump when the cooldown is nearly back, hit on the way down.
+		if (this.critJump) {
+			this.critTimer++;
+			boolean falling = !this.player.onGround() && this.player.getDeltaMovement().y < -0.03 && this.player.fallDistance > 0.0;
+			if (falling && closeEnough && cooldown >= 0.95F) {
+				this.controls.setSprinting(false);
+				this.swing();
+				this.critJump = false;
+				if (this.onCrit != null) {
+					this.onCrit.run();
+				}
+			} else if (this.critTimer > 14 && this.player.onGround()) {
+				this.critJump = false;
+			}
+			return;
+		}
+		if (this.useCrits && this.player.onGround() && !this.player.isInWater() && closeEnough && cooldown >= 0.8F
+				&& cooldown < 0.95F && this.random.nextFloat() < this.critChance) {
+			this.critJump = true;
+			this.critTimer = 0;
+			this.controls.setSprinting(false);
+			this.controls.jumpOnce();
+			return;
+		}
+		if (closeEnough && cooldown >= 0.95F && this.canSee(target)) {
+			this.swing();
+		}
+	}
+
+
+	private void swing() {
+		this.raiseShield(false);
+		this.controls.attackOnce();
+	}
+
+	/** Backing off to heal right now. */
+	public boolean isRetreating() {
+		return this.retreatTicks > 0;
+	}
+
+	public boolean hasUsableShield() {
+		ItemStack offhand = this.player.getOffhandItem();
+		return offhand.has(DataComponents.BLOCKS_ATTACKS) && !this.player.getCooldowns().isOnCooldown(offhand)
+				&& !this.player.getMainHandItem().has(DataComponents.FOOD);
+	}
+
+	public void raiseShield(boolean up) {
+		if (up != this.shieldUp) {
+			this.shieldUp = up;
+			this.controls.holdUse(up);
+		}
+	}
+
+	public boolean isShieldUp() {
+		return this.shieldUp;
+	}
+
+	/** Skeletons and players drawing a bow or crossbow at us: worth blocking. */
+	private boolean targetIsAiming(LivingEntity target) {
+		ItemStack using = target.getUseItem();
+		return target.isUsingItem() && (using.is(Items.BOW) || using.is(Items.CROSSBOW) || using.is(Items.TRIDENT));
+	}
+
+	// ---------------------------------------------------------------- ranged
+
+	private void keepRange(LivingEntity target, Navigator nav, double min, double max) {
+		double distance = this.player.distanceTo(target);
+		if (distance > max || !this.canSee(target)) {
+			nav.follow(target, max - 2.0, Navigator.Speed.WALK);
+		} else {
+			nav.stop();
+			Vec3 away = this.player.position().subtract(target.position()).multiply(1.0, 0.0, 1.0).normalize();
+			Vec3 side = new Vec3(-away.z, 0.0, away.x).scale(this.strafeDirection * 0.5);
+			this.controls.walk(distance < min ? away.add(side) : side, distance < min ? 1.0F : 0.5F);
+		}
+	}
+
+	private void bow(LivingEntity target, Navigator nav) {
+		this.keepRange(target, nav, 7.0, 16.0);
+		this.raiseShieldOff();
+		boolean visible = this.canSee(target);
+		this.aimProjectile(target, 3.0, 0.05);
+		if (!this.drawing) {
+			if (this.releaseCooldown <= 0 && visible && this.hasAmmo()) {
+				this.drawing = true;
+				this.controls.holdUse(true);
+			}
+			return;
+		}
+		// Full draw is 20 ticks (as fast as a real player's full charge).
+		if (this.player.isUsingItem() && this.player.getTicksUsingItem() >= 20 && visible) {
+			this.drawing = false;
+			this.controls.holdUse(false);
+			this.releaseCooldown = 6 + this.random.nextInt(8);
+		} else if (!this.player.isUsingItem() && this.player.getTicksUsingItem() == 0 && !this.controls.isHoldingUse()) {
+			this.drawing = false;
+		}
+	}
+
+	private void crossbow(LivingEntity target, Navigator nav) {
+		this.keepRange(target, nav, 6.0, 14.0);
+		this.raiseShieldOff();
+		ItemStack crossbow = this.player.getMainHandItem();
+		if (!CrossbowItem.isCharged(crossbow)) {
+			if (!this.hasAmmo()) {
+				return;
+			}
+			this.controls.lookAt(target.getEyePosition());
+			if (!this.drawing) {
+				this.drawing = true;
+				this.controls.holdUse(true);
+			} else if (this.player.isUsingItem() && this.player.getTicksUsingItem() >= CrossbowItem.getChargeDuration(crossbow, this.player) + 1) {
+				// Let go once fully charged: the crossbow is loaded.
+				this.drawing = false;
+				this.controls.holdUse(false);
+				this.releaseCooldown = 4;
+			}
+			return;
+		}
+		this.aimProjectile(target, 3.15, 0.05);
+		if (this.releaseCooldown <= 0 && this.canSee(target)) {
+			this.controls.useOnce();
+			this.releaseCooldown = 10;
+		}
+	}
+
+	private void trident(LivingEntity target, Navigator nav) {
+		double distance = this.player.distanceTo(target);
+		if (distance < 3.5) {
+			// Up close a trident is a good melee weapon too.
+			this.melee(target, nav);
+			return;
+		}
+		this.keepRange(target, nav, 5.0, 14.0);
+		this.aimProjectile(target, 2.5, 0.05);
+		if (!this.drawing) {
+			if (this.releaseCooldown <= 0 && this.canSee(target)) {
+				this.drawing = true;
+				this.controls.holdUse(true);
+			}
+		} else if (this.player.isUsingItem() && this.player.getTicksUsingItem() >= 12) {
+			this.drawing = false;
+			this.controls.holdUse(false);
+			this.releaseCooldown = 20;
+		}
+	}
+
+	private void raiseShieldOff() {
+		if (this.shieldUp) {
+			this.shieldUp = false;
+			this.controls.holdUse(false);
+		}
+	}
+
+	/**
+	 * Aims a projectile with speed {@code v} (blocks/tick) and gravity {@code g}: leads a moving target and
+	 * tilts up for the drop (low-arc solution of the projectile equation).
+	 */
+	public void aimProjectile(LivingEntity target, double v, double g) {
+		Vec3 eyes = this.player.getEyePosition();
+		Vec3 aim = target.position().add(0.0, target.getBbHeight() * 0.6, 0.0);
+		double flightTicks = eyes.distanceTo(aim) / v;
+		Vec3 velocity = target.getDeltaMovement();
+		aim = aim.add(velocity.x * flightTicks, 0.0, velocity.z * flightTicks);
+		double dx = aim.x - eyes.x;
+		double dz = aim.z - eyes.z;
+		double dy = aim.y - eyes.y;
+		double d = Math.sqrt(dx * dx + dz * dz);
+		double v2 = v * v;
+		double disc = v2 * v2 - g * (g * d * d + 2.0 * dy * v2);
+		double angle = disc < 0.0 ? Math.PI / 4.0 : Math.atan2(v2 - Math.sqrt(disc), g * d);
+		float yaw = (float) (Mth.atan2(dz, dx) * Mth.RAD_TO_DEG) - 90.0F;
+		float pitch = (float) (-angle * Mth.RAD_TO_DEG);
+		this.controls.lookInstantly(yaw, pitch);
+	}
+
+	// ---------------------------------------------------------------- trident pickup
+
+	/** A trident we threw that is lying somewhere, to walk over and pick up. */
+	public @Nullable ThrownTrident findThrownTrident() {
+		if (this.thrownTrident != null && (this.thrownTrident.isRemoved() || this.thrownTrident.getOwner() != this.player)) {
+			this.thrownTrident = null;
+		}
+		if (this.thrownTrident == null) {
+			List<ThrownTrident> tridents = this.player.level().getEntitiesOfClass(ThrownTrident.class,
+					this.player.getBoundingBox().inflate(48.0), trident -> trident.getOwner() == this.player);
+			this.thrownTrident = tridents.isEmpty() ? null : tridents.get(0);
+		}
+		return this.thrownTrident;
+	}
+
+	public boolean hasClearShot(Vec3 from, Vec3 to) {
+		return this.player.level().clip(new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, this.player))
+				.getType() == HitResult.Type.MISS;
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/brain/Controls.java
+
+```java
+package com.itzbreadloaf.brain;
+
+import carpet.helpers.EntityPlayerActionPack;
+import carpet.helpers.EntityPlayerActionPack.Action;
+import carpet.helpers.EntityPlayerActionPack.ActionType;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.Mth;
+import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * The character's keyboard and mouse. Brains only ever move, look, jump, click and switch slots through here,
+ * and this is the one place that talks to Carpet's {@link EntityPlayerActionPack}.
+ *
+ * Each tick: the brain sets what it wants (walk direction, where to look, buttons), then {@link #apply()} turns the
+ * look into a real yaw/pitch (turning at most {@link #MAX_TURN} degrees per tick, like a fast mouse) and converts
+ * the wanted walk direction into forward/strafe input relative to where the player is now facing.
+ */
+public final class Controls {
+	public static final float MAX_TURN = 45.0F;
+
+	private final ServerPlayer player;
+	private final EntityPlayerActionPack pack;
+
+	private @Nullable Vec3 walkDirection;
+	private float walkScale = 1.0F;
+	private @Nullable Float wantYaw;
+	private float wantPitch;
+	private boolean snapLook;
+	private boolean sprint;
+	private boolean sneak;
+	private boolean holdingJump;
+	private boolean holdingUse;
+	private boolean holdingAttack;
+	private int lastSlot = -1;
+
+	public Controls(ServerPlayer player, EntityPlayerActionPack pack) {
+		this.player = player;
+		this.pack = pack;
+	}
+
+	/** Start of a brain tick: forget last tick's walk and look wishes (held buttons stay held). */
+	public void begin() {
+		this.walkDirection = null;
+		this.walkScale = 1.0F;
+		this.wantYaw = null;
+		this.snapLook = false;
+	}
+
+	// ---------------------------------------------------------------- movement
+
+	/** Walk in a world direction (only x/z matter). The input is converted to forward/strafe in {@link #apply()}. */
+	public void walk(Vec3 direction) {
+		this.walkDirection = new Vec3(direction.x, 0.0, direction.z);
+	}
+
+	public void walk(Vec3 direction, float scale) {
+		this.walk(direction);
+		this.walkScale = scale;
+	}
+
+	public void walkToward(Vec3 point) {
+		this.walk(point.subtract(this.player.position()));
+	}
+
+	public boolean isWalking() {
+		return this.walkDirection != null;
+	}
+
+	public void setSprinting(boolean sprint) {
+		this.sprint = sprint;
+	}
+
+	public void setSneaking(boolean sneak) {
+		this.sneak = sneak;
+	}
+
+	public boolean isSneaking() {
+		return this.sneak;
+	}
+
+	// ---------------------------------------------------------------- looking
+
+	public void look(float yaw, float pitch) {
+		this.wantYaw = yaw;
+		this.wantPitch = pitch;
+	}
+
+	/** Look exactly there this tick (no turn speed limit), for aiming. */
+	public void lookInstantly(float yaw, float pitch) {
+		this.look(yaw, pitch);
+		this.snapLook = true;
+	}
+
+	public void lookAt(Vec3 point) {
+		Vec3 eyes = this.player.getEyePosition();
+		Vec3 d = point.subtract(eyes);
+		double horizontal = Math.sqrt(d.x * d.x + d.z * d.z);
+		this.look((float) (Mth.atan2(d.z, d.x) * Mth.RAD_TO_DEG) - 90.0F, (float) -(Mth.atan2(d.y, horizontal) * Mth.RAD_TO_DEG));
+	}
+
+	public void aimAt(Vec3 point) {
+		this.lookAt(point);
+		this.snapLook = true;
+	}
+
+	public boolean hasLook() {
+		return this.wantYaw != null;
+	}
+
+	public static float yawTo(Vec3 from, Vec3 to) {
+		return (float) (Mth.atan2(to.z - from.z, to.x - from.x) * Mth.RAD_TO_DEG) - 90.0F;
+	}
+
+	// ---------------------------------------------------------------- buttons
+
+	public void jumpOnce() {
+		if (!this.holdingJump) {
+			this.pack.start(ActionType.JUMP, Action.once());
+		}
+	}
+
+	public void holdJump(boolean hold) {
+		if (hold != this.holdingJump) {
+			this.holdingJump = hold;
+			this.pack.start(ActionType.JUMP, hold ? Action.continuous() : null);
+		}
+	}
+
+	/** One right-click: place a block, open a door, throw a pearl, fire a charged crossbow... */
+	public void useOnce() {
+		this.holdingUse = false;
+		this.pack.start(ActionType.USE, Action.once());
+	}
+
+	/** Hold right-click: draw a bow, eat, drink, raise a shield. Letting go releases (fires the bow). */
+	public void holdUse(boolean hold) {
+		if (hold != this.holdingUse) {
+			this.holdingUse = hold;
+			this.pack.start(ActionType.USE, hold ? Action.continuous() : null);
+		}
+	}
+
+	public boolean isHoldingUse() {
+		return this.holdingUse;
+	}
+
+	/** One left-click at whatever the crosshair is on. */
+	public void attackOnce() {
+		this.holdingAttack = false;
+		this.pack.start(ActionType.ATTACK, Action.once());
+	}
+
+	/** Hold left-click (mining a block). */
+	public void holdAttack(boolean hold) {
+		if (hold != this.holdingAttack) {
+			this.holdingAttack = hold;
+			this.pack.start(ActionType.ATTACK, hold ? Action.continuous() : null);
+		}
+	}
+
+	public void swapHands() {
+		this.pack.start(ActionType.SWAP_HANDS, Action.once());
+	}
+
+	/** Hotbar slot 0-8 (Carpet's slots are 1-9). */
+	public void selectSlot(int slot) {
+		int clamped = Mth.clamp(slot, 0, 8);
+		if (clamped != this.player.getInventory().getSelectedSlot() || clamped != this.lastSlot) {
+			this.pack.setSlot(clamped + 1);
+			this.lastSlot = clamped;
+		}
+	}
+
+	/** Lets go of everything: no movement, no buttons. */
+	public void releaseAll() {
+		this.walkDirection = null;
+		this.holdJump(false);
+		this.holdUse(false);
+		this.holdAttack(false);
+		this.sprint = false;
+		this.pack.setForward(0.0F);
+		this.pack.setStrafing(0.0F);
+		this.pack.setSprinting(false);
+	}
+
+	// ---------------------------------------------------------------- end of tick
+
+	public void apply() {
+		if (this.wantYaw != null) {
+			float yaw = this.player.getYRot();
+			float pitch = this.player.getXRot();
+			float dYaw = Mth.wrapDegrees(this.wantYaw - yaw);
+			float dPitch = this.wantPitch - pitch;
+			if (!this.snapLook) {
+				dYaw = Mth.clamp(dYaw, -MAX_TURN, MAX_TURN);
+				dPitch = Mth.clamp(dPitch, -MAX_TURN, MAX_TURN);
+			}
+			this.pack.look(yaw + dYaw, Mth.clamp(pitch + dPitch, -90.0F, 90.0F));
+			this.player.setYHeadRot(this.player.getYRot());
+		}
+		float forward = 0.0F;
+		float strafe = 0.0F;
+		if (this.walkDirection != null && this.walkDirection.lengthSqr() > 1.0E-4) {
+			float moveYaw = (float) (Mth.atan2(this.walkDirection.z, this.walkDirection.x) * Mth.RAD_TO_DEG) - 90.0F;
+			float delta = Mth.wrapDegrees(moveYaw - this.player.getYRot()) * Mth.DEG_TO_RAD;
+			forward = Mth.cos(delta) * this.walkScale;
+			strafe = -Mth.sin(delta) * this.walkScale;
+		}
+		this.pack.setForward(forward);
+		this.pack.setStrafing(strafe);
+		// Players can only sprint forwards.
+		boolean canSprint = this.sprint && forward > 0.7F && !this.sneak && this.player.getFoodData().getFoodLevel() > 6;
+		this.pack.setSprinting(canSprint);
+		this.pack.setSneaking(this.sneak);
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/brain/DailyDuties.java
+
+```java
+package com.itzbreadloaf.brain;
+
+import com.itzbreadloaf.ModMessages;
+import com.itzbreadloaf.item.ModItems;
+import com.itzbreadloaf.sound.ModSounds;
+import net.minecraft.ChatFormatting;
+import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.entity.ExperienceOrb;
+import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * A tamed ItzBreadLoaf's daily routine with his owner:
+ * <ul>
+ *   <li>Daily gift: each Minecraft morning, when the owner is within 12 blocks, he tosses them a small gift.</li>
+ *   <li>Daily mission: a bit later he asks for some items ("bring me 16 wheat"). Right-click him holding them to
+ *   hand them over and get a reward. Sneak + right-click with an empty hand repeats the mission. A new one comes
+ *   every day (an unfinished one is replaced).</li>
+ * </ul>
+ */
+final class DailyDuties {
+	private static final double OWNER_RANGE = 12.0;
+	/** The gift can come any time in the morning (first 4000 ticks of the day, about 3 minutes 20 seconds). */
+	private static final long MORNING_END = 4000L;
+	/** Ticks between the gift and the mission (10 seconds). */
+	private static final int MISSION_DELAY = 200;
+
+	private record Mission(Item item, int min, int max, String line) {
+	}
+
+	private static final Mission[] MISSIONS = {
+			new Mission(Items.WHEAT, 12, 24, "I need wheat for bread. Bring me %d wheat!"),
+			new Mission(Items.COAL, 8, 16, "My furnace is cold... bring me %d coal?"),
+			new Mission(Items.IRON_INGOT, 4, 8, "Gonna make some armor. I need %d iron ingots."),
+			new Mission(Items.GOLD_INGOT, 2, 5, "Shiny stuff! Bring me %d gold ingots."),
+			new Mission(Items.STRING, 4, 10, "My bow string snapped. Get me %d string!"),
+			new Mission(Items.BONE, 4, 10, "Skeletons have been bugging me. Bring me %d bones as proof!"),
+			new Mission(Items.ROTTEN_FLESH, 8, 16, "Zombie hunt! Bring me %d rotten flesh."),
+			new Mission(Items.GUNPOWDER, 2, 5, "Creepers... I need %d gunpowder. Don't ask why."),
+			new Mission(Items.OAK_LOG, 12, 24, "Building a new base. I need %d oak logs!"),
+			new Mission(Items.COBBLESTONE, 32, 64, "Help me build a wall: %d cobblestone!"),
+			new Mission(Items.SUGAR_CANE, 6, 12, "I want to make paper. Bring me %d sugar cane."),
+			new Mission(Items.COOKED_BEEF, 3, 6, "I'm SO hungry. Bring me %d steak!"),
+	};
+
+	private final BreadLoafBrain brain;
+	private long lastGiftDay = -1;
+	private long missionDay = -1;
+	private @Nullable Item missionItem;
+	private int missionCount;
+	private boolean missionDone;
+	private int missionDueTick = -1;
+
+	DailyDuties(BreadLoafBrain brain) {
+		this.brain = brain;
+	}
+
+	/** Called every tick for a tamed, grown-up ItzBreadLoaf that isn't fighting. */
+	void tick() {
+		ServerPlayer owner = this.brain.getOwnerPlayer();
+		if (owner == null || owner.level() != this.brain.player.level() || this.brain.player.isSleeping()) {
+			return;
+		}
+		boolean near = owner.distanceTo(this.brain.player) < OWNER_RANGE && this.brain.player.hasLineOfSight(owner);
+		long time = this.brain.player.level().getDayTime();
+		long day = time / 24000L;
+		if (near && day != this.lastGiftDay && time % 24000L < MORNING_END) {
+			this.lastGiftDay = day;
+			this.giveGift(owner);
+			this.missionDueTick = this.brain.ticks + MISSION_DELAY;
+		}
+		if (near && day != this.missionDay && this.missionDueTick >= 0 && this.brain.ticks >= this.missionDueTick) {
+			this.missionDueTick = -1;
+			this.missionDay = day;
+			this.newMission(owner);
+		}
+	}
+
+	private void giveGift(ServerPlayer owner) {
+		RandomSource random = this.brain.random;
+		int roll = random.nextInt(100);
+		ItemStack gift;
+		if (roll < 30) {
+			gift = new ItemStack(ModItems.LOAF_BREAD, 2 + random.nextInt(3));
+		} else if (roll < 50) {
+			gift = new ItemStack(Items.COOKED_BEEF, 2 + random.nextInt(3));
+		} else if (roll < 65) {
+			gift = new ItemStack(Items.IRON_INGOT, 2 + random.nextInt(4));
+		} else if (roll < 75) {
+			gift = new ItemStack(Items.EMERALD, 1 + random.nextInt(3));
+		} else if (roll < 83) {
+			gift = new ItemStack(Items.ENDER_PEARL, 1 + random.nextInt(2));
+		} else if (roll < 90) {
+			gift = new ItemStack(Items.GOLDEN_APPLE);
+		} else if (roll < 96) {
+			gift = new ItemStack(Items.WIND_CHARGE, 4 + random.nextInt(5));
+		} else {
+			gift = new ItemStack(Items.DIAMOND);
+		}
+		this.toss(owner, gift);
+		this.brain.playSound(ModSounds.GIVES_GIFT, 1.0F, 1.0F);
+		this.brain.particles(ParticleTypes.HEART, 5);
+		ModMessages.say(owner, this.brain.player, ModMessages.pick(random,
+				"good morning! got you something.", "here, take this. don't say I never gave you anything.",
+				"found this lying around, it's yours.", "morning gift! you're welcome."));
+	}
+
+	private void newMission(ServerPlayer owner) {
+		Mission mission = MISSIONS[this.brain.random.nextInt(MISSIONS.length)];
+		this.missionItem = mission.item();
+		this.missionCount = mission.min() + this.brain.random.nextInt(mission.max() - mission.min() + 1);
+		this.missionDone = false;
+		this.brain.playSound(ModSounds.DAILY_MISSION, 1.0F, 1.0F);
+		ModMessages.say(owner, this.brain.player, String.format(mission.line(), this.missionCount));
+		owner.sendSystemMessage(Component.literal("Daily mission: bring " + this.missionCount + " " + this.itemName()
+				+ ". Right-click him holding them. (Sneak + right-click with an empty hand to see it again.)").withStyle(ChatFormatting.GOLD));
+	}
+
+	/** Shows the current mission. True if there was one to show. */
+	boolean remind(ServerPlayer owner) {
+		if (this.missionItem == null) {
+			owner.sendSystemMessage(Component.literal("No mission yet. He hands one out each morning.").withStyle(ChatFormatting.GRAY));
+			return true;
+		}
+		if (this.missionDone) {
+			owner.sendSystemMessage(Component.literal("Today's mission is done! Come back tomorrow morning.").withStyle(ChatFormatting.GREEN));
+		} else {
+			owner.sendSystemMessage(Component.literal("Daily mission: bring " + this.missionCount + " " + this.itemName() + ".")
+					.withStyle(ChatFormatting.GOLD));
+		}
+		return true;
+	}
+
+	/** The owner right-clicked holding {@code stack}. True if it was for the mission (handled). */
+	boolean tryComplete(ServerPlayer owner, ItemStack stack) {
+		if (this.missionItem == null || this.missionDone || !stack.is(this.missionItem)) {
+			return false;
+		}
+		int have = owner.getInventory().countItem(this.missionItem);
+		if (have < this.missionCount) {
+			owner.sendSystemMessage(Component.literal("You need " + this.missionCount + " " + this.itemName() + " (you have " + have + ").")
+					.withStyle(ChatFormatting.RED));
+			return true;
+		}
+		// Take them from the inventory (the stack in hand first).
+		int left = this.missionCount;
+		int fromHand = Math.min(left, stack.getCount());
+		stack.shrink(fromHand);
+		left -= fromHand;
+		var inventory = owner.getInventory();
+		for (int slot = 0; slot < inventory.getContainerSize() && left > 0; slot++) {
+			ItemStack other = inventory.getItem(slot);
+			if (other.is(this.missionItem)) {
+				int take = Math.min(left, other.getCount());
+				other.shrink(take);
+				left -= take;
+			}
+		}
+		this.missionDone = true;
+		this.brain.playSound(ModSounds.GIVEN_GIFT, 1.0F, 1.0F);
+		this.brain.particles(ParticleTypes.HAPPY_VILLAGER, 10);
+		this.toss(owner, this.reward());
+		ExperienceOrb.award(owner.level(), owner.position(), 15 + this.brain.random.nextInt(16));
+		ModMessages.say(owner, this.brain.player, ModMessages.pick(this.brain.random,
+				"you actually did it! here's your reward.", "mission complete! you're the best.", "GG. take this."));
+		return true;
+	}
+
+	private ItemStack reward() {
+		RandomSource random = this.brain.random;
+		int roll = random.nextInt(100);
+		if (roll < 35) {
+			return new ItemStack(Items.EMERALD, 3 + random.nextInt(5));
+		} else if (roll < 55) {
+			return new ItemStack(Items.GOLDEN_APPLE, 1 + random.nextInt(2));
+		} else if (roll < 70) {
+			return new ItemStack(Items.DIAMOND, 1 + random.nextInt(2));
+		} else if (roll < 82) {
+			return new ItemStack(Items.ENDER_PEARL, 2 + random.nextInt(3));
+		} else if (roll < 92) {
+			return new ItemStack(Items.EXPERIENCE_BOTTLE, 4 + random.nextInt(5));
+		} else if (roll < 98) {
+			return new ItemStack(Items.WIND_CHARGE, 8 + random.nextInt(9));
+		}
+		return new ItemStack(Items.ENCHANTED_GOLDEN_APPLE);
+	}
+
+	/** Throws an item to the owner. Only the owner can pick it up, so he doesn't grab it back. */
+	private void toss(ServerPlayer owner, ItemStack stack) {
+		var self = this.brain.player;
+		ItemEntity item = new ItemEntity(self.level(), self.getX(), self.getEyeY() - 0.3, self.getZ(), stack);
+		Vec3 toward = owner.position().subtract(self.position());
+		Vec3 motion = toward.lengthSqr() > 0.01 ? toward.normalize().scale(0.3) : Vec3.ZERO;
+		item.setDeltaMovement(motion.x, 0.25, motion.z);
+		item.setPickUpDelay(10);
+		item.setTarget(owner.getUUID());
+		self.level().addFreshEntity(item);
+		this.brain.controls.lookAt(owner.getEyePosition());
+	}
+
+	private String itemName() {
+		return this.missionItem == null ? "?" : new ItemStack(this.missionItem).getHoverName().getString().toLowerCase(java.util.Locale.ROOT);
+	}
+
+	void save(CompoundTag tag) {
+		tag.putLong("GiftDay", this.lastGiftDay);
+		tag.putLong("MissionDay", this.missionDay);
+		if (this.missionItem != null) {
+			tag.putString("MissionItem", BuiltInRegistries.ITEM.getKey(this.missionItem).toString());
+			tag.putInt("MissionCount", this.missionCount);
+			tag.putBoolean("MissionDone", this.missionDone);
+		}
+	}
+
+	void load(CompoundTag tag) {
+		this.lastGiftDay = tag.getLongOr("GiftDay", -1L);
+		this.missionDay = tag.getLongOr("MissionDay", -1L);
+		String id = tag.getStringOr("MissionItem", "");
+		Identifier key = id.isEmpty() ? null : Identifier.tryParse(id);
+		this.missionItem = key == null ? null : BuiltInRegistries.ITEM.getOptional(key).orElse(null);
+		this.missionCount = tag.getIntOr("MissionCount", 0);
+		this.missionDone = tag.getBooleanOr("MissionDone", false);
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/brain/FelixBrain.java
+
+```java
+package com.itzbreadloaf.brain;
+
+import com.itzbreadloaf.ModAdvancements;
+import com.itzbreadloaf.character.CharacterKind;
+import com.itzbreadloaf.character.CharacterManager;
+import com.itzbreadloaf.character.CharacterVariant;
+import com.itzbreadloaf.character.LoafCharacter;
+import com.itzbreadloaf.character.LoafIds;
+import java.util.UUID;
+import net.minecraft.ChatFormatting;
+import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.npc.villager.AbstractVillager;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * FelixSyn: a homeless mace fighter who drifts around villages with his partner Harley. He hangs out at the bell and
+ * the well, curls up on a hay bale (or the ground) at night, and trades nothing.
+ *
+ * Neutral to players: he only goes after players who attack him, Harley, or villagers. But he and every ItzBreadLoaf
+ * (wild or tamed) are sworn rivals: whenever they see each other within 24 blocks, they fight.
+ *
+ * Fights like a PvP mace player: wind charge at his feet, Density + Wind Burst mace smash on the way down, a sword
+ * on the ground in between, golden apples when low.
+ */
+public class FelixBrain extends LoafBrain {
+	public static final double RIVAL_RANGE = 24.0;
+	public static final double HOME_RADIUS = 24.0;
+
+	private final MaceJump maceJump;
+	private @Nullable BlockPos hangoutSpot;
+	private int hangoutTicks;
+	private int nextRivalMessage;
+	private int nextDrifterCheck;
+
+	public FelixBrain(LoafCharacter character) {
+		super(character);
+		this.maceJump = new MaceJump(this.player, this.controls, this.combat);
+		this.combat.critChance = 0.6F;
+		this.combat.retreatBelow = (float) com.itzbreadloaf.config.ModConfig.get().felixRetreatHealth;
+	}
+
+	/** FelixSyn spawns with Harley at his side (villages, the spawn egg, /loafcraft spawn felixsyn). */
+	public static @Nullable LoafCharacter spawnDuo(ServerLevel level, Vec3 pos, @Nullable BlockPos home) {
+		BlockPos homePos = home != null ? home : BlockPos.containing(pos);
+		LoafCharacter felix = CharacterManager.create(level, CharacterVariant.FELIXSYN, pos, level.getRandom().nextFloat() * 360.0F,
+				brain -> brain.setupHome(homePos, (int) HOME_RADIUS, null));
+		if (felix == null) {
+			return null;
+		}
+		UUID felixId = felix.player.getUUID();
+		CharacterManager.create(level, CharacterVariant.HARLEY, pos.add(1.0, 0.0, 0.0), level.getRandom().nextFloat() * 360.0F, brain -> {
+			brain.setupHome(homePos, (int) HOME_RADIUS, null);
+			if (brain instanceof HarleyBrain harley) {
+				harley.setPartner(felixId);
+			}
+		});
+		return felix;
+	}
+
+	@Override
+	protected String[] chatterLines() {
+		return new String[]{"this mace never misses", "wind charges: check", "the village bell is my alarm clock",
+				"where's Harley?", "ItzBreadLoaf better watch out", "*bounces on a wind charge*"};
+	}
+
+	@Override
+	protected @Nullable String[] chatWith(LoafBrain other) {
+		return other.kind() == com.itzbreadloaf.character.CharacterKind.HARLEY
+				? new String[]{"ready to roam, partner?", "Harley, watch my back", "let's check the well"} : null;
+	}
+
+	@Override
+	protected double baseMaxHealth() {
+		return com.itzbreadloaf.config.ModConfig.get().felixHealth;
+	}
+
+	@Override
+	protected void rollGear() {
+		Kits.felixSyn(this.player, this.player.level(), this.random);
+	}
+
+	@Override
+	protected void restock() {
+		if (Inv.count(this.player, Inv::isFood) < 4) {
+			Inv.give(this.player, new ItemStack(Items.COOKED_PORKCHOP, 8));
+		}
+		if (Inv.count(this.player, stack -> stack.is(Items.WIND_CHARGE)) < 8) {
+			Inv.give(this.player, new ItemStack(Items.WIND_CHARGE, 16));
+		}
+	}
+
+	@Override
+	protected SoundSource soundSource() {
+		return SoundSource.NEUTRAL;
+	}
+
+	@Override
+	public int experienceReward() {
+		return 20;
+	}
+
+	@Override
+	public boolean allowDamage(DamageSource source, float amount) {
+		// His own mace smashes don't hurt him.
+		return !(this.maceJump.isActive() && source.is(net.minecraft.tags.DamageTypeTags.IS_FALL));
+	}
+
+	// ---------------------------------------------------------------- behavior
+
+	@Override
+	protected void tickBehavior() {
+		this.maceJump.tickCooldown();
+		if (this.ticks >= this.nextDrifterCheck) {
+			this.nextDrifterCheck = this.ticks + 40;
+			for (ServerPlayer viewer : this.player.level().players()) {
+				if (LoafIds.isRealPlayer(viewer) && viewer.distanceTo(this.player) < 12.0) {
+					ModAdvancements.award(viewer, ModAdvancements.VILLAGE_DRIFTER);
+				}
+			}
+		}
+		if (this.ticks % 10 == 0) {
+			this.chooseTarget();
+		}
+		if (this.target != null) {
+			this.fight(this.target);
+			return;
+		}
+		this.maceJump.cancel();
+		if (this.tryEat() || this.tickLove()) {
+			return;
+		}
+		if (this.player.level().isDarkOutside()) {
+			this.sleepRough();
+			return;
+		}
+		this.controls.setSneaking(false);
+		if (this.returnHome()) {
+			return;
+		}
+		this.hangOut();
+	}
+
+	private void chooseTarget() {
+		// Whoever hit him (and isn't Harley).
+		LivingEntity attacker = this.lastAttacker;
+		if (attacker != null && attacker.isAlive() && this.ticks - this.lastHurtTick < 200 && !this.isPartner(attacker)
+				&& !(attacker instanceof Player p && (p.isCreative() || p.isSpectator()))) {
+			this.setTarget(attacker);
+			return;
+		}
+		if (this.target != null) {
+			return;
+		}
+		// Whoever attacks Harley.
+		HarleyBrain harley = this.partnerBrain();
+		if (harley != null && harley.lastAttacker != null && harley.lastAttacker.isAlive() && harley.ticks - harley.lastHurtTick < 200
+				&& harley.lastAttacker != this.player) {
+			this.setTarget(harley.lastAttacker);
+			return;
+		}
+		// Players who attack villagers.
+		for (AbstractVillager villager : this.player.level().getEntitiesOfClass(AbstractVillager.class, this.player.getBoundingBox().inflate(16.0))) {
+			if (villager.getLastHurtByMob() instanceof Player bully && LoafIds.isRealPlayer(bully) && !bully.isCreative()
+					&& villager.tickCount - villager.getLastHurtByMobTimestamp() < 100) {
+				this.setTarget(bully);
+				return;
+			}
+		}
+		// Sworn rivals: any ItzBreadLoaf he can see within 24 blocks (but not a tamed one sitting on its owner's orders).
+		LivingEntity rival = findRival(this.player, CharacterKind.BREADLOAF);
+		if (rival != null) {
+			this.setTarget(rival);
+		}
+	}
+
+	/** The closest character of that kind within 24 blocks in sight (skipping babies and ones ordered to sit). */
+	public static @Nullable LivingEntity findRival(Player self, CharacterKind kind) {
+		LivingEntity best = null;
+		for (LoafCharacter other : CharacterManager.active()) {
+			if (other.kind() != kind || other.brain == null || other.player.level() != self.level() || other.brain.isBaby()
+					|| other.brain.isSitting() || other.player.distanceTo(self) > RIVAL_RANGE || !self.hasLineOfSight(other.player)) {
+				continue;
+			}
+			if (best == null || other.player.distanceTo(self) < best.distanceTo(self)) {
+				best = other.player;
+			}
+		}
+		return best;
+	}
+
+	/** "FelixSyn and ItzBreadLoaf are fighting!" for everyone watching (and the Rival Showdown advancement). */
+	public static void announceRivalry(ServerLevel level, Vec3 where) {
+		for (ServerPlayer viewer : level.players()) {
+			if (LoafIds.isRealPlayer(viewer) && viewer.position().distanceTo(where) < 40.0) {
+				viewer.displayClientMessage(Component.literal("FelixSyn and ItzBreadLoaf are fighting!").withStyle(ChatFormatting.RED, ChatFormatting.BOLD), true);
+				ModAdvancements.award(viewer, ModAdvancements.RIVAL_SHOWDOWN);
+			}
+		}
+	}
+
+	private void fight(LivingEntity target) {
+		if (LoafIds.kind(target.getUUID()) == CharacterKind.BREADLOAF && this.ticks >= this.nextRivalMessage) {
+			this.nextRivalMessage = this.ticks + 200;
+			announceRivalry(this.player.level(), this.player.position());
+		}
+		if (this.player.distanceTo(target) > 40.0) {
+			this.setTarget(null);
+			return;
+		}
+		if (this.maceJump.isActive()) {
+			this.maceJump.tick(target, 6.0F);
+			return;
+		}
+		if (this.player.getHealth() < this.player.getMaxHealth() * 0.4F && this.eatNow(stack -> stack.is(Items.GOLDEN_APPLE))) {
+			return;
+		}
+		if (this.player.getHealth() < this.player.getMaxHealth() * 0.3F && this.throwSplash(this.player, net.minecraft.world.item.alchemy.Potions.STRONG_HEALING)) {
+			return;
+		}
+		double distance = this.player.distanceTo(target);
+		if (distance < 6.0 && distance > 1.5 && this.maceJump.canStart() && this.random.nextInt(4) == 0) {
+			this.maceJump.start(100 + this.random.nextInt(60));
+			this.maceJump.tick(target, 6.0F);
+			return;
+		}
+		// On the ground: his sword.
+		int sword = Inv.ready(this.player, stack -> stack.is(net.minecraft.tags.ItemTags.SWORDS), 0);
+		if (sword >= 0) {
+			this.controls.selectSlot(sword);
+		}
+		this.combat.fight(target, this.nav);
+	}
+
+	/** Bell and well: he wanders between them (and around the village) during the day. */
+	private void hangOut() {
+		if (this.hangoutSpot == null || --this.hangoutTicks <= 0) {
+			this.hangoutTicks = 300 + this.random.nextInt(400);
+			BlockPos center = this.home != null ? this.home : this.player.blockPosition();
+			this.hangoutSpot = switch (this.random.nextInt(3)) {
+				case 0 -> this.findBlock(center, 24, 8, state -> state.is(Blocks.BELL));
+				case 1 -> this.findBlock(center, 24, 6, state -> state.getFluidState().isSource() && state.is(Blocks.WATER));
+				default -> null;
+			};
+		}
+		if (this.hangoutSpot != null && this.player.position().distanceTo(Vec3.atCenterOf(this.hangoutSpot)) > 3.0) {
+			this.nav.moveTo(this.hangoutSpot, 2.5, Navigator.Speed.WALK);
+			return;
+		}
+		this.wander(HOME_RADIUS * 0.6);
+	}
+
+	/** Night: no bed, so he curls up on a hay bale if there is one nearby, otherwise right where he is. */
+	private void sleepRough() {
+		BlockPos center = this.home != null ? this.home : this.player.blockPosition();
+		BlockPos hay = this.findBlock(center, 20, 6, state -> state.is(Blocks.HAY_BLOCK));
+		if (hay != null && this.player.position().distanceTo(Vec3.atBottomCenterOf(hay.above())) > 1.2) {
+			this.nav.moveTo(hay.above(), 0.8, Navigator.Speed.WALK);
+			return;
+		}
+		this.nav.stop();
+		this.controls.setSneaking(true);
+		this.controls.look(this.player.getYRot(), 40.0F);
+	}
+
+	// ---------------------------------------------------------------- Harley
+
+	public boolean isPartner(@Nullable LivingEntity entity) {
+		LoafBrain brain = CharacterManager.brain(entity);
+		return brain instanceof HarleyBrain harley && this.player.getUUID().equals(harley.partner());
+	}
+
+	private @Nullable HarleyBrain partnerBrain() {
+		for (LoafCharacter other : CharacterManager.active()) {
+			if (other.brain instanceof HarleyBrain harley && this.player.getUUID().equals(harley.partner())) {
+				return harley;
+			}
+		}
+		return null;
+	}
+
+	// ---------------------------------------------------------------- death and drops
+
+	/** Drops some of his loot (not his whole kit), and lets Harley know who did it. */
+	@Override
+	public boolean onDeath(DamageSource source) {
+		HarleyBrain harley = this.partnerBrain();
+		if (harley != null && source.getEntity() instanceof LivingEntity killer) {
+			harley.onPartnerKilled(killer);
+		}
+		ServerLevel level = this.player.level();
+		for (int i = 0; i < 36; i++) {
+			ItemStack stack = this.player.getInventory().getItem(i);
+			boolean drop = stack.is(Items.MACE) && this.random.nextFloat() < 0.4F
+					|| stack.is(Items.WIND_CHARGE) || stack.is(Items.GOLDEN_APPLE) && this.random.nextBoolean();
+			if (drop) {
+				this.player.spawnAtLocation(level, stack.copy());
+			}
+		}
+		for (EquipmentSlot slot : new EquipmentSlot[]{EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET}) {
+			if (this.random.nextFloat() < 0.25F) {
+				this.player.spawnAtLocation(level, this.player.getItemBySlot(slot).copy());
+			}
+		}
+		this.player.getInventory().clearContent();
+		return false;
+	}
+
+	@Override
+	public void save(CompoundTag tag) {
+		super.save(tag);
+		if (this.hangoutSpot != null) {
+			tag.store("Hangout", BlockPos.CODEC, this.hangoutSpot);
+		}
+	}
+
+	@Override
+	public void load(CompoundTag tag) {
+		super.load(tag);
+		this.hangoutSpot = tag.read("Hangout", BlockPos.CODEC).orElse(null);
+	}
+
+}
+```
+
+## src/main/java/com/itzbreadloaf/brain/Fishing.java
+
+```java
+package com.itzbreadloaf.brain;
+
+import com.itzbreadloaf.mixin.FishingHookAccessor;
+import net.minecraft.core.BlockPos;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.tags.FluidTags;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * Real fishing: stand by water near home, cast the rod (right-click), wait until a fish bites (the bobber dips),
+ * reel in (right-click). The catch flies to the fisher and gets picked up. Used by Fisher Madison and the
+ * fisherman ItzBreadLoaf on the fishing dock.
+ */
+public final class Fishing {
+	private final LoafBrain brain;
+	private @Nullable BlockPos water;
+	private int ticks;
+	private int cooldown;
+	private int pickupTicks;
+
+	public Fishing(LoafBrain brain) {
+		this.brain = brain;
+	}
+
+	/** True for a few seconds after reeling in, so the catch can be picked up. */
+	public boolean isCollecting() {
+		return this.pickupTicks > 0;
+	}
+
+	/** Reel in (if the line is out) and stop. */
+	public void stop() {
+		if (this.brain.player.fishing != null) {
+			this.brain.controls.useOnce();
+		}
+		this.water = null;
+	}
+
+	/** One tick of fishing around {@code center} with the rod in hotbar {@code rodSlot}. False when not fishing. */
+	public boolean tick(BlockPos center, int rodSlot) {
+		if (this.pickupTicks > 0) {
+			this.pickupTicks--;
+		}
+		if (this.cooldown > 0) {
+			this.cooldown--;
+		}
+		ServerLevel level = this.brain.player.level();
+		if (this.water == null) {
+			if (this.cooldown > 0 || this.brain.ticks % 20 != 0 || level.isDarkOutside()) {
+				return false;
+			}
+			BlockPos found = this.brain.findBlock(center, 10, 3, state -> state.getFluidState().is(FluidTags.WATER)
+					&& state.getFluidState().isSource());
+			if (found == null || !level.getBlockState(found.above()).isAir()) {
+				this.cooldown = 200;
+				return false;
+			}
+			this.water = found;
+			this.ticks = 0;
+		}
+		Vec3 waterTop = Vec3.atCenterOf(this.water).add(0.0, 0.5, 0.0);
+		if (this.brain.player.position().distanceTo(waterTop) > 5.0) {
+			this.brain.nav.moveTo(waterTop, 3.5, Navigator.Speed.WALK);
+			return true;
+		}
+		this.brain.nav.stop();
+		int rod = Inv.ready(this.brain.player, stack -> stack.is(Items.FISHING_ROD), rodSlot);
+		if (rod < 0) {
+			this.water = null;
+			this.cooldown = 1200;
+			return false;
+		}
+		this.brain.controls.selectSlot(rod);
+		this.brain.controls.lookAt(waterTop);
+		this.ticks++;
+		if (this.brain.player.fishing == null) {
+			if (this.ticks % 20 == 1) {
+				this.brain.controls.lookInstantly(Controls.yawTo(this.brain.player.position(), waterTop), 10.0F);
+				this.brain.controls.useOnce();
+			}
+			if (this.ticks > 1200) {
+				this.cooldown = 400;
+				this.water = null;
+			}
+			return true;
+		}
+		boolean biting = ((FishingHookAccessor) this.brain.player.fishing).loaf$isBiting();
+		if (biting || this.ticks > 900) {
+			this.brain.controls.useOnce();
+			this.pickupTicks = 60;
+			this.ticks = 0;
+			if (this.brain.random.nextInt(4) == 0) {
+				this.cooldown = 200;
+				this.water = null;
+			}
+		}
+		return true;
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/brain/Gear.java
+
+```java
+package com.itzbreadloaf.brain;
+
+import net.fabricmc.fabric.api.tag.convention.v2.ConventionalBiomeTags;
+import net.minecraft.core.Holder;
+import net.minecraft.core.HolderLookup;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.tags.BiomeTags;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.DifficultyInstance;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.component.DyedItemColor;
+import net.minecraft.world.item.enchantment.Enchantment;
+import net.minecraft.world.item.enchantment.EnchantmentHelper;
+import net.minecraft.world.item.enchantment.providers.VanillaEnchantmentProviders;
+import net.minecraft.world.item.equipment.Equippable;
+import net.minecraft.world.item.equipment.trim.ArmorTrim;
+import net.minecraft.world.item.equipment.trim.TrimMaterial;
+import net.minecraft.world.item.equipment.trim.TrimMaterials;
+import net.minecraft.world.item.equipment.trim.TrimPattern;
+import net.minecraft.world.item.equipment.trim.TrimPatterns;
+import net.minecraft.world.level.biome.Biome;
+
+/**
+ * ItzBreadLoaf's random weapon (one weapon type, then a tier) and biome-themed armor, written straight into his
+ * player data: the weapon in hotbar slot 1, a shield in the offhand, armor in the armor slots, arrows for bows
+ * and crossbows. Also equips better armor and shields he picks up.
+ */
+public final class Gear {
+	/** Chance for each armor slot to get a piece. */
+	public static final float ARMOR_PIECE_CHANCE = 0.5F;
+	/** Chance of a full diamond or netherite set, anywhere. */
+	public static final float FULL_SET_CHANCE = 0.03F;
+	/** Chance per armor piece of a biome-fitting trim. */
+	public static final float TRIM_CHANCE = 0.15F;
+	/** Chance for melee users to also carry a shield in the offhand. */
+	public static final float SHIELD_CHANCE = 0.4F;
+	/** Chance for each item to get a random enchantment. */
+	public static final float ENCHANT_CHANCE = 0.10F;
+	/** Chance for an ocean-themed helmet to be a turtle shell instead of leather. */
+	private static final float TURTLE_HELMET_CHANCE = 0.2F;
+
+	private static final EquipmentSlot[] ARMOR_SLOTS = {EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET};
+
+	// ------------------------------------------------------------ weapons
+
+	/** Weapon type weights (percent). */
+	private enum WeaponType {
+		SWORD(35), AXE(20), SPEAR(10), BOW(15), CROSSBOW(10), MACE(3), TRIDENT(2), FISTS(5);
+
+		final int weight;
+
+		WeaponType(int weight) {
+			this.weight = weight;
+		}
+	}
+
+	// Tier weights: wooden, stone, iron, golden, diamond, netherite.
+	private static final int[] TIER_WEIGHTS = {25, 25, 25, 10, 12, 3};
+	private static final Item[] SWORDS = {Items.WOODEN_SWORD, Items.STONE_SWORD, Items.IRON_SWORD,
+			Items.GOLDEN_SWORD, Items.DIAMOND_SWORD, Items.NETHERITE_SWORD};
+	private static final Item[] AXES = {Items.WOODEN_AXE, Items.STONE_AXE, Items.IRON_AXE,
+			Items.GOLDEN_AXE, Items.DIAMOND_AXE, Items.NETHERITE_AXE};
+	private static final Item[] SPEARS = {Items.WOODEN_SPEAR, Items.STONE_SPEAR, Items.IRON_SPEAR,
+			Items.GOLDEN_SPEAR, Items.DIAMOND_SPEAR, Items.NETHERITE_SPEAR};
+
+	// ------------------------------------------------------------ armor themes
+
+	private static final int SAND = 0xD8C38A;
+	private static final int WHITE = 0xF2F2F2;
+	private static final int GREEN = 0x4C7A34;
+	private static final int BROWN = 0x6B4A2B;
+	private static final int BLUE = 0x3B5DC9;
+
+	private enum Material { LEATHER, CHAINMAIL, IRON, GOLDEN, DIAMOND, NETHERITE, TURTLE }
+
+	private record Pick(Material material, int weight) {
+	}
+
+	private enum Theme {
+		DESERT(SAND, new Pick[]{new Pick(Material.GOLDEN, 40), new Pick(Material.LEATHER, 60)},
+				new ResourceKey[]{TrimPatterns.DUNE}, new ResourceKey[]{TrimMaterials.GOLD, TrimMaterials.COPPER, TrimMaterials.REDSTONE}),
+		SNOWY(WHITE, new Pick[]{new Pick(Material.LEATHER, 55), new Pick(Material.CHAINMAIL, 45)},
+				new ResourceKey[]{TrimPatterns.WARD, TrimPatterns.SPIRE}, new ResourceKey[]{TrimMaterials.QUARTZ, TrimMaterials.DIAMOND, TrimMaterials.IRON}),
+		JUNGLE(GREEN, new Pick[]{new Pick(Material.LEATHER, 100)},
+				new ResourceKey[]{TrimPatterns.WILD}, new ResourceKey[]{TrimMaterials.EMERALD, TrimMaterials.COPPER}),
+		TAIGA(BROWN, new Pick[]{new Pick(Material.LEATHER, 60), new Pick(Material.IRON, 40)},
+				new ResourceKey[]{TrimPatterns.VEX, TrimPatterns.SENTRY}, new ResourceKey[]{TrimMaterials.IRON, TrimMaterials.REDSTONE}),
+		PLAINS(BROWN, new Pick[]{new Pick(Material.IRON, 50), new Pick(Material.CHAINMAIL, 50)},
+				new ResourceKey[]{TrimPatterns.SENTRY, TrimPatterns.WAYFINDER}, new ResourceKey[]{TrimMaterials.IRON, TrimMaterials.COPPER, TrimMaterials.LAPIS}),
+		MOUNTAIN(BROWN, new Pick[]{new Pick(Material.IRON, 85), new Pick(Material.DIAMOND, 15)},
+				new ResourceKey[]{TrimPatterns.SHAPER, TrimPatterns.RAISER, TrimPatterns.HOST}, new ResourceKey[]{TrimMaterials.AMETHYST, TrimMaterials.DIAMOND, TrimMaterials.IRON}),
+		OCEAN(BLUE, new Pick[]{new Pick(Material.LEATHER, 100)},
+				new ResourceKey[]{TrimPatterns.TIDE, TrimPatterns.COAST}, new ResourceKey[]{TrimMaterials.LAPIS, TrimMaterials.DIAMOND, TrimMaterials.COPPER});
+
+		final int leatherColor;
+		final Pick[] picks;
+		final ResourceKey<TrimPattern>[] patterns;
+		final ResourceKey<TrimMaterial>[] materials;
+
+		@SuppressWarnings("unchecked")
+		Theme(int leatherColor, Pick[] picks, ResourceKey<?>[] patterns, ResourceKey<?>[] materials) {
+			this.leatherColor = leatherColor;
+			this.picks = picks;
+			this.patterns = (ResourceKey<TrimPattern>[]) patterns;
+			this.materials = (ResourceKey<TrimMaterial>[]) materials;
+		}
+	}
+
+	private Gear() {
+	}
+
+	/** ItzBreadLoaf's starting kit: one rolled weapon (plus arrows for bows), maybe a shield, biome armor. */
+	public static void rollBreadLoaf(Player player, ServerLevel level, RandomSource random, DifficultyInstance difficulty) {
+		for (EquipmentSlot slot : ARMOR_SLOTS) {
+			player.setItemSlot(slot, ItemStack.EMPTY);
+		}
+		player.setItemSlot(EquipmentSlot.OFFHAND, ItemStack.EMPTY);
+		Holder<Biome> biome = level.getBiome(player.blockPosition());
+
+		WeaponType weapon = rollWeaponType(random, biome);
+		ItemStack weaponStack = switch (weapon) {
+			case SWORD -> new ItemStack(SWORDS[pickIndex(random, TIER_WEIGHTS)]);
+			case AXE -> new ItemStack(AXES[pickIndex(random, TIER_WEIGHTS)]);
+			case SPEAR -> new ItemStack(SPEARS[pickIndex(random, TIER_WEIGHTS)]);
+			case BOW -> new ItemStack(Items.BOW);
+			case CROSSBOW -> new ItemStack(Items.CROSSBOW);
+			case MACE -> new ItemStack(Items.MACE);
+			case TRIDENT -> new ItemStack(Items.TRIDENT);
+			case FISTS -> ItemStack.EMPTY;
+		};
+		player.getInventory().setItem(Combat.MELEE_SLOT, weaponStack);
+		player.getInventory().setSelectedSlot(Combat.MELEE_SLOT);
+		if (weapon == WeaponType.BOW || weapon == WeaponType.CROSSBOW) {
+			player.getInventory().setItem(Inv.HOTBAR, new ItemStack(Items.ARROW, 32));
+		}
+
+		boolean meleeOnly = weapon == WeaponType.SWORD || weapon == WeaponType.AXE || weapon == WeaponType.MACE
+				|| weapon == WeaponType.FISTS;
+		if (meleeOnly && random.nextFloat() < SHIELD_CHANCE) {
+			player.setItemSlot(EquipmentSlot.OFFHAND, new ItemStack(Items.SHIELD));
+		}
+
+		rollArmor(player, level, random, themeFor(biome));
+
+		// ~10% per item: a random enchantment picked the way vanilla picks mob spawn enchantments.
+		maybeEnchant(weaponStack, level, random, difficulty);
+		maybeEnchant(player.getOffhandItem(), level, random, difficulty);
+		for (EquipmentSlot slot : ARMOR_SLOTS) {
+			maybeEnchant(player.getItemBySlot(slot), level, random, difficulty);
+		}
+	}
+
+	private static void maybeEnchant(ItemStack stack, ServerLevel level, RandomSource random, DifficultyInstance difficulty) {
+		if (!stack.isEmpty() && random.nextFloat() < ENCHANT_CHANCE) {
+			EnchantmentHelper.enchantItemFromProvider(stack, level.registryAccess(),
+					VanillaEnchantmentProviders.MOB_SPAWN_EQUIPMENT, difficulty, random);
+		}
+	}
+
+	public static ItemStack enchanted(ServerLevel level, Item item, ResourceKey<Enchantment> enchantment, int enchantLevel) {
+		ItemStack stack = new ItemStack(item);
+		stack.enchant(level.registryAccess().lookupOrThrow(Registries.ENCHANTMENT).getOrThrow(enchantment), enchantLevel);
+		return stack;
+	}
+
+	// ------------------------------------------------------------ picking up better gear
+
+	/**
+	 * Wears the best armor in the inventory (moving the old piece back into the inventory), like dragging armor
+	 * into the armor slots. Returns true if anything changed.
+	 */
+	public static boolean equipBestArmor(Player player) {
+		boolean changed = false;
+		for (EquipmentSlot slot : ARMOR_SLOTS) {
+			ItemStack worn = player.getItemBySlot(slot);
+			double best = Inv.armorValue(worn, slot);
+			int bestSlot = -1;
+			for (int i = 0; i < Inv.MAIN; i++) {
+				ItemStack stack = player.getInventory().getItem(i);
+				Equippable equippable = stack.get(DataComponents.EQUIPPABLE);
+				if (equippable != null && equippable.slot() == slot) {
+					double value = Inv.armorValue(stack, slot);
+					if (value > best) {
+						best = value;
+						bestSlot = i;
+					}
+				}
+			}
+			if (bestSlot >= 0) {
+				ItemStack better = player.getInventory().getItem(bestSlot);
+				player.getInventory().setItem(bestSlot, worn);
+				player.setItemSlot(slot, better);
+				changed = true;
+			}
+		}
+		return changed;
+	}
+
+	// ------------------------------------------------------------ rolling
+
+	private static WeaponType rollWeaponType(RandomSource random, Holder<Biome> biome) {
+		boolean watery = biome.is(BiomeTags.IS_OCEAN) || biome.is(BiomeTags.IS_RIVER) || biome.is(ConventionalBiomeTags.IS_BEACH);
+		while (true) {
+			int total = 0;
+			for (WeaponType type : WeaponType.values()) {
+				total += type.weight;
+			}
+			int roll = random.nextInt(total);
+			for (WeaponType type : WeaponType.values()) {
+				roll -= type.weight;
+				if (roll < 0) {
+					// Tridents only near water: otherwise roll again.
+					if (type == WeaponType.TRIDENT && !watery) {
+						break;
+					}
+					return type;
+				}
+			}
+		}
+	}
+
+	private static Theme themeFor(Holder<Biome> biome) {
+		if (biome.is(ConventionalBiomeTags.IS_MOUNTAIN_PEAK)) {
+			return Theme.MOUNTAIN;
+		}
+		if (biome.is(ConventionalBiomeTags.IS_DESERT) || biome.is(BiomeTags.IS_BADLANDS)) {
+			return Theme.DESERT;
+		}
+		if (biome.is(ConventionalBiomeTags.IS_SNOWY) || biome.is(ConventionalBiomeTags.IS_ICY)) {
+			return Theme.SNOWY;
+		}
+		if (biome.is(BiomeTags.IS_JUNGLE) || biome.is(ConventionalBiomeTags.IS_SWAMP)) {
+			return Theme.JUNGLE;
+		}
+		if (biome.is(BiomeTags.IS_TAIGA) || biome.is(ConventionalBiomeTags.IS_DARK_FOREST)) {
+			return Theme.TAIGA;
+		}
+		if (biome.is(BiomeTags.IS_OCEAN) || biome.is(BiomeTags.IS_BEACH)) {
+			return Theme.OCEAN;
+		}
+		if (biome.is(BiomeTags.IS_MOUNTAIN) || biome.is(ConventionalBiomeTags.IS_MOUNTAIN) || biome.is(ConventionalBiomeTags.IS_WINDSWEPT)) {
+			return Theme.MOUNTAIN;
+		}
+		return Theme.PLAINS;
+	}
+
+	private static void rollArmor(Player player, ServerLevel level, RandomSource random, Theme theme) {
+		float fullSet = random.nextFloat();
+		if (fullSet < FULL_SET_CHANCE) {
+			// Rare full set anywhere: diamond 3 times out of 4, otherwise netherite.
+			Material material = fullSet < FULL_SET_CHANCE * 0.75F ? Material.DIAMOND : Material.NETHERITE;
+			for (EquipmentSlot slot : ARMOR_SLOTS) {
+				ItemStack stack = new ItemStack(armorItem(material, slot));
+				maybeTrim(stack, level, random, theme);
+				player.setItemSlot(slot, stack);
+			}
+			return;
+		}
+		for (EquipmentSlot slot : ARMOR_SLOTS) {
+			if (random.nextFloat() >= ARMOR_PIECE_CHANCE) {
+				continue;
+			}
+			Material material = theme.picks[pickPick(random, theme.picks)].material();
+			if (theme == Theme.OCEAN && slot == EquipmentSlot.HEAD && random.nextFloat() < TURTLE_HELMET_CHANCE) {
+				material = Material.TURTLE;
+			}
+			ItemStack stack = new ItemStack(armorItem(material, slot));
+			if (material == Material.LEATHER) {
+				stack.set(DataComponents.DYED_COLOR, new DyedItemColor(theme.leatherColor));
+			}
+			maybeTrim(stack, level, random, theme);
+			player.setItemSlot(slot, stack);
+		}
+	}
+
+	private static void maybeTrim(ItemStack stack, ServerLevel level, RandomSource random, Theme theme) {
+		if (random.nextFloat() >= TRIM_CHANCE) {
+			return;
+		}
+		HolderLookup.RegistryLookup<TrimPattern> patterns = level.registryAccess().lookupOrThrow(Registries.TRIM_PATTERN);
+		HolderLookup.RegistryLookup<TrimMaterial> materials = level.registryAccess().lookupOrThrow(Registries.TRIM_MATERIAL);
+		var pattern = patterns.get(theme.patterns[random.nextInt(theme.patterns.length)]);
+		var material = materials.get(theme.materials[random.nextInt(theme.materials.length)]);
+		if (pattern.isPresent() && material.isPresent()) {
+			stack.set(DataComponents.TRIM, new ArmorTrim(material.get(), pattern.get()));
+		}
+	}
+
+	private static Item armorItem(Material material, EquipmentSlot slot) {
+		return switch (material) {
+			case LEATHER -> pickSlot(slot, Items.LEATHER_HELMET, Items.LEATHER_CHESTPLATE, Items.LEATHER_LEGGINGS, Items.LEATHER_BOOTS);
+			case CHAINMAIL -> pickSlot(slot, Items.CHAINMAIL_HELMET, Items.CHAINMAIL_CHESTPLATE, Items.CHAINMAIL_LEGGINGS, Items.CHAINMAIL_BOOTS);
+			case IRON -> pickSlot(slot, Items.IRON_HELMET, Items.IRON_CHESTPLATE, Items.IRON_LEGGINGS, Items.IRON_BOOTS);
+			case GOLDEN -> pickSlot(slot, Items.GOLDEN_HELMET, Items.GOLDEN_CHESTPLATE, Items.GOLDEN_LEGGINGS, Items.GOLDEN_BOOTS);
+			case DIAMOND -> pickSlot(slot, Items.DIAMOND_HELMET, Items.DIAMOND_CHESTPLATE, Items.DIAMOND_LEGGINGS, Items.DIAMOND_BOOTS);
+			case NETHERITE -> pickSlot(slot, Items.NETHERITE_HELMET, Items.NETHERITE_CHESTPLATE, Items.NETHERITE_LEGGINGS, Items.NETHERITE_BOOTS);
+			case TURTLE -> Items.TURTLE_HELMET;
+		};
+	}
+
+	private static Item pickSlot(EquipmentSlot slot, Item head, Item chest, Item legs, Item feet) {
+		return switch (slot) {
+			case HEAD -> head;
+			case CHEST -> chest;
+			case LEGS -> legs;
+			default -> feet;
+		};
+	}
+
+	private static int pickPick(RandomSource random, Pick[] picks) {
+		int[] weights = new int[picks.length];
+		for (int i = 0; i < picks.length; i++) {
+			weights[i] = picks[i].weight();
+		}
+		return pickIndex(random, weights);
+	}
+
+	private static int pickIndex(RandomSource random, int[] weights) {
+		int total = 0;
+		for (int w : weights) {
+			total += w;
+		}
+		int roll = random.nextInt(total);
+		for (int i = 0; i < weights.length; i++) {
+			roll -= weights[i];
+			if (roll < 0) {
+				return i;
+			}
+		}
+		return 0;
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/brain/HarleyBrain.java
+
+```java
+package com.itzbreadloaf.brain;
+
+import com.itzbreadloaf.ModAdvancements;
+import com.itzbreadloaf.character.CharacterManager;
+import com.itzbreadloaf.character.LoafCharacter;
+import com.itzbreadloaf.character.LoafIds;
+import com.itzbreadloaf.config.ModConfig;
+import com.itzbreadloaf.item.ModItems;
+import java.util.UUID;
+import net.minecraft.core.UUIDUtil;
+import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.resources.Identifier;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.effect.MobEffects;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.ai.attributes.AttributeInstance;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
+import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.alchemy.Potions;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * Harley: FelixSyn's duo partner and the best fighter in the mod outside Master BreadLoaf.
+ *
+ * Wild: follows FelixSyn everywhere and fights whatever he fights. If he's killed she goes after his killer for
+ * 60 seconds, then wanders off alone. Tame her with golden apples (1 in 5, only while she isn't fighting): then she
+ * follows you (through portals too), fights whatever attacks you or whatever you attack, and sits/follows on an
+ * empty-hand right-click.
+ *
+ * Fighting: perfect attack-cooldown timing, a jump crit on (nearly) every hit, strafing and circling, a shield up
+ * between hits, ender pearls to close distance, Harley's Blade on the ground and a mace for wind-charge smashes,
+ * Strength and Swiftness potions at the start of a fight, golden apples when low. Difficulty presets in the config.
+ *
+ * Best friend: she adores one real player, "FelixSyn" by default (harleyBestFriend in the config). She never attacks
+ * them (even if they hit her), greets them, stays close with hearts, defends them from anything that hurts them,
+ * tames on the first golden apple from them, and every few minutes gives them a gift. Nobody else gets gifts.
+ */
+public class HarleyBrain extends LoafBrain {
+	public static final int VENGEANCE_TICKS = 1200;
+	public static final int TAME_CHANCE = 5;
+	private static final Identifier DAMAGE_PRESET_ID = Identifier.fromNamespaceAndPath("itzbreadloaf", "harley_damage_preset");
+
+	private final MaceJump maceJump;
+	private @Nullable UUID partner;
+	private @Nullable UUID vengeance;
+	private int vengeanceTicks;
+	private int pearlCooldown;
+	private boolean buffed;
+	private int fightTicks;
+	private int nextGiftTick = 200;
+	private int lastSawFriendTick = -100000;
+	private int nextOuchTick;
+	private static final double FRIEND_RANGE = 16.0;
+	private static final double GIFT_RANGE = 10.0;
+
+	public HarleyBrain(LoafCharacter character) {
+		super(character);
+		this.maceJump = new MaceJump(this.player, this.controls, this.combat);
+		// The best duelist: almost never backs off.
+		this.combat.retreatBelow = (float) com.itzbreadloaf.config.ModConfig.get().harleyRetreatHealth;
+	}
+
+	private static ModConfig.HarleyPreset preset() {
+		return ModConfig.get().harleyPreset();
+	}
+
+	@Override
+	protected double baseMaxHealth() {
+		return preset().health;
+	}
+
+	@Override
+	protected double baseSpeed() {
+		return preset().speed;
+	}
+
+	@Override
+	public void applyAttributes() {
+		super.applyAttributes();
+		this.combat.critChance = preset().critChance;
+		AttributeInstance damage = this.player.getAttribute(Attributes.ATTACK_DAMAGE);
+		if (damage != null) {
+			damage.addOrReplacePermanentModifier(new AttributeModifier(DAMAGE_PRESET_ID, preset().damageMultiplier - 1.0,
+					AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL));
+		}
+	}
+
+	@Override
+	protected void rollGear() {
+		Kits.harley(this.player, this.player.level(), this.random);
+	}
+
+	@Override
+	protected void restock() {
+		if (Inv.count(this.player, Inv::isFood) < 4) {
+			Inv.give(this.player, new ItemStack(Items.COOKED_BEEF, 8));
+		}
+		if (Inv.count(this.player, stack -> stack.is(Items.ENDER_PEARL)) < 4) {
+			Inv.give(this.player, new ItemStack(Items.ENDER_PEARL, 8));
+		}
+		if (Inv.count(this.player, stack -> stack.is(Items.WIND_CHARGE)) < 8) {
+			Inv.give(this.player, new ItemStack(Items.WIND_CHARGE, 16));
+		}
+		if (Inv.count(this.player, stack -> stack.is(Items.GOLDEN_APPLE)) < 2) {
+			Inv.give(this.player, new ItemStack(Items.GOLDEN_APPLE, 3));
+		}
+	}
+
+	@Override
+	public void setTarget(@Nullable LivingEntity target) {
+		if (target != null && isBestFriend(target)) {
+			// Never fights her best friend, whatever happens.
+			return;
+		}
+		super.setTarget(target);
+	}
+
+	@Override
+	public boolean isFriendlyWith(@Nullable Entity entity) {
+		return isBestFriend(entity) || super.isFriendlyWith(entity);
+	}
+
+	@Override
+	public boolean isFriendlyToMobs() {
+		return this.isTame();
+	}
+
+	@Override
+	protected SoundSource soundSource() {
+		return SoundSource.NEUTRAL;
+	}
+
+	@Override
+	public int experienceReward() {
+		return 40;
+	}
+
+	@Override
+	public boolean allowDamage(DamageSource source, float amount) {
+		return !(this.maceJump.isActive() && source.is(net.minecraft.tags.DamageTypeTags.IS_FALL));
+	}
+
+	// ---------------------------------------------------------------- partner
+
+	public @Nullable UUID partner() {
+		return this.partner;
+	}
+
+	public void setPartner(@Nullable UUID partner) {
+		this.partner = partner;
+	}
+
+	private @Nullable LoafCharacter partnerCharacter() {
+		return this.partner == null ? null : CharacterManager.get(this.partner);
+	}
+
+	/** FelixSyn was killed: 60 seconds of fury at whoever did it, then she goes her own way. */
+	public void onPartnerKilled(LivingEntity killer) {
+		this.partner = null;
+		if (this.isTame()) {
+			return;
+		}
+		this.vengeance = killer.getUUID();
+		this.vengeanceTicks = VENGEANCE_TICKS;
+		this.setTarget(killer);
+		this.particles(ParticleTypes.ANGRY_VILLAGER, 8);
+		if (killer instanceof ServerPlayer player) {
+			this.say(player, "you'll pay for that!");
+		}
+	}
+
+	// ---------------------------------------------------------------- behavior
+
+	@Override
+	protected void tickBehavior() {
+		this.maceJump.tickCooldown();
+		if (this.pearlCooldown > 0) {
+			this.pearlCooldown--;
+		}
+		if (this.vengeanceTicks > 0 && --this.vengeanceTicks == 0) {
+			this.vengeance = null;
+			this.setTarget(null);
+		}
+		if (this.ticks % 5 == 0) {
+			this.chooseTarget();
+		}
+		if (this.target != null) {
+			this.fight(this.target);
+			return;
+		}
+		this.fightTicks = 0;
+		this.buffed = false;
+		this.maceJump.cancel();
+		if (this.tryEat() || this.tickLove()) {
+			return;
+		}
+		if (this.tickBestFriend()) {
+			return;
+		}
+		if (this.isTame()) {
+			if (!this.followOwner()) {
+				this.lookAround(8.0);
+			}
+			return;
+		}
+		LoafCharacter felix = this.partnerCharacter();
+		if (felix != null && felix.player.level() == this.player.level()) {
+			double distance = this.player.distanceTo(felix.player);
+			if (distance > 4.0) {
+				this.nav.follow(felix.player, 2.5, distance > 10.0 ? Navigator.Speed.SPRINT : Navigator.Speed.WALK);
+			} else {
+				this.nav.stop();
+				this.controls.setSneaking(felix.player.isShiftKeyDown());
+				this.lookAround(6.0);
+			}
+			return;
+		}
+		if (this.returnHome()) {
+			return;
+		}
+		this.wander(16.0);
+	}
+
+	private void chooseTarget() {
+		if (this.vengeance != null && this.vengeanceTicks > 0) {
+			Player killer = this.player.level().getPlayerByUUID(this.vengeance);
+			if (killer instanceof LivingEntity living && living.isAlive() && !killer.isCreative() && !killer.isSpectator()) {
+				this.setTarget(living);
+				return;
+			}
+		}
+		// Anyone who hurts her best friend has to deal with her.
+		ServerPlayer friend = this.findBestFriend();
+		if (friend != null) {
+			LivingEntity bully = friend.getLastHurtByMob();
+			if (bully != null && bully.isAlive() && bully != this.player && friend.tickCount - friend.getLastHurtByMobTimestamp() < 100
+					&& !this.isOwnedBy(bully) && (this.partner == null || !this.partner.equals(bully.getUUID()))
+					&& !(bully instanceof Player p && (p.isCreative() || p.isSpectator()))) {
+				this.setTarget(bully);
+				if (this.target == bully && this.ticks >= this.nextOuchTick) {
+					this.say(friend, "hey! leave them alone!");
+					this.nextOuchTick = this.ticks + 200;
+				}
+				return;
+			}
+		}
+		// Her best friend hit her: no fighting back, just a sad look.
+		LivingEntity hitter = this.lastAttacker;
+		if (hitter instanceof ServerPlayer hitBy && isBestFriend(hitBy) && this.ticks - this.lastHurtTick < 20 && this.ticks >= this.nextOuchTick) {
+			this.say(hitBy, Lines.OUCH[this.random.nextInt(Lines.OUCH.length)]);
+			this.particles(ParticleTypes.DAMAGE_INDICATOR, 3);
+			this.nextOuchTick = this.ticks + 200;
+		}
+		if (this.isTame()) {
+			this.protectOwner(true);
+		} else {
+			LoafCharacter felix = this.partnerCharacter();
+			if (felix != null && felix.brain != null && felix.brain.getTarget() != null && felix.brain.getTarget() != this.player) {
+				this.setTarget(felix.brain.getTarget());
+				return;
+			}
+		}
+		LivingEntity attacker = this.lastAttacker;
+		if (attacker != null && attacker.isAlive() && this.ticks - this.lastHurtTick < 200 && !this.isFriendlyWith(attacker)
+				&& (this.partner == null || !this.partner.equals(attacker.getUUID()))
+				&& !(attacker instanceof Player p && (p.isCreative() || p.isSpectator()))) {
+			this.setTarget(attacker);
+		}
+	}
+
+	private void fight(LivingEntity target) {
+		this.fightTicks++;
+		double distance = this.player.distanceTo(target);
+		if (distance > 48.0 || this.isTame() && this.isFriendlyWith(target)) {
+			this.setTarget(null);
+			return;
+		}
+		if (this.maceJump.isActive()) {
+			this.maceJump.tick(target, 6.0F);
+			return;
+		}
+		// Strength and Swiftness at the start of a fight (if there's a moment to drink).
+		if (!this.buffed && distance > 5.0) {
+			boolean strength = this.player.hasEffect(MobEffects.STRENGTH);
+			boolean speed = this.player.hasEffect(MobEffects.SPEED);
+			if (!strength && this.eatNow(stack -> isPotion(stack, Items.POTION, Potions.STRONG_STRENGTH))
+					|| !speed && this.eatNow(stack -> isPotion(stack, Items.POTION, Potions.STRONG_SWIFTNESS))) {
+				return;
+			}
+			this.buffed = true;
+		}
+		if (this.player.getHealth() < this.player.getMaxHealth() * 0.45F && distance > 3.0
+				&& this.eatNow(stack -> stack.is(Items.GOLDEN_APPLE))) {
+			return;
+		}
+		// Pearl in when they're far or running.
+		if (distance > 12.0 && this.pearlCooldown <= 0) {
+			int pearl = Inv.ready(this.player, stack -> stack.is(Items.ENDER_PEARL), 5);
+			if (pearl >= 0) {
+				this.combat.stop();
+				this.controls.selectSlot(pearl);
+				this.combat.aimProjectile(target, 1.5, 0.03);
+				this.controls.useOnce();
+				this.pearlCooldown = preset().pearlCooldown;
+				return;
+			}
+		}
+		// Mace smash when they're close and armored, or now and then to mix it up.
+		boolean armored = target.getArmorValue() >= 12;
+		if (distance < 5.5 && distance > 1.5 && this.maceJump.canStart() && (armored || this.random.nextInt(6) == 0)) {
+			this.maceJump.start(armored ? 60 : 120);
+			this.maceJump.tick(target, 6.0F);
+			return;
+		}
+		int blade = Inv.ready(this.player, stack -> stack.is(ModItems.HARLEYS_BLADE) || stack.is(net.minecraft.tags.ItemTags.SWORDS), 0);
+		if (blade >= 0) {
+			this.controls.selectSlot(blade);
+		}
+		this.combat.fight(target, this.nav);
+	}
+
+	// ---------------------------------------------------------------- best friend
+
+	/** The real player she adores (harleyBestFriend in the config, "FelixSyn" by default). */
+	public static boolean isBestFriend(@Nullable Entity entity) {
+		String name = ModConfig.get().harleyBestFriend;
+		return entity instanceof ServerPlayer player && LoafIds.isRealPlayer(player) && name != null && !name.isBlank()
+				&& player.getGameProfile().name().equalsIgnoreCase(name.trim());
+	}
+
+	private @Nullable ServerPlayer findBestFriend() {
+		for (ServerPlayer candidate : this.player.level().players()) {
+			if (isBestFriend(candidate) && candidate.isAlive() && !candidate.isSpectator()
+					&& candidate.distanceTo(this.player) < FRIEND_RANGE) {
+				return candidate;
+			}
+		}
+		return null;
+	}
+
+	/** Greets, stays close and gives gifts while her best friend is around. True if she spent the tick on them. */
+	private boolean tickBestFriend() {
+		ServerPlayer friend = this.findBestFriend();
+		if (friend == null) {
+			return false;
+		}
+		double distance = this.player.distanceTo(friend);
+		boolean sees = this.player.hasLineOfSight(friend);
+		if (sees && this.ticks - this.lastSawFriendTick > 6000) {
+			this.say(friend, Lines.HELLO[this.random.nextInt(Lines.HELLO.length)]);
+			this.particles(ParticleTypes.HEART, 6);
+		}
+		if (sees) {
+			this.lastSawFriendTick = this.ticks;
+		}
+		if (this.ticks % 50 == 0 && this.random.nextInt(3) == 0) {
+			this.particles(ParticleTypes.HEART, 1);
+		}
+		if (sees && distance < GIFT_RANGE && this.ticks >= this.nextGiftTick) {
+			this.giveGift(friend);
+			int min = Math.max(10, com.itzbreadloaf.config.ModConfig.get().harleyGiftMinSeconds);
+			int max = Math.max(min, com.itzbreadloaf.config.ModConfig.get().harleyGiftMaxSeconds);
+			this.nextGiftTick = this.ticks + 20 * (min + this.random.nextInt(max - min + 1));
+		}
+		// Tamed by someone else: she still loves them, but she goes with her owner.
+		if (this.sitting || this.isTame() && !this.isOwnedBy(friend)) {
+			return false;
+		}
+		if (distance > 3.5) {
+			this.nav.follow(friend, 2.5, distance > 10.0 ? Navigator.Speed.SPRINT : Navigator.Speed.WALK);
+		} else {
+			this.nav.stop();
+			this.controls.setSneaking(friend.isShiftKeyDown());
+			this.controls.lookAt(friend.getEyePosition());
+		}
+		return true;
+	}
+
+	/** A gift only her best friend can pick up. Every 3-5 minutes while they're close. */
+	private void giveGift(ServerPlayer friend) {
+		int roll = this.random.nextInt(100);
+		ItemStack gift;
+		if (roll < 18) {
+			gift = new ItemStack(this.random.nextBoolean() ? Items.POPPY : this.random.nextBoolean() ? Items.PINK_TULIP : Items.CORNFLOWER,
+					1 + this.random.nextInt(3));
+		} else if (roll < 32) {
+			gift = new ItemStack(Items.COOKIE, 4 + this.random.nextInt(5));
+		} else if (roll < 42) {
+			gift = new ItemStack(Items.GOLDEN_CARROT, 3 + this.random.nextInt(4));
+		} else if (roll < 54) {
+			gift = new ItemStack(Items.GOLDEN_APPLE, 1 + this.random.nextInt(2));
+		} else if (roll < 64) {
+			gift = new ItemStack(Items.ENDER_PEARL, 2 + this.random.nextInt(4));
+		} else if (roll < 74) {
+			gift = new ItemStack(Items.WIND_CHARGE, 6 + this.random.nextInt(7));
+		} else if (roll < 82) {
+			gift = new ItemStack(Items.CAKE);
+		} else if (roll < 90) {
+			gift = new ItemStack(Items.EXPERIENCE_BOTTLE, 4 + this.random.nextInt(5));
+		} else if (roll < 97) {
+			gift = new ItemStack(Items.DIAMOND, 1 + this.random.nextInt(2));
+		} else {
+			gift = new ItemStack(Items.ENCHANTED_GOLDEN_APPLE);
+		}
+		ItemEntity item = new ItemEntity(this.player.level(), this.player.getX(), this.player.getEyeY() - 0.3, this.player.getZ(), gift);
+		Vec3 toward = friend.position().subtract(this.player.position());
+		Vec3 motion = toward.lengthSqr() > 0.01 ? toward.normalize().scale(0.3) : Vec3.ZERO;
+		item.setDeltaMovement(motion.x, 0.25, motion.z);
+		item.setPickUpDelay(10);
+		item.setTarget(friend.getUUID());
+		this.player.level().addFreshEntity(item);
+		this.controls.lookAt(friend.getEyePosition());
+		this.playSound(SoundEvents.AMETHYST_BLOCK_CHIME, 1.0F, 1.2F);
+		this.particles(ParticleTypes.HEART, 6);
+		this.say(friend, Lines.GIFT[this.random.nextInt(Lines.GIFT.length)]);
+	}
+
+	@Override
+	protected String[] chatterLines() {
+		return new String[]{"*spins her blade*", "stay sharp", "I don't lose duels", "where'd FelixSyn wander off to?", "*checks her pearls*"};
+	}
+
+	@Override
+	protected @Nullable String[] chatWith(LoafBrain other) {
+		return other.kind() == com.itzbreadloaf.character.CharacterKind.FELIXSYN
+				? new String[]{"lead the way", "always got your back", "ready when you are"} : null;
+	}
+
+	/** Harley's lines for her best friend. */
+	private static final class Lines {
+		static final String[] HELLO = {"hiii! you're here!", "you're back!! I missed you", "there you are <3", "yay, my favorite person!"};
+		static final String[] GIFT = {"I got you something <3", "here, this is for you!", "found this and thought of you",
+				"a little present, just for you", "don't tell anyone I only give these to you"};
+		static final String[] OUCH = {"ow!! why would you hit me :(", "hey! that hurt...", "I'd never hit YOU", "rude :("};
+	}
+
+	// ---------------------------------------------------------------- taming
+
+	@Override
+	protected @Nullable InteractionResult interact(ServerPlayer clicker, ItemStack stack) {
+		if (!this.isTame()) {
+			if (stack.is(Items.GOLDEN_APPLE) && this.target == null && !this.baby) {
+				ItemStack apple = stack.copyWithCount(1);
+				stack.consume(1, clicker);
+				Inv.give(this.player, apple);
+				// Her best friend only needs one apple.
+				if (isBestFriend(clicker) || this.random.nextInt(Math.max(1, com.itzbreadloaf.config.ModConfig.get().harleyTameChance)) == 0) {
+					this.setOwner(clicker);
+					this.partner = null;
+					this.vengeance = null;
+					this.particles(ParticleTypes.HEART, 8);
+					this.say(clicker, "...fine. I'm with you now.");
+					ModAdvancements.award(clicker, ModAdvancements.TAKEN_IN);
+				} else {
+					this.particles(ParticleTypes.SMOKE, 6);
+				}
+				return InteractionResult.SUCCESS;
+			}
+			return null;
+		}
+		if (this.isOwnedBy(clicker) && stack.isEmpty()) {
+			this.setSitting(!this.sitting);
+			this.setTarget(null);
+			return InteractionResult.SUCCESS;
+		}
+		return null;
+	}
+
+	// ---------------------------------------------------------------- death and loot
+
+	/** Each armor piece 10%, and Harley's Blade guaranteed when she was wild. Untouchable for whoever beat her. */
+	@Override
+	public boolean onDeath(DamageSource source) {
+		ServerLevel level = this.player.level();
+		for (EquipmentSlot slot : new EquipmentSlot[]{EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET}) {
+			if (this.random.nextFloat() < 0.10F) {
+				this.player.spawnAtLocation(level, this.player.getItemBySlot(slot).copy());
+			}
+		}
+		if (!this.isTame()) {
+			this.player.spawnAtLocation(level, ModItems.harleysBlade(level.registryAccess()));
+			if (source.getEntity() instanceof ServerPlayer killer && LoafIds.isRealPlayer(killer)) {
+				ModAdvancements.award(killer, ModAdvancements.UNTOUCHABLE);
+			}
+		}
+		if (this.random.nextBoolean()) {
+			this.player.spawnAtLocation(level, new ItemStack(Items.GOLDEN_APPLE, 1 + this.random.nextInt(2)));
+		}
+		this.player.getInventory().clearContent();
+		return false;
+	}
+
+	@Override
+	public void save(CompoundTag tag) {
+		super.save(tag);
+		if (this.partner != null) {
+			tag.store("Partner", UUIDUtil.CODEC, this.partner);
+		}
+	}
+
+	@Override
+	public void load(CompoundTag tag) {
+		super.load(tag);
+		this.partner = tag.read("Partner", UUIDUtil.CODEC).orElse(null);
+	}
+
+}
+```
+
+## src/main/java/com/itzbreadloaf/brain/Inv.java
+
+```java
+package com.itzbreadloaf.brain;
+
+import java.util.function.Predicate;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.component.ItemAttributeModifiers;
+import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
+
+/**
+ * Helpers for a character's real player inventory (0-8 hotbar, 9-35 main, 36-39 armor, 40 offhand).
+ * Moving things between slots writes the player data directly, like dragging items in the inventory screen.
+ */
+public final class Inv {
+	public static final int HOTBAR = 9;
+	public static final int MAIN = 36;
+
+	private Inv() {
+	}
+
+	/** First slot (hotbar first, then the rest of the inventory) holding a matching item, or -1. */
+	public static int find(Player player, Predicate<ItemStack> test) {
+		Inventory inventory = player.getInventory();
+		for (int i = 0; i < MAIN; i++) {
+			ItemStack stack = inventory.getItem(i);
+			if (!stack.isEmpty() && test.test(stack)) {
+				return i;
+			}
+		}
+		return -1;
+	}
+
+	public static int count(Player player, Predicate<ItemStack> test) {
+		Inventory inventory = player.getInventory();
+		int total = 0;
+		for (int i = 0; i < inventory.getContainerSize(); i++) {
+			ItemStack stack = inventory.getItem(i);
+			if (!stack.isEmpty() && test.test(stack)) {
+				total += stack.getCount();
+			}
+		}
+		return total;
+	}
+
+	/** Makes sure the item in {@code slot} is on the hotbar (swapping it into {@code preferred} if not). */
+	public static int toHotbar(Player player, int slot, int preferred) {
+		if (slot < 0) {
+			return -1;
+		}
+		if (slot < HOTBAR) {
+			return slot;
+		}
+		Inventory inventory = player.getInventory();
+		ItemStack moving = inventory.getItem(slot);
+		ItemStack displaced = inventory.getItem(preferred);
+		inventory.setItem(preferred, moving);
+		inventory.setItem(slot, displaced);
+		return preferred;
+	}
+
+	/** Finds a matching item and puts it on the hotbar. Returns the hotbar slot, or -1 if there is none. */
+	public static int ready(Player player, Predicate<ItemStack> test, int preferred) {
+		return toHotbar(player, find(player, test), preferred);
+	}
+
+	public static boolean give(Player player, ItemStack stack) {
+		return player.getInventory().add(stack);
+	}
+
+	/** Puts a stack in a specific slot (hotbar, main, armor 36-39 or offhand 40), returning what was there. */
+	public static ItemStack set(Player player, int slot, ItemStack stack) {
+		Inventory inventory = player.getInventory();
+		ItemStack old = inventory.getItem(slot);
+		inventory.setItem(slot, stack);
+		return old;
+	}
+
+	/** Everyday food (golden apples are saved for fights, bad food is never eaten). */
+	public static boolean isFood(ItemStack stack) {
+		return stack.has(DataComponents.FOOD) && !stack.is(net.minecraft.world.item.Items.ROTTEN_FLESH)
+				&& !stack.is(net.minecraft.world.item.Items.GOLDEN_APPLE) && !stack.is(net.minecraft.world.item.Items.ENCHANTED_GOLDEN_APPLE)
+				&& !stack.is(net.minecraft.world.item.Items.SPIDER_EYE) && !stack.is(net.minecraft.world.item.Items.POISONOUS_POTATO)
+				&& !stack.is(net.minecraft.world.item.Items.PUFFERFISH) && !stack.is(net.minecraft.world.item.Items.CHORUS_FRUIT);
+	}
+
+	/** Full, solid building blocks (dirt, cobblestone, planks...). */
+	public static boolean isBuildingBlock(ItemStack stack) {
+		return stack.getItem() instanceof BlockItem blockItem && blockItem.getBlock().defaultBlockState().isSolidRender()
+				&& !blockItem.getBlock().defaultBlockState().hasBlockEntity()
+				&& blockItem.getBlock().defaultBlockState().getLightEmission() == 0;
+	}
+
+	/** Attack damage the item adds in the main hand (0 for non-weapons). */
+	public static double attackDamage(ItemStack stack) {
+		ItemAttributeModifiers modifiers = stack.getOrDefault(DataComponents.ATTRIBUTE_MODIFIERS, ItemAttributeModifiers.EMPTY);
+		double damage = 0.0;
+		for (ItemAttributeModifiers.Entry entry : modifiers.modifiers()) {
+			if (entry.attribute().equals(Attributes.ATTACK_DAMAGE) && entry.modifier().operation() == AttributeModifier.Operation.ADD_VALUE
+					&& entry.slot().test(EquipmentSlot.MAINHAND)) {
+				damage += entry.modifier().amount();
+			}
+		}
+		return damage;
+	}
+
+	/** Armor points the item gives in its slot. */
+	public static double armorValue(ItemStack stack, EquipmentSlot slot) {
+		ItemAttributeModifiers modifiers = stack.getOrDefault(DataComponents.ATTRIBUTE_MODIFIERS, ItemAttributeModifiers.EMPTY);
+		double armor = 0.0;
+		for (ItemAttributeModifiers.Entry entry : modifiers.modifiers()) {
+			if ((entry.attribute().equals(Attributes.ARMOR) || entry.attribute().equals(Attributes.ARMOR_TOUGHNESS))
+					&& entry.slot().test(slot)) {
+				armor += entry.modifier().amount();
+			}
+		}
+		return armor;
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/brain/Kits.java
+
+```java
+package com.itzbreadloaf.brain;
+
+import com.itzbreadloaf.character.CharacterVariant;
+import com.itzbreadloaf.item.ModItems;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffects;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.alchemy.Potions;
+import net.minecraft.world.item.component.DyedItemColor;
+import net.minecraft.world.item.enchantment.Enchantments;
+
+/**
+ * Starting gear for every character type, written straight into the player's inventory and armor slots.
+ * (The original ItzBreadLoaf rolls random biome gear in {@link Gear}; Master BreadLoaf has his own kit.)
+ */
+public final class Kits {
+	private Kits() {
+	}
+
+	private static void armor(Player player, Item head, Item chest, Item legs, Item feet) {
+		player.setItemSlot(EquipmentSlot.HEAD, head == null ? ItemStack.EMPTY : new ItemStack(head));
+		player.setItemSlot(EquipmentSlot.CHEST, chest == null ? ItemStack.EMPTY : new ItemStack(chest));
+		player.setItemSlot(EquipmentSlot.LEGS, legs == null ? ItemStack.EMPTY : new ItemStack(legs));
+		player.setItemSlot(EquipmentSlot.FEET, feet == null ? ItemStack.EMPTY : new ItemStack(feet));
+	}
+
+	private static void dye(Player player, EquipmentSlot slot, int color) {
+		ItemStack stack = player.getItemBySlot(slot);
+		if (!stack.isEmpty()) {
+			stack.set(DataComponents.DYED_COLOR, new DyedItemColor(color));
+		}
+	}
+
+	private static void enchantArmor(Player player, ServerLevel level, int protection) {
+		for (EquipmentSlot slot : new EquipmentSlot[]{EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET}) {
+			ItemStack stack = player.getItemBySlot(slot);
+			if (!stack.isEmpty() && !stack.is(Items.RED_BANNER)) {
+				stack.enchant(level.registryAccess().lookupOrThrow(net.minecraft.core.registries.Registries.ENCHANTMENT)
+						.getOrThrow(Enchantments.PROTECTION), protection);
+			}
+		}
+	}
+
+	/** Gear for the ItzBreadLoaf types (not the original, which rolls random biome gear). */
+	public static void breadLoaf(Player player, ServerLevel level, CharacterVariant variant, RandomSource random) {
+		Inventory inventory = player.getInventory();
+		player.setItemSlot(EquipmentSlot.OFFHAND, ItemStack.EMPTY);
+		switch (variant) {
+			case KNIGHT -> {
+				armor(player, Items.IRON_HELMET, Items.IRON_CHESTPLATE, Items.IRON_LEGGINGS, Items.IRON_BOOTS);
+				inventory.setItem(0, random.nextInt(4) == 0 ? Gear.enchanted(level, Items.IRON_SWORD, Enchantments.SHARPNESS, 1) : new ItemStack(Items.IRON_SWORD));
+				player.setItemSlot(EquipmentSlot.OFFHAND, new ItemStack(Items.SHIELD));
+			}
+			case ARCHER -> {
+				armor(player, Items.LEATHER_HELMET, Items.LEATHER_CHESTPLATE, null, Items.CHAINMAIL_BOOTS);
+				dye(player, EquipmentSlot.HEAD, 0x3F7A2E);
+				dye(player, EquipmentSlot.CHEST, 0x3F7A2E);
+				inventory.setItem(0, random.nextBoolean() ? Gear.enchanted(level, Items.BOW, Enchantments.POWER, 1) : new ItemStack(Items.BOW));
+				inventory.setItem(3, new ItemStack(Items.STONE_SWORD));
+				inventory.setItem(9, new ItemStack(Items.ARROW, 64));
+			}
+			case MINER -> {
+				armor(player, Items.IRON_HELMET, Items.LEATHER_CHESTPLATE, Items.LEATHER_LEGGINGS, Items.LEATHER_BOOTS);
+				dye(player, EquipmentSlot.CHEST, 0x6B4A2B);
+				dye(player, EquipmentSlot.LEGS, 0x4A4A4A);
+				dye(player, EquipmentSlot.FEET, 0x4A4A4A);
+				inventory.setItem(0, new ItemStack(random.nextInt(5) == 0 ? Items.DIAMOND_PICKAXE : Items.IRON_PICKAXE));
+				inventory.setItem(4, new ItemStack(Items.TORCH, 32));
+				inventory.setItem(10, new ItemStack(Items.RAW_IRON, 2 + random.nextInt(5)));
+				inventory.setItem(11, new ItemStack(Items.COAL, 4 + random.nextInt(8)));
+			}
+			case PIRATE -> {
+				armor(player, Items.LEATHER_HELMET, Items.LEATHER_CHESTPLATE, null, Items.LEATHER_BOOTS);
+				dye(player, EquipmentSlot.HEAD, 0x202020);
+				dye(player, EquipmentSlot.CHEST, 0x8B1A1A);
+				dye(player, EquipmentSlot.FEET, 0x202020);
+				inventory.setItem(0, new ItemStack(Items.TRIDENT));
+				inventory.setItem(3, new ItemStack(Items.IRON_SWORD));
+				inventory.setItem(10, new ItemStack(Items.GOLD_NUGGET, 4 + random.nextInt(10)));
+			}
+			case NETHER -> {
+				armor(player, Items.GOLDEN_HELMET, Items.GOLDEN_CHESTPLATE, Items.GOLDEN_LEGGINGS, Items.GOLDEN_BOOTS);
+				inventory.setItem(0, Gear.enchanted(level, Items.GOLDEN_SWORD, Enchantments.SHARPNESS, 2));
+				inventory.setItem(10, new ItemStack(Items.GOLD_INGOT, 2 + random.nextInt(4)));
+			}
+			case SWEATY -> {
+				armor(player, Items.DIAMOND_HELMET, Items.DIAMOND_CHESTPLATE, Items.DIAMOND_LEGGINGS, Items.DIAMOND_BOOTS);
+				enchantArmor(player, level, 2);
+				inventory.setItem(0, Gear.enchanted(level, Items.DIAMOND_SWORD, Enchantments.SHARPNESS, 3));
+				player.setItemSlot(EquipmentSlot.OFFHAND, new ItemStack(Items.SHIELD));
+				inventory.setItem(5, new ItemStack(Items.ENDER_PEARL, 8));
+				inventory.setItem(6, new ItemStack(Items.GOLDEN_APPLE, 4));
+			}
+			case CAPTAIN -> {
+				armor(player, Items.RED_BANNER, Items.NETHERITE_CHESTPLATE, Items.DIAMOND_LEGGINGS, Items.DIAMOND_BOOTS);
+				enchantArmor(player, level, 1);
+				inventory.setItem(0, Gear.enchanted(level, Items.DIAMOND_AXE, Enchantments.SHARPNESS, 2));
+				player.setItemSlot(EquipmentSlot.OFFHAND, new ItemStack(Items.SHIELD));
+				inventory.setItem(6, new ItemStack(Items.GOLDEN_APPLE, 2));
+				inventory.setItem(10, new ItemStack(Items.EMERALD, 4 + random.nextInt(6)));
+			}
+			case BANDIT -> {
+				armor(player, Items.LEATHER_HELMET, Items.LEATHER_CHESTPLATE, Items.LEATHER_LEGGINGS, null);
+				dye(player, EquipmentSlot.HEAD, 0x1A1A1A);
+				dye(player, EquipmentSlot.CHEST, 0x1A1A1A);
+				dye(player, EquipmentSlot.LEGS, 0x3A2A1A);
+				if (random.nextInt(3) == 0) {
+					inventory.setItem(0, new ItemStack(Items.CROSSBOW));
+					inventory.setItem(9, new ItemStack(Items.ARROW, 32));
+				} else {
+					inventory.setItem(0, new ItemStack(random.nextBoolean() ? Items.IRON_AXE : Items.STONE_SWORD));
+				}
+				inventory.setItem(10, new ItemStack(Items.EMERALD, 1 + random.nextInt(3)));
+			}
+			case FISHERMAN -> {
+				armor(player, Items.LEATHER_HELMET, null, null, Items.LEATHER_BOOTS);
+				dye(player, EquipmentSlot.HEAD, 0xE0C060);
+				dye(player, EquipmentSlot.FEET, 0x3B5DC9);
+				inventory.setItem(0, new ItemStack(Items.STONE_AXE));
+				inventory.setItem(1, new ItemStack(Items.FISHING_ROD));
+				inventory.setItem(10, new ItemStack(Items.COD, 3 + random.nextInt(6)));
+			}
+			case VILLAGER -> {
+				armor(player, null, Items.LEATHER_CHESTPLATE, null, Items.LEATHER_BOOTS);
+				dye(player, EquipmentSlot.CHEST, 0x9C6B3C);
+				dye(player, EquipmentSlot.FEET, 0x5A3A1C);
+				inventory.setItem(0, new ItemStack(Items.IRON_SWORD));
+				inventory.setItem(10, new ItemStack(Items.WHEAT, 6));
+			}
+			default -> {
+			}
+		}
+		inventory.setSelectedSlot(0);
+	}
+
+	/** Lily types: the fight weapon (hotbar 3), what she holds when calm (hotbar 1), and her type's supplies. */
+	public static void lily(Player player, ServerLevel level, CharacterVariant variant, RandomSource random) {
+		Inventory inventory = player.getInventory();
+		inventory.setItem(NeutralBrain.WEAPON_SLOT, new ItemStack(Items.IRON_SWORD));
+		switch (variant) {
+			case BOOKWORM -> {
+				inventory.setItem(NeutralBrain.CALM_SLOT, new ItemStack(Items.BOOK));
+				inventory.setItem(10, new ItemStack(Items.PAPER, 6));
+			}
+			case GARDENER -> {
+				inventory.setItem(NeutralBrain.CALM_SLOT, new ItemStack(LilyBrain.randomFlower(random)));
+				inventory.setItem(4, new ItemStack(Items.BONE_MEAL, 32));
+				inventory.setItem(5, new ItemStack(LilyBrain.randomFlower(random), 16));
+				armor(player, null, null, null, Items.LEATHER_BOOTS);
+				dye(player, EquipmentSlot.FEET, 0x4C7A34);
+			}
+			case WITCHY -> {
+				armor(player, Items.LEATHER_HELMET, Items.LEATHER_CHESTPLATE, null, null);
+				dye(player, EquipmentSlot.HEAD, 0x5B2A86);
+				dye(player, EquipmentSlot.CHEST, 0x5B2A86);
+				inventory.setItem(NeutralBrain.CALM_SLOT, new ItemStack(Items.GLOWSTONE_DUST, 3));
+				inventory.setItem(10, LoafBrain.potion(Items.SPLASH_POTION, Potions.STRONG_HEALING));
+				inventory.setItem(11, LoafBrain.potion(Items.SPLASH_POTION, Potions.STRONG_HEALING));
+				inventory.setItem(12, LoafBrain.potion(Items.SPLASH_POTION, Potions.STRONG_HEALING));
+				inventory.setItem(13, LoafBrain.potion(Items.SPLASH_POTION, Potions.STRONG_SLOWNESS));
+				inventory.setItem(14, LoafBrain.potion(Items.SPLASH_POTION, Potions.STRONG_SLOWNESS));
+				inventory.setItem(15, LoafBrain.potion(Items.SPLASH_POTION, Potions.WEAKNESS));
+				inventory.setItem(16, LoafBrain.potion(Items.SPLASH_POTION, Potions.WEAKNESS));
+			}
+			case ARCHER_LILY -> {
+				inventory.setItem(NeutralBrain.WEAPON_SLOT, random.nextBoolean() ? Gear.enchanted(level, Items.BOW, Enchantments.POWER, 2) : new ItemStack(Items.BOW));
+				inventory.setItem(3, new ItemStack(Items.IRON_SWORD));
+				inventory.setItem(9, new ItemStack(Items.ARROW, 64));
+				armor(player, null, Items.LEATHER_CHESTPLATE, null, null);
+				dye(player, EquipmentSlot.CHEST, 0xF4A6C6);
+			}
+			default -> inventory.setItem(NeutralBrain.CALM_SLOT, random.nextBoolean() ? new ItemStack(LilyBrain.randomFlower(random)) : ItemStack.EMPTY);
+		}
+		inventory.setSelectedSlot(NeutralBrain.CALM_SLOT);
+	}
+
+	/** Madison types: axe (hotbar 3), calm item (hotbar 1) and the tools of her trade. */
+	public static void madison(Player player, ServerLevel level, CharacterVariant variant, RandomSource random) {
+		Inventory inventory = player.getInventory();
+		inventory.setItem(NeutralBrain.WEAPON_SLOT, new ItemStack(random.nextBoolean() ? Items.STONE_AXE : Items.IRON_AXE));
+		switch (variant) {
+			case FARMER -> {
+				inventory.setItem(NeutralBrain.CALM_SLOT, new ItemStack(Items.IRON_HOE));
+				inventory.setItem(4, new ItemStack(Items.WHEAT_SEEDS, 16));
+				inventory.setItem(5, new ItemStack(Items.CARROT, 8));
+				inventory.setItem(6, new ItemStack(Items.POTATO, 8));
+				armor(player, null, null, null, Items.LEATHER_BOOTS);
+				dye(player, EquipmentSlot.FEET, 0x6B4A2B);
+			}
+			case BAKER -> {
+				inventory.setItem(NeutralBrain.CALM_SLOT, new ItemStack(ModItems.LOAF_BREAD));
+				inventory.setItem(10, new ItemStack(ModItems.LOAF_BREAD, 32));
+				inventory.setItem(11, new ItemStack(Items.CAKE, 4));
+				inventory.setItem(12, new ItemStack(Items.BREAD, 32));
+				inventory.setItem(13, new ItemStack(Items.COOKIE, 32));
+				armor(player, null, Items.LEATHER_CHESTPLATE, null, null);
+				dye(player, EquipmentSlot.CHEST, 0xF2F2F2);
+			}
+			case FISHER -> {
+				inventory.setItem(NeutralBrain.CALM_SLOT, new ItemStack(Items.FISHING_ROD));
+				armor(player, Items.LEATHER_HELMET, null, null, Items.LEATHER_BOOTS);
+				dye(player, EquipmentSlot.HEAD, 0xE0C060);
+				dye(player, EquipmentSlot.FEET, 0x3B5DC9);
+			}
+			case MERCHANT -> {
+				inventory.setItem(NeutralBrain.CALM_SLOT, new ItemStack(Items.EMERALD));
+				inventory.setItem(10, new ItemStack(Items.GOLDEN_CARROT, 16));
+				inventory.setItem(11, new ItemStack(Items.PUMPKIN_PIE, 12));
+				inventory.setItem(12, new ItemStack(Items.APPLE, 24));
+				inventory.setItem(13, new ItemStack(Items.HONEY_BOTTLE, 8));
+				inventory.setItem(14, new ItemStack(Items.MELON_SLICE, 32));
+				inventory.setItem(15, new ItemStack(Items.EMERALD, 8));
+				armor(player, null, Items.LEATHER_CHESTPLATE, null, null);
+				dye(player, EquipmentSlot.CHEST, 0x2E8B57);
+			}
+			case BEEKEEPER -> {
+				inventory.setItem(NeutralBrain.CALM_SLOT, new ItemStack(Items.HONEYCOMB));
+				inventory.setItem(4, new ItemStack(Items.GLASS_BOTTLE, 16));
+				armor(player, Items.LEATHER_HELMET, Items.LEATHER_CHESTPLATE, null, null);
+				dye(player, EquipmentSlot.HEAD, 0xF2E36B);
+				dye(player, EquipmentSlot.CHEST, 0xF2E36B);
+			}
+			default -> {
+				float roll = random.nextFloat();
+				inventory.setItem(NeutralBrain.CALM_SLOT, roll < 0.3F ? new ItemStack(Items.CARROT) : roll < 0.5F ? new ItemStack(Items.WHEAT) : ItemStack.EMPTY);
+			}
+		}
+		inventory.setSelectedSlot(NeutralBrain.CALM_SLOT);
+	}
+
+	private static ItemStack enchant(ServerLevel level, ItemStack stack, net.minecraft.resources.ResourceKey<net.minecraft.world.item.enchantment.Enchantment> enchantment, int lvl) {
+		stack.enchant(level.registryAccess().lookupOrThrow(net.minecraft.core.registries.Registries.ENCHANTMENT).getOrThrow(enchantment), lvl);
+		return stack;
+	}
+
+	/**
+	 * FelixSyn: diamond armor (each piece 30% netherite) with Protection II-III, a Density + Wind Burst mace, a diamond or
+	 * netherite sword as backup, wind charges, golden apples, Strength and Healing potions.
+	 */
+	public static void felixSyn(Player player, ServerLevel level, RandomSource random) {
+		Item[][] pieces = {
+				{Items.DIAMOND_HELMET, Items.NETHERITE_HELMET}, {Items.DIAMOND_CHESTPLATE, Items.NETHERITE_CHESTPLATE},
+				{Items.DIAMOND_LEGGINGS, Items.NETHERITE_LEGGINGS}, {Items.DIAMOND_BOOTS, Items.NETHERITE_BOOTS}};
+		EquipmentSlot[] slots = {EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET};
+		for (int i = 0; i < 4; i++) {
+			ItemStack piece = new ItemStack(pieces[i][random.nextFloat() < 0.3F ? 1 : 0]);
+			player.setItemSlot(slots[i], enchant(level, piece, Enchantments.PROTECTION, 2 + random.nextInt(2)));
+		}
+		Inventory inventory = player.getInventory();
+		ItemStack mace = enchant(level, new ItemStack(Items.MACE), Enchantments.DENSITY, 3 + random.nextInt(2));
+		inventory.setItem(2, enchant(level, mace, Enchantments.WIND_BURST, 1));
+		ItemStack sword = new ItemStack(random.nextBoolean() ? Items.NETHERITE_SWORD : Items.DIAMOND_SWORD);
+		inventory.setItem(0, enchant(level, sword, Enchantments.SHARPNESS, 3));
+		inventory.setItem(4, new ItemStack(Items.WIND_CHARGE, 24));
+		inventory.setItem(6, new ItemStack(Items.GOLDEN_APPLE, 3));
+		inventory.setItem(9, LoafBrain.potion(Items.POTION, Potions.STRENGTH));
+		inventory.setItem(10, LoafBrain.potion(Items.SPLASH_POTION, Potions.STRONG_HEALING));
+		inventory.setItem(11, LoafBrain.potion(Items.SPLASH_POTION, Potions.STRONG_HEALING));
+		inventory.setSelectedSlot(0);
+	}
+
+	/**
+	 * Harley: full netherite (Protection IV, Unbreaking III), Harley's Blade (Sharpness V netherite sword), a Breach +
+	 * Wind Burst mace, a shield, ender pearls, golden apples, wind charges, Strength II and Swiftness II potions.
+	 */
+	public static void harley(Player player, ServerLevel level, RandomSource random) {
+		Item[] armor = {Items.NETHERITE_HELMET, Items.NETHERITE_CHESTPLATE, Items.NETHERITE_LEGGINGS, Items.NETHERITE_BOOTS};
+		EquipmentSlot[] slots = {EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET};
+		for (int i = 0; i < 4; i++) {
+			ItemStack piece = enchant(level, new ItemStack(armor[i]), Enchantments.PROTECTION, 4);
+			player.setItemSlot(slots[i], enchant(level, piece, Enchantments.UNBREAKING, 3));
+		}
+		player.setItemSlot(EquipmentSlot.OFFHAND, enchant(level, new ItemStack(Items.SHIELD), Enchantments.UNBREAKING, 3));
+		Inventory inventory = player.getInventory();
+		inventory.setItem(0, ModItems.harleysBlade(level.registryAccess()));
+		ItemStack mace = enchant(level, new ItemStack(Items.MACE), Enchantments.BREACH, 3);
+		inventory.setItem(2, enchant(level, mace, Enchantments.WIND_BURST, 1));
+		inventory.setItem(4, new ItemStack(Items.WIND_CHARGE, 32));
+		inventory.setItem(5, new ItemStack(Items.ENDER_PEARL, 12));
+		inventory.setItem(6, new ItemStack(Items.GOLDEN_APPLE, 6));
+		inventory.setItem(9, LoafBrain.potion(Items.POTION, Potions.STRONG_STRENGTH));
+		inventory.setItem(10, LoafBrain.potion(Items.POTION, Potions.STRONG_SWIFTNESS));
+		inventory.setItem(11, LoafBrain.potion(Items.POTION, Potions.STRONG_STRENGTH));
+		inventory.setItem(12, LoafBrain.potion(Items.POTION, Potions.STRONG_SWIFTNESS));
+		inventory.setSelectedSlot(0);
+	}
+
+	/** Pirates swim fast and breathe underwater; Nether ItzBreadLoafs don't burn. Re-applied when they restock. */
+	public static void passiveEffects(Player player, CharacterVariant variant) {
+		if (variant == CharacterVariant.PIRATE) {
+			player.addEffect(new MobEffectInstance(MobEffects.DOLPHINS_GRACE, MobEffectInstance.INFINITE_DURATION, 0, false, false));
+			player.addEffect(new MobEffectInstance(MobEffects.WATER_BREATHING, MobEffectInstance.INFINITE_DURATION, 0, false, false));
+		} else if (variant == CharacterVariant.NETHER) {
+			player.addEffect(new MobEffectInstance(MobEffects.FIRE_RESISTANCE, MobEffectInstance.INFINITE_DURATION, 0, false, false));
+		}
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/brain/LilyBrain.java
+
+```java
+package com.itzbreadloaf.brain;
+
+import com.itzbreadloaf.ModAdvancements;
+import com.itzbreadloaf.character.CharacterVariant;
+import com.itzbreadloaf.character.LoafCharacter;
+import com.itzbreadloaf.item.ModItems;
+import com.itzbreadloaf.sound.ModSounds;
+import java.util.Optional;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.tags.BlockTags;
+import net.minecraft.tags.ItemTags;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.alchemy.Potions;
+import net.minecraft.world.item.enchantment.EnchantmentHelper;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * ImLilyLol and her types: very shy and neutral. Never attacks first and keeps away from players she doesn't
+ * trust (turns and walks off within 6 blocks, sprints home and hides if someone sprints at her), but hits very hard
+ * (12 with her iron sword) for 30 seconds if attacked. Trusts a player after 5 gifts given while crouching.
+ *
+ * Types:
+ * - Bookworm: reads a book (crouched, looking down) instead of looking at flowers; likes paper, leather and books;
+ *   gives her new friend an enchanted book. Lives in a treehouse library.
+ * - Gardener: plants flowers around her home and uses bone meal on the grass (real right-clicks).
+ * - Witchy: throws Slowness and Weakness potions before she fights, and Healing at her friend (or herself) when hurt.
+ * - Archer: shoots with a bow from range, sword up close. Guards LoafCraft villages.
+ */
+public class LilyBrain extends NeutralBrain {
+	public static final int GIFTS_TO_TRUST = 5;
+	public static final int ANGER_TICKS = 600;
+	public static final float VOICE_VOLUME = 0.6F;
+	public static final float VOICE_PITCH = 1.2F;
+	public static final int HOME_RADIUS = 8;
+	public static final double AVOID_DISTANCE = 6.0;
+	public static final double SCARE_DISTANCE = 14.0;
+
+	private static final Item[] CALM_FLOWERS = {
+			Items.PINK_TULIP, Items.ALLIUM, Items.CORNFLOWER, Items.OXEYE_DAISY, Items.LILY_OF_THE_VALLEY, Items.PEONY
+	};
+
+	private enum Idle { NONE, SIT, LOOK_AT_FLOWER, TOGGLE_FLOWER, READ, PLANT, VISIT_MADISON }
+
+	private Idle idle = Idle.NONE;
+	private int idleTicks;
+	private @Nullable BlockPos flower;
+	private @Nullable Player scary;
+	/** Madison, while Lily is visiting her. */
+	private @Nullable Player cousin;
+	private double scaryLastDistance = -1;
+	private int hideTicks;
+	private int potionCooldown;
+	private int plantsDone;
+
+	public LilyBrain(LoafCharacter character) {
+		super(character);
+		// Defensive until provoked, then she backs off early to heal.
+		this.combat.retreatBelow = (float) com.itzbreadloaf.config.ModConfig.get().cousinsRetreatHealth;
+	}
+
+	@Override
+	protected double baseMaxHealth() {
+		return com.itzbreadloaf.config.ModConfig.get().lilyHealth;
+	}
+
+	/** 7 + iron sword (+5) = 12 damage per hit. */
+	@Override
+	protected double baseAttackDamage() {
+		return 7.0;
+	}
+
+	@Override
+	protected void rollGear() {
+		Kits.lily(this.player, this.player.level(), this.variant, this.random);
+	}
+
+	@Override
+	protected void restock() {
+		if (this.baby) {
+			return;
+		}
+		if (Inv.count(this.player, Inv::isFood) < 4) {
+			Inv.give(this.player, new ItemStack(Items.COOKIE, 8));
+			Inv.give(this.player, new ItemStack(Items.SWEET_BERRIES, 8));
+		}
+		if (this.variant == CharacterVariant.GARDENER) {
+			if (Inv.count(this.player, stack -> stack.is(Items.BONE_MEAL)) < 8) {
+				Inv.give(this.player, new ItemStack(Items.BONE_MEAL, 16));
+			}
+			if (Inv.count(this.player, stack -> stack.is(ItemTags.SMALL_FLOWERS)) < 4) {
+				Inv.give(this.player, new ItemStack(randomFlower(this.random), 8));
+			}
+		} else if (this.variant == CharacterVariant.WITCHY) {
+			if (Inv.count(this.player, stack -> isPotion(stack, Items.SPLASH_POTION, Potions.STRONG_HEALING)) < 2) {
+				Inv.give(this.player, potion(Items.SPLASH_POTION, Potions.STRONG_HEALING));
+				Inv.give(this.player, potion(Items.SPLASH_POTION, Potions.STRONG_HEALING));
+			}
+			if (Inv.count(this.player, stack -> isPotion(stack, Items.SPLASH_POTION, Potions.STRONG_SLOWNESS)) < 1) {
+				Inv.give(this.player, potion(Items.SPLASH_POTION, Potions.STRONG_SLOWNESS));
+			}
+			if (Inv.count(this.player, stack -> isPotion(stack, Items.SPLASH_POTION, Potions.WEAKNESS)) < 1) {
+				Inv.give(this.player, potion(Items.SPLASH_POTION, Potions.WEAKNESS));
+			}
+		} else if (this.variant == CharacterVariant.ARCHER_LILY && Inv.count(this.player, stack -> stack.is(ItemTags.ARROWS)) < 16) {
+			Inv.give(this.player, new ItemStack(Items.ARROW, 32));
+		}
+	}
+
+	public static Item randomFlower(RandomSource random) {
+		return CALM_FLOWERS[random.nextInt(CALM_FLOWERS.length)];
+	}
+
+	// ---------------------------------------------------------------- personality settings
+
+	@Override
+	public int giftsToTrust() {
+		return GIFTS_TO_TRUST;
+	}
+
+	@Override
+	public boolean isTrustGift(ItemStack stack) {
+		if (this.variant == CharacterVariant.BOOKWORM && (stack.is(Items.PAPER) || stack.is(Items.LEATHER) || stack.is(Items.ENCHANTED_BOOK))) {
+			return true;
+		}
+		if (this.variant == CharacterVariant.WITCHY && (stack.is(Items.GLOWSTONE_DUST) || stack.is(Items.NETHER_WART) || stack.is(Items.SUGAR))) {
+			return true;
+		}
+		return isFavoriteGift(stack) || stack.is(Items.SWEET_BERRIES) || stack.is(ModItems.LOAF_BREAD);
+	}
+
+	/** Lily's favorite gifts: cake, cookies, flowers, books. */
+	public static boolean isFavoriteGift(ItemStack stack) {
+		return stack.is(Items.CAKE) || stack.is(Items.COOKIE) || stack.is(ItemTags.FLOWERS) || stack.is(Items.BOOK);
+	}
+
+	@Override
+	protected boolean giftsNeedCrouch() {
+		return true;
+	}
+
+	@Override
+	protected int angerTicksOnHit() {
+		return ANGER_TICKS;
+	}
+
+	@Override
+	protected ItemStack createFightWeapon() {
+		return new ItemStack(this.variant == CharacterVariant.ARCHER_LILY ? Items.BOW : Items.IRON_SWORD);
+	}
+
+	@Override
+	protected boolean fightsAtRange() {
+		return this.variant == CharacterVariant.ARCHER_LILY;
+	}
+
+	@Override
+	public void playVoice() {
+		this.playSound(ModSounds.LILY_VOICE, VOICE_VOLUME, VOICE_PITCH);
+	}
+
+	@Override
+	protected int defaultHomeRadius() {
+		return HOME_RADIUS;
+	}
+
+	@Override
+	protected String cousinCriterion() {
+		return "lily";
+	}
+
+	@Override
+	protected void onBefriended(ServerPlayer friend) {
+		this.say(friend, "...you're kind of nice. okay. friends?");
+		ModAdvancements.award(friend, ModAdvancements.EARNED_HER_TRUST);
+		if (this.variant == CharacterVariant.BOOKWORM) {
+			// A thank-you present: one of her enchanted books.
+			ItemStack book = EnchantmentHelper.enchantItem(this.random, new ItemStack(Items.BOOK), 20 + this.random.nextInt(11),
+					this.player.level().registryAccess(), Optional.empty());
+			this.giveTo(friend, book);
+			this.say(friend, "here... this one's my favorite. you can have it");
+		}
+	}
+
+	@Override
+	protected String[] helloLines() {
+		return switch (this.variant) {
+			case BOOKWORM -> new String[]{"oh... hi. I'm on a good chapter", "*looks up from her book*", "have you read this one?"};
+			case GARDENER -> new String[]{"oh, hi... the tulips are blooming", "*shows you a flower*", "hi... watch the flowers"};
+			case WITCHY -> new String[]{"oh... hi. careful, that one's bubbling", "*stirs something*", "hi... need a potion?"};
+			case ARCHER_LILY -> new String[]{"oh... hi. all quiet out here", "*waves with her bow*", "hi... I'm on watch"};
+			default -> new String[]{"oh... hi", "um... hello", "*waves quietly*", "hi again..."};
+		};
+	}
+
+	@Override
+	public Item breedFood() {
+		return Items.CAKE;
+	}
+
+	// ---------------------------------------------------------------- fighting extras (Witchy)
+
+	@Override
+	protected boolean fightTrick(LivingEntity target) {
+		if (this.potionCooldown > 0) {
+			this.potionCooldown--;
+		}
+		if (this.variant != CharacterVariant.WITCHY || this.potionCooldown > 0) {
+			return false;
+		}
+		if (this.player.getHealth() < this.player.getMaxHealth() * 0.4F && this.throwSplash(this.player, Potions.STRONG_HEALING)) {
+			this.potionCooldown = 60;
+			return true;
+		}
+		double distance = this.player.distanceTo(target);
+		if (distance > 2.5 && distance < 10.0) {
+			boolean slowed = target.hasEffect(net.minecraft.world.effect.MobEffects.SLOWNESS);
+			if (!slowed && this.throwSplash(target, Potions.STRONG_SLOWNESS)
+					|| slowed && !target.hasEffect(net.minecraft.world.effect.MobEffects.WEAKNESS) && this.throwSplash(target, Potions.WEAKNESS)) {
+				this.potionCooldown = 40;
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** Witchy Lily heals her friend with a splash potion when they're hurt. */
+	private boolean healFriend() {
+		if (this.variant != CharacterVariant.WITCHY) {
+			return false;
+		}
+		if (this.potionCooldown > 0) {
+			this.potionCooldown--;
+			return false;
+		}
+		ServerPlayer friend = this.getOwnerPlayer();
+		if (friend == null || friend.level() != this.player.level() || friend.distanceTo(this.player) > 10.0
+				|| friend.getHealth() > friend.getMaxHealth() * 0.5F || !this.player.hasLineOfSight(friend)) {
+			return false;
+		}
+		if (this.throwSplash(friend, Potions.STRONG_HEALING)) {
+			this.potionCooldown = 100;
+			this.say(friend, "hold still... this'll help");
+			return true;
+		}
+		return false;
+	}
+
+	// ---------------------------------------------------------------- shy routine
+
+	@Override
+	protected void tickCalm() {
+		if (this.runHome()) {
+			return;
+		}
+		// Turns away and walks off when a player she doesn't trust comes within 6 blocks.
+		Player stranger = this.nearestStranger(AVOID_DISTANCE);
+		if (stranger != null) {
+			this.endIdle();
+			if (!this.nav.isMoving()) {
+				this.moveAwayFrom(stranger.position(), 8.0, Navigator.Speed.WALK);
+			}
+			return;
+		}
+		if (this.goToBed() || this.returnHome()) {
+			return;
+		}
+		if (this.tickIdle()) {
+			return;
+		}
+		this.wander(HOME_RADIUS);
+	}
+
+	/** A stranger sprinting at her: she sprints into her house and hides (crouched, facing away) for a while. */
+	private boolean runHome() {
+		if (this.hideTicks > 0) {
+			if (this.nav.isMoving()) {
+				this.hideTicks = Math.max(this.hideTicks, 40);
+				return true;
+			}
+			this.hideTicks--;
+			this.controls.setSneaking(true);
+			if (this.scary != null) {
+				Vec3 away = this.player.position().subtract(this.scary.position()).add(this.player.position());
+				this.controls.lookAt(new Vec3(away.x, this.player.getEyeY(), away.z));
+			}
+			if (this.hideTicks == 0) {
+				this.scary = null;
+				this.controls.setSneaking(false);
+			}
+			return true;
+		}
+		Player player = this.nearestStranger(SCARE_DISTANCE);
+		if (player == null || !player.isSprinting()) {
+			this.scaryLastDistance = -1;
+			return false;
+		}
+		double distance = this.player.distanceTo(player);
+		boolean approaching = this.scaryLastDistance > 0 && distance < this.scaryLastDistance - 0.3;
+		this.scaryLastDistance = distance;
+		if (!approaching) {
+			return false;
+		}
+		this.scary = player;
+		this.hideTicks = 160;
+		this.endIdle();
+		if (this.home != null) {
+			this.nav.moveTo(this.home, 1.0, Navigator.Speed.SPRINT);
+		} else {
+			this.moveAwayFrom(player.position(), 16.0, Navigator.Speed.SPRINT);
+		}
+		return true;
+	}
+
+	/** Lily's quiet idle actions (and her type's hobby). True while doing one. */
+	private boolean tickIdle() {
+		if (this.idle == Idle.NONE) {
+			int chance = this.variant == CharacterVariant.GARDENER ? 120 : 300;
+			if (this.random.nextInt(chance) != 0 || !this.player.onGround()) {
+				return false;
+			}
+			this.idle = switch (this.variant) {
+				case BOOKWORM -> this.random.nextInt(3) == 0 ? Idle.SIT : Idle.READ;
+				case GARDENER -> this.random.nextInt(3) == 0 ? Idle.LOOK_AT_FLOWER : Idle.PLANT;
+				default -> new Idle[]{Idle.SIT, Idle.LOOK_AT_FLOWER, Idle.TOGGLE_FLOWER}[this.random.nextInt(3)];
+			};
+			// Sometimes she goes to see cousin Madison instead, if Madison is around.
+			if (this.random.nextInt(4) == 0) {
+				this.cousin = this.findMadison();
+				if (this.cousin != null) {
+					this.idle = Idle.VISIT_MADISON;
+				}
+			}
+			switch (this.idle) {
+				case SIT, READ -> {
+					this.idleTicks = 120 + this.random.nextInt(200);
+					this.nav.stop();
+				}
+				case LOOK_AT_FLOWER -> {
+					this.flower = this.findBlock(this.player.blockPosition(), 6, 2, state -> state.is(BlockTags.FLOWERS));
+					this.idleTicks = this.flower == null ? 0 : 100;
+					if (this.flower != null) {
+						this.nav.moveTo(this.flower, 1.5, Navigator.Speed.WALK);
+					}
+				}
+				case PLANT -> {
+					// A grass block near home with room above it.
+					BlockPos center = this.home != null ? this.home : this.player.blockPosition();
+					this.flower = this.findBlock(center.offset(this.random.nextInt(9) - 4, 0, this.random.nextInt(9) - 4), 4, 2,
+							state -> state.is(Blocks.GRASS_BLOCK));
+					if (this.flower != null && !this.player.level().getBlockState(this.flower.above()).isAir()) {
+						this.flower = null;
+					}
+					this.idleTicks = this.flower == null ? 0 : 160;
+				}
+				case VISIT_MADISON -> this.idleTicks = 400;
+				case TOGGLE_FLOWER -> {
+					// Takes out or puts away her flower: scrolls between the flower slot and an empty one.
+					this.idleTicks = 1;
+					int selected = this.player.getInventory().getSelectedSlot();
+					this.controls.selectSlot(selected == CALM_SLOT ? 1 : CALM_SLOT);
+					if (this.player.getInventory().getItem(CALM_SLOT).isEmpty()) {
+						this.player.getInventory().setItem(CALM_SLOT, new ItemStack(randomFlower(this.random)));
+					}
+				}
+				default -> {
+				}
+			}
+		}
+		if (this.idleTicks-- <= 0) {
+			this.endIdle();
+			return false;
+		}
+		switch (this.idle) {
+			case SIT -> this.controls.setSneaking(true);
+			case READ -> {
+				// Book in hand, crouched, looking down at the pages.
+				this.controls.selectSlot(CALM_SLOT);
+				this.controls.setSneaking(true);
+				this.controls.look(this.player.getYRot(), 55.0F);
+			}
+			case LOOK_AT_FLOWER -> {
+				if (this.flower != null) {
+					this.controls.lookAt(Vec3.atCenterOf(this.flower).add(0.0, -0.2, 0.0));
+				}
+			}
+			case PLANT -> this.tickPlanting();
+			case VISIT_MADISON -> this.tickVisit();
+			default -> {
+			}
+		}
+		return true;
+	}
+
+	private @Nullable Player findMadison() {
+		for (com.itzbreadloaf.character.LoafCharacter other : com.itzbreadloaf.character.CharacterManager.active()) {
+			if (other.kind() == com.itzbreadloaf.character.CharacterKind.MADISON && other.player.level() == this.player.level()
+					&& other.player.distanceTo(this.player) < 48.0) {
+				return other.player;
+			}
+		}
+		return null;
+	}
+
+	/** Walks over to Madison and hangs out with her for a while (hearts and a little chat). */
+	private void tickVisit() {
+		Player madison = this.cousin;
+		if (madison == null || !madison.isAlive() || madison.level() != this.player.level()) {
+			this.idleTicks = 0;
+			this.cousin = null;
+			return;
+		}
+		this.controls.lookAt(madison.getEyePosition());
+		if (this.player.distanceTo(madison) > 2.5) {
+			this.nav.follow(madison, 2.0, Navigator.Speed.WALK);
+		} else {
+			this.nav.stop();
+			if (this.idleTicks % 80 == 0) {
+				this.playVoice();
+				this.particles(net.minecraft.core.particles.ParticleTypes.HEART, 2);
+			}
+		}
+		if (this.idleTicks <= 1) {
+			this.cousin = null;
+		}
+	}
+
+	@Override
+	protected String[] chatterLines() {
+		return switch (this.variant) {
+			case BOOKWORM -> new String[]{"*turns a page*", "just one more chapter...", "this book is so good", "shh, I'm reading"};
+			case GARDENER -> new String[]{"the tulips are blooming", "*waters the flowers*", "bees are good for gardens", "pink is the best color"};
+			case WITCHY -> new String[]{"*stirs the cauldron*", "that potion smells funny...", "need more glowstone", "bubble bubble"};
+			case ARCHER_LILY -> new String[]{"all quiet out here", "*checks her arrows*", "nothing gets past me", "the view is nice up here"};
+			default -> new String[]{"*hums quietly*", "the cherry trees are so pretty", "maybe I'll visit Madison later",
+					"I wonder what's in the next chapter...", "shh... a bee"};
+		};
+	}
+
+	@Override
+	protected @Nullable String[] chatWith(LoafBrain other) {
+		return switch (other.kind()) {
+			case MADISON -> new String[]{"Madison! want to pick flowers?", "how's the garden, Madison?", "cousin hug!"};
+			case BREADLOAF -> new String[]{"um... please don't fight near my flowers", "hi ItzBreadLoaf...", "*waves shyly*"};
+			case LILY -> new String[]{"oh, hi... me?", "nice dress!"};
+			default -> null;
+		};
+	}
+
+	/** Gardener: walk to the grass block, then bone meal it or plant a flower on it. */
+	private void tickPlanting() {
+		if (this.flower == null) {
+			this.idleTicks = 0;
+			return;
+		}
+		if (!this.canReach(this.flower)) {
+			this.nav.moveTo(this.flower.above(), 2.0, Navigator.Speed.WALK);
+			return;
+		}
+		this.nav.stop();
+		boolean boneMeal = this.plantsDone % 3 == 2;
+		boolean done = boneMeal
+				? this.useItemOn(this.flower, Direction.UP, stack -> stack.is(Items.BONE_MEAL))
+				: this.useItemOn(this.flower, Direction.UP, stack -> stack.is(ItemTags.SMALL_FLOWERS));
+		if (done) {
+			this.plantsDone++;
+			this.idleTicks = 10;
+			this.flower = null;
+		}
+	}
+
+	private void endIdle() {
+		if (this.idle == Idle.SIT || this.idle == Idle.READ) {
+			this.controls.setSneaking(false);
+		}
+		this.idle = Idle.NONE;
+		this.flower = null;
+	}
+
+	@Override
+	protected void tickCalmWithFriend() {
+		if (this.healFriend()) {
+			return;
+		}
+		// No staring: she glances around instead.
+		if (!this.tickIdle()) {
+			this.lookAround(4.0);
+		}
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/brain/LoafBrain.java
+
+```java
+package com.itzbreadloaf.brain;
+
+import carpet.patches.EntityPlayerMPFake;
+import com.itzbreadloaf.ModAdvancements;
+import com.itzbreadloaf.ModMessages;
+import com.itzbreadloaf.character.CharacterKind;
+import com.itzbreadloaf.character.CharacterVariant;
+import com.itzbreadloaf.character.CharacterManager;
+import com.itzbreadloaf.character.LoafCharacter;
+import com.itzbreadloaf.character.LoafIds;
+import com.itzbreadloaf.item.ModItems;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.UUIDUtil;
+import net.minecraft.core.particles.DustParticleOptions;
+import net.minecraft.core.particles.ParticleOptions;
+import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.resources.Identifier;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvent;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.stats.Stats;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.OwnableEntity;
+import net.minecraft.world.entity.ai.attributes.AttributeInstance;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
+import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.BedBlock;
+import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.level.portal.TeleportTransition;
+import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * The mind of one character fake player. Ticked every server tick by {@link CharacterManager}; it never moves the
+ * player directly, it only presses keys through {@link Controls} (Carpet's action pack).
+ *
+ * This base class has what every character shares: owner and sitting, home and bed, eating real food from the
+ * inventory, wandering, following the owner (through portals too), taming,
+ * babies and breeding. Each character's personality lives in its subclass.
+ */
+public abstract class LoafBrain {
+	/** Babies grow up after 20 minutes. Feeding them their parent's favorite food takes 10% off. */
+	public static final int GROW_UP_TICKS = 24000;
+	public static final int BREED_COOLDOWN_TICKS = 6000;
+	public static final int LOVE_TICKS = 600;
+	private static final Identifier BABY_SCALE_ID = Identifier.fromNamespaceAndPath("itzbreadloaf", "baby_scale");
+	private static final Identifier BABY_HEALTH_ID = Identifier.fromNamespaceAndPath("itzbreadloaf", "baby_health");
+	private static final Identifier BABY_SPEED_ID = Identifier.fromNamespaceAndPath("itzbreadloaf", "baby_speed");
+
+	protected final LoafCharacter character;
+	protected final EntityPlayerMPFake player;
+	protected final CharacterKind kind;
+	protected final Controls controls;
+	protected final Navigator nav;
+	protected final Combat combat;
+	protected final Builder builder;
+	protected final RandomSource random;
+	protected final CharacterVariant variant;
+	protected int ticks;
+
+	// ---- saved
+	protected @Nullable UUID owner;
+	protected boolean sitting;
+	protected @Nullable BlockPos home;
+	protected int homeRadius = 10;
+	protected @Nullable BlockPos bed;
+	/** Spawned naturally: forgotten (not saved) when despawned, unless someone befriended it. */
+	protected boolean wild;
+	private boolean paused;
+	protected boolean baby;
+	protected int babyAge;
+	protected int love;
+	protected int breedCooldown;
+	protected @Nullable UUID parentA;
+	protected @Nullable UUID parentB;
+
+	// ---- runtime
+	protected @Nullable LivingEntity target;
+	protected int lastHurtTick = -1000;
+	protected @Nullable LivingEntity lastAttacker;
+	private int nextChatterTick = 600;
+	/** How long the way home has been blocked (to retry, and teleport home if nobody is watching). */
+	private int homeFailTicks;
+	private int eatTicks;
+	private boolean eatStarted;
+	private int eatCooldown;
+	private int wanderTimer;
+	private int lastNearOwnerTick = -1000;
+	private int lookTimer;
+	private @Nullable Entity lookTarget;
+
+	protected LoafBrain(LoafCharacter character) {
+		this.character = character;
+		this.player = character.player;
+		this.kind = character.kind();
+		this.random = this.player.getRandom();
+		this.controls = new Controls(this.player, character.actions());
+		this.nav = new Navigator(this.player, this.controls);
+		this.combat = new Combat(this.player, this.controls, this.random);
+		this.builder = new Builder(this.player, this.controls);
+		this.variant = character.record.variant();
+	}
+
+	public static LoafBrain create(LoafCharacter character) {
+		return switch (character.kind()) {
+			case BREADLOAF -> new BreadLoafBrain(character);
+			case LILY -> new LilyBrain(character);
+			case MADISON -> new MadisonBrain(character);
+			case MASTER -> new MasterBreadLoafBrain(character);
+			case FELIXSYN -> new FelixBrain(character);
+			case HARLEY -> new HarleyBrain(character);
+		};
+	}
+
+	// ================================================================ hooks for each character
+
+	/** Fills the inventory with this character's gear (weapon, armor, shield, tools...) for an adult. */
+	protected abstract void rollGear();
+
+	/** Puts food and other supplies in the inventory (when new, and as they run low). */
+	protected abstract void restock();
+
+	/** The personality: called every tick unless asleep, sitting or eating. */
+	protected abstract void tickBehavior();
+
+	protected double baseMaxHealth() {
+		return 20.0;
+	}
+
+	protected double baseAttackDamage() {
+		return 1.0;
+	}
+
+	protected double baseSpeed() {
+		return 0.1;
+	}
+
+	/** Food that puts a tamed adult in love mode and makes babies of this kind grow faster. */
+	public Item breedFood() {
+		return Items.AIR;
+	}
+
+	public boolean isFriendlyToMobs() {
+		return false;
+	}
+
+	/** Neutral characters (Lily, Madison) and tamed ones are never "hostile" for sounds. */
+	public boolean isAngry() {
+		return false;
+	}
+
+	public SoundEvent deathSound() {
+		return SoundEvents.PLAYER_DEATH;
+	}
+
+	public @Nullable SoundEvent hurtSound() {
+		return null;
+	}
+
+	public int experienceReward() {
+		return this.baby ? 0 : 5;
+	}
+
+
+	// ================================================================ lifecycle
+
+	public void onFirstSpawn() {
+		if (!this.baby) {
+			this.rollGear();
+		}
+		this.restock();
+	}
+
+	/** Health, damage, speed and baby size, written into the player's attributes. */
+	public void applyAttributes() {
+		setBase(Attributes.MAX_HEALTH, this.baseMaxHealth());
+		setBase(Attributes.ATTACK_DAMAGE, this.baseAttackDamage());
+		setBase(Attributes.MOVEMENT_SPEED, this.baseSpeed());
+		this.applyBabyModifiers();
+		if (this.player.getHealth() > this.player.getMaxHealth()) {
+			this.player.setHealth(this.player.getMaxHealth());
+		}
+	}
+
+	protected void setBase(net.minecraft.core.Holder<net.minecraft.world.entity.ai.attributes.Attribute> attribute, double value) {
+		AttributeInstance instance = this.player.getAttribute(attribute);
+		if (instance != null) {
+			instance.setBaseValue(value);
+		}
+	}
+
+	/** Babies: 0.5 scale growing to 1.0, half health, a little faster. */
+	protected void applyBabyModifiers() {
+		AttributeInstance scale = this.player.getAttribute(Attributes.SCALE);
+		AttributeInstance health = this.player.getAttribute(Attributes.MAX_HEALTH);
+		AttributeInstance speed = this.player.getAttribute(Attributes.MOVEMENT_SPEED);
+		if (scale == null || health == null || speed == null) {
+			return;
+		}
+		if (this.baby) {
+			double grown = Math.min(1.0, this.babyAge / (double) GROW_UP_TICKS);
+			// 0.5 -> 1.0 as they grow (scale attribute base is 1.0).
+			scale.addOrReplacePermanentModifier(new AttributeModifier(BABY_SCALE_ID, -0.5 * (1.0 - grown), AttributeModifier.Operation.ADD_VALUE));
+			health.addOrReplacePermanentModifier(new AttributeModifier(BABY_HEALTH_ID, -0.5, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL));
+			speed.addOrReplacePermanentModifier(new AttributeModifier(BABY_SPEED_ID, 0.15, AttributeModifier.Operation.ADD_MULTIPLIED_BASE));
+		} else {
+			scale.removeModifier(BABY_SCALE_ID);
+			health.removeModifier(BABY_HEALTH_ID);
+			speed.removeModifier(BABY_SPEED_ID);
+		}
+	}
+
+	public void onActivated() {
+		this.lastNearOwnerTick = 0;
+	}
+
+	public void onDeactivated() {
+		if (this.player.isSleeping()) {
+			this.player.stopSleeping();
+		}
+		this.combat.stop();
+		this.builder.stopDigging();
+		this.controls.releaseAll();
+	}
+
+	/** Natural spawns nobody cares about are forgotten when despawned. */
+	public boolean isDisposable() {
+		return this.wild && !this.isTame();
+	}
+
+	/** Stay spawned even when no real player is near (nothing needs this by default). */
+	public boolean keepActive() {
+		return false;
+	}
+
+	// ================================================================ ticking
+
+	public final void tick() {
+		this.ticks++;
+		if (this.paused) {
+			// Hands off: whatever /loafcraft action (or Carpet's /player) set up keeps running.
+			return;
+		}
+		this.controls.begin();
+		this.builder.tick();
+		this.upkeep();
+		if (this.target != null && (!this.target.isAlive() || this.target.isRemoved() || this.target.level() != this.player.level()
+				|| this.target instanceof Player p && (p.isCreative() || p.isSpectator()))) {
+			this.setTarget(null);
+		}
+
+		if (this.player.isSleeping()) {
+			if (this.target != null || this.player.level().isBrightOutside()) {
+				this.player.stopSleeping();
+			}
+			this.controls.releaseAll();
+		} else if (this.tickEating()) {
+			this.nav.tick();
+		} else if (this.sitting && this.target == null) {
+			this.nav.stop();
+			this.controls.setSneaking(true);
+			this.lookAround(8.0);
+		} else {
+			this.controls.setSneaking(false);
+			this.tickChatter();
+			this.tickBehavior();
+			this.nav.tick();
+		}
+		this.controls.apply();
+	}
+
+	/** Every-tick and every-second housekeeping shared by all characters. */
+	private void upkeep() {
+		if (this.eatCooldown > 0) {
+			this.eatCooldown--;
+		}
+		if (this.love > 0) {
+			this.love--;
+			if (this.ticks % 10 == 0) {
+				this.particles(ParticleTypes.HEART, 1);
+			}
+		}
+		if (this.breedCooldown > 0) {
+			this.breedCooldown--;
+		}
+		if (this.baby) {
+			this.babyAge++;
+			if (this.ticks % 200 == 0) {
+				this.applyBabyModifiers();
+			}
+			if (this.babyAge >= GROW_UP_TICKS) {
+				this.growUp();
+			}
+		}
+		if (this.ticks % 20 == 0) {
+			// Characters never need to rest: no phantoms.
+			this.player.getStats().setValue(this.player, Stats.CUSTOM.get(Stats.TIME_SINCE_REST), 0);
+		}
+		if (this.ticks % 10 == 0) {
+			this.followOwnerThroughPortals();
+		}
+		if (this.ticks % 6000 == 0) {
+			this.restock();
+		}
+	}
+
+	// ================================================================ targets
+
+	public @Nullable LivingEntity getTarget() {
+		return this.target;
+	}
+
+	public void setTarget(@Nullable LivingEntity target) {
+		if (target != null && target != this.target && this.owner != null && this.isFriendlyWith(target)) {
+			// Tamed characters never pick a fight with their owner, the owner's friends, or anyone's pets on that list.
+			return;
+		}
+		LivingEntity old = this.target;
+		this.target = target;
+		if (target == null) {
+			this.combat.stop();
+			this.builder.stopDigging();
+		} else if (target != old) {
+			this.onNewTarget(target);
+		}
+	}
+
+	protected void onNewTarget(LivingEntity target) {
+		if (this.player.isSleeping()) {
+			this.player.stopSleeping();
+		}
+		this.sitting = false;
+	}
+
+	/** Fights the current target with the best weapon for the distance. */
+	protected void fightTarget(boolean allowRanged) {
+		if (this.target == null) {
+			return;
+		}
+		double distance = this.player.distanceTo(this.target);
+		if (this.ticks % 10 == 0 || this.combat.held() == Combat.Weapon.FISTS) {
+			Combat.Weapon current = this.combat.held();
+			boolean busy = this.player.isUsingItem() && current.isRanged();
+			if (!busy) {
+				this.combat.equipBest(distance, allowRanged);
+			}
+		}
+		this.combat.fight(this.target, this.nav);
+	}
+
+	public void onHurt(DamageSource source, float damage, boolean blocked) {
+		this.lastHurtTick = this.ticks;
+		if (source.getEntity() instanceof LivingEntity attacker && attacker != this.player) {
+			this.lastAttacker = attacker;
+		}
+		this.sitting = false;
+		if (this.player.isSleeping()) {
+			this.player.stopSleeping();
+		}
+	}
+
+	public void onDealtDamage(LivingEntity victim, float damage) {
+	}
+
+	public boolean allowDamage(DamageSource source, float amount) {
+		return true;
+	}
+
+	/** Called when they die. Return true to drop the whole inventory like a player. */
+	public boolean onDeath(DamageSource source) {
+		return !this.baby;
+	}
+
+	// ================================================================ owner and sitting
+
+	public boolean isTame() {
+		return this.owner != null;
+	}
+
+	public @Nullable UUID getOwner() {
+		return this.owner;
+	}
+
+	public boolean isOwnedBy(@Nullable Entity entity) {
+		return entity != null && this.owner != null && this.owner.equals(entity.getUUID());
+	}
+
+	public @Nullable ServerPlayer getOwnerPlayer() {
+		return this.owner == null ? null : this.player.level().getServer().getPlayerList().getPlayer(this.owner);
+	}
+
+	public void setOwner(@Nullable Player newOwner) {
+		this.owner = newOwner == null ? null : newOwner.getUUID();
+		this.sitting = false;
+		this.wild = false;
+		if (newOwner != null) {
+			this.setTarget(null);
+			this.home = null;
+			this.bed = null;
+		}
+	}
+
+	public void adoptByOwner(UUID ownerId) {
+		this.owner = ownerId;
+		this.wild = false;
+	}
+
+	public boolean isSitting() {
+		return this.sitting;
+	}
+
+	public void setSitting(boolean sitting) {
+		this.sitting = sitting;
+		if (sitting) {
+			this.nav.stop();
+		}
+	}
+
+	/**
+	 * The owner, characters with the same owner, the owner's pets, and (from /friend) the owner's friends plus their
+	 * tamed characters and pets.
+	 */
+	public boolean isFriendlyWith(@Nullable Entity entity) {
+		if (entity == null || this.owner == null) {
+			return false;
+		}
+		if (this.isOwnedBy(entity)) {
+			return true;
+		}
+		UUID theirs;
+		LoafBrain other = CharacterManager.brain(entity);
+		if (other != null) {
+			theirs = other.owner;
+		} else if (entity instanceof OwnableEntity ownable && ownable.getOwnerReference() != null) {
+			theirs = ownable.getOwnerReference().getUUID();
+		} else if (entity instanceof net.minecraft.world.entity.player.Player playerEntity) {
+			theirs = playerEntity.getUUID();
+		} else {
+			return false;
+		}
+		return theirs != null && (this.owner.equals(theirs)
+				|| com.itzbreadloaf.FriendCommand.isFriend(this.player.level().getServer(), this.owner, theirs));
+	}
+
+	/** Walks after the owner; teleports to them when far, like a tamed wolf. True if it did something. */
+	protected boolean followOwner() {
+		ServerPlayer ownerPlayer = this.getOwnerPlayer();
+		if (ownerPlayer == null || ownerPlayer.isSpectator() || ownerPlayer.level() != this.player.level()) {
+			return false;
+		}
+		double distance = this.player.distanceTo(ownerPlayer);
+		if (distance > 24.0 && ownerPlayer.onGround() && !ownerPlayer.isFallFlying()) {
+			Vec3 spot = this.findSpotNear(ownerPlayer.blockPosition(), 3);
+			if (spot != null) {
+				this.player.teleportTo(spot.x, spot.y, spot.z);
+				this.nav.stop();
+				return true;
+			}
+		}
+		if (distance > 5.0) {
+			this.nav.follow(ownerPlayer, 2.5, distance > 10.0 ? Navigator.Speed.SPRINT : Navigator.Speed.WALK);
+			return true;
+		}
+		if (distance < 3.0) {
+			this.nav.stop();
+		}
+		return false;
+	}
+
+	/** Tamed characters follow their owner anywhere, including through Nether and End portals. */
+	private void followOwnerThroughPortals() {
+		if (this.owner == null || this.sitting || this.baby) {
+			return;
+		}
+		ServerPlayer ownerPlayer = this.getOwnerPlayer();
+		if (ownerPlayer == null || ownerPlayer.isSpectator()) {
+			return;
+		}
+		if (ownerPlayer.level() == this.player.level()) {
+			if (this.player.distanceTo(ownerPlayer) < 16.0) {
+				this.lastNearOwnerTick = this.ticks;
+			}
+		} else if (this.ticks - this.lastNearOwnerTick < 100) {
+			this.player.teleport(new TeleportTransition(ownerPlayer.level(), ownerPlayer.position(), Vec3.ZERO,
+					this.player.getYRot(), this.player.getXRot(), TeleportTransition.DO_NOTHING));
+			this.lastNearOwnerTick = this.ticks;
+		}
+	}
+
+	/** Pets defend their owner: whoever hurts the owner, and (if {@code alsoAttack}) whatever the owner attacks. */
+	protected void protectOwner(boolean alsoAttack) {
+		ServerPlayer ownerPlayer = this.getOwnerPlayer();
+		if (ownerPlayer == null || ownerPlayer.level() != this.player.level() || this.baby) {
+			return;
+		}
+		LivingEntity attacker = ownerPlayer.getLastHurtByMob();
+		if (attacker != null && attacker.isAlive() && ownerPlayer.tickCount - ownerPlayer.getLastHurtByMobTimestamp() < 100
+				&& !this.isFriendlyWith(attacker) && attacker != this.player) {
+			this.setTarget(attacker);
+			return;
+		}
+		if (alsoAttack) {
+			LivingEntity victim = ownerPlayer.getLastHurtMob();
+			if (victim != null && victim.isAlive() && ownerPlayer.tickCount - ownerPlayer.getLastHurtMobTimestamp() < 100
+					&& !this.isFriendlyWith(victim) && victim != this.player && !(victim instanceof OwnableEntity o && o.getOwnerReference() != null)) {
+				this.setTarget(victim);
+			}
+		}
+	}
+
+	// ================================================================ home, bed, wandering
+
+	public void setupHome(BlockPos home, int radius, @Nullable BlockPos bed) {
+		this.home = home.immutable();
+		this.homeRadius = radius;
+		this.bed = bed == null ? null : bed.immutable();
+	}
+
+	public @Nullable BlockPos getHome() {
+		return this.home;
+	}
+
+	public void leaveHome() {
+		this.home = null;
+		this.bed = null;
+	}
+
+	public boolean isResident() {
+		return this.home != null;
+	}
+
+	/** Night: walk to the bed and lie down. True while doing that. */
+	protected boolean goToBed() {
+		if (this.bed == null || this.isTame() || this.target != null || this.player.level().isBrightOutside()) {
+			return false;
+		}
+		ServerLevel level = this.player.level();
+		if (!(level.getBlockState(this.bed).getBlock() instanceof BedBlock)) {
+			this.bed = null;
+			return false;
+		}
+		if (level.getBlockState(this.bed).getValue(BedBlock.OCCUPIED)) {
+			return false;
+		}
+		if (this.player.position().distanceTo(Vec3.atBottomCenterOf(this.bed)) > 2.0) {
+			this.walkHome(this.bed, 1.5);
+			return true;
+		}
+		this.nav.stop();
+		this.controls.releaseAll();
+		this.player.startSleeping(this.bed);
+		return true;
+	}
+
+	/** Back inside the home radius. True while walking home. */
+	protected boolean returnHome() {
+		if (this.home == null) {
+			return false;
+		}
+		// At night they stay closer to home.
+		int radius = this.player.level().isBrightOutside() ? this.homeRadius : Math.max(4, this.homeRadius / 2);
+		if (this.player.position().distanceTo(Vec3.atBottomCenterOf(this.home)) > radius + 3) {
+			this.walkHome(this.home, 2.0);
+			return true;
+		}
+		this.homeFailTicks = 0;
+		return false;
+	}
+
+	/**
+	 * Walks to home or bed. If the way is blocked it retries every 5 seconds, and after 20 seconds it simply
+	 * teleports there, but only when no real player can see it happen.
+	 */
+	private void walkHome(BlockPos destination, double reach) {
+		this.nav.moveTo(destination, reach, Navigator.Speed.WALK);
+		if (!this.nav.failed()) {
+			this.homeFailTicks = Math.max(0, this.homeFailTicks - 1);
+			return;
+		}
+		this.homeFailTicks++;
+		if (this.homeFailTicks % 100 == 0) {
+			this.nav.retry();
+		}
+		if (this.homeFailTicks >= 400 && !this.isWatched(32.0)) {
+			Vec3 spot = this.findSpotNear(destination, 2);
+			if (spot != null) {
+				this.player.teleportTo(spot.x, spot.y, spot.z);
+				this.nav.stop();
+			}
+			this.homeFailTicks = 0;
+		}
+	}
+
+	/** A real player within range who can see this character. */
+	protected boolean isWatched(double range) {
+		for (ServerPlayer viewer : this.player.level().players()) {
+			if (LoafIds.isRealPlayer(viewer) && viewer.distanceTo(this.player) < range && viewer.hasLineOfSight(this.player)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	// ================================================================ idle chatter
+
+	/** Random things this character says when a player is nearby (shown in the action bar). */
+	protected String[] chatterLines() {
+		return new String[0];
+	}
+
+	/** What this character says to another character standing nearby, or null to say nothing to them. */
+	protected @Nullable String[] chatWith(LoafBrain other) {
+		return null;
+	}
+
+	/** Every 1-3 minutes: a line to a nearby player, or (if another character is close) to that character. */
+	private void tickChatter() {
+		if (this.ticks < this.nextChatterTick) {
+			return;
+		}
+		com.itzbreadloaf.config.ModConfig config = com.itzbreadloaf.config.ModConfig.get();
+		int min = Math.max(5, config.chatterMinSeconds);
+		int max = Math.max(min, config.chatterMaxSeconds);
+		this.nextChatterTick = this.ticks + 20 * (min + this.random.nextInt(max - min + 1));
+		if (!config.idleChatter || this.target != null || this.baby || this.player.isSleeping()) {
+			return;
+		}
+		ServerPlayer listener = null;
+		for (ServerPlayer viewer : this.player.level().players()) {
+			if (LoafIds.isRealPlayer(viewer) && viewer.distanceTo(this.player) < 10.0 && viewer.hasLineOfSight(this.player)) {
+				listener = viewer;
+				break;
+			}
+		}
+		if (listener == null) {
+			return;
+		}
+		for (LoafCharacter other : CharacterManager.active()) {
+			if (other.brain == null || other.brain == this || other.player.level() != this.player.level()
+					|| other.player.distanceTo(this.player) > 6.0) {
+				continue;
+			}
+			String[] lines = this.chatWith(other.brain);
+			if (lines != null && lines.length > 0) {
+				this.controls.lookAt(other.player.getEyePosition());
+				this.say(listener, lines[this.random.nextInt(lines.length)]);
+				return;
+			}
+		}
+		String[] lines = this.chatterLines();
+		if (lines.length > 0) {
+			this.say(listener, lines[this.random.nextInt(lines.length)]);
+		}
+	}
+
+	/** Strolls to a random nearby spot now and then (around home if they have one). */
+	protected void wander(double radius) {
+		if (this.nav.isMoving()) {
+			return;
+		}
+		if (--this.wanderTimer > 0) {
+			this.lookAround(8.0);
+			return;
+		}
+		this.wanderTimer = 100 + this.random.nextInt(200);
+		BlockPos center = this.home != null ? this.home : this.player.blockPosition();
+		int range = (int) Math.max(3, radius);
+		BlockPos spot = center.offset(this.random.nextInt(range * 2 + 1) - range, 0, this.random.nextInt(range * 2 + 1) - range);
+		Vec3 standable = this.findSpotNear(spot, 0);
+		if (standable != null) {
+			this.nav.moveTo(standable, 1.0, Navigator.Speed.WALK);
+		}
+	}
+
+	/** Looks at a nearby real player now and then, otherwise around. */
+	protected void lookAround(double range) {
+		if (--this.lookTimer <= 0) {
+			this.lookTimer = 40 + this.random.nextInt(60);
+			Player nearest = this.player.level().getNearestPlayer(this.player.getX(), this.player.getY(), this.player.getZ(), range,
+					p -> p != this.player && !p.isSpectator() && LoafIds.isRealPlayer(p));
+			this.lookTarget = nearest != null && this.random.nextFloat() < 0.7F ? nearest : null;
+			if (this.lookTarget == null && !this.controls.hasLook()) {
+				this.controls.look(this.player.getYRot() + (this.random.nextFloat() - 0.5F) * 120.0F, (this.random.nextFloat() - 0.3F) * 30.0F);
+			}
+		}
+		if (this.lookTarget != null && this.lookTarget.isAlive() && !this.controls.hasLook()) {
+			this.controls.lookAt(this.lookTarget.getEyePosition());
+		}
+	}
+
+	/** A standable spot at or near {@code pos} (same column, a few blocks up or down). */
+	protected @Nullable Vec3 findSpotNear(BlockPos pos, int spread) {
+		ServerLevel level = this.player.level();
+		for (int attempt = 0; attempt < 8; attempt++) {
+			BlockPos column = spread > 0 ? pos.offset(this.random.nextInt(spread * 2 + 1) - spread, 0, this.random.nextInt(spread * 2 + 1) - spread) : pos;
+			if (!level.isLoaded(column)) {
+				continue;
+			}
+			for (int dy = 4; dy >= -6; dy--) {
+				BlockPos feet = column.above(dy);
+				if (level.getBlockState(feet).getCollisionShape(level, feet).isEmpty()
+						&& level.getBlockState(feet.above()).getCollisionShape(level, feet.above()).isEmpty()
+						&& level.getFluidState(feet).isEmpty()
+						&& level.getBlockState(feet.below()).isFaceSturdy(level, feet.below(), net.minecraft.core.Direction.UP)) {
+					return Vec3.atBottomCenterOf(feet);
+				}
+			}
+			if (spread == 0) {
+				int y = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, column.getX(), column.getZ());
+				if (Math.abs(y - pos.getY()) < 8) {
+					return Vec3.atBottomCenterOf(new BlockPos(column.getX(), y, column.getZ()));
+				}
+				return null;
+			}
+		}
+		return null;
+	}
+
+	// ================================================================ eating (real food from the inventory)
+
+	protected boolean isHungry() {
+		int food = this.player.getFoodData().getFoodLevel();
+		return food <= 14 || food < 20 && this.player.getHealth() < this.player.getMaxHealth() * 0.7F;
+	}
+
+	/** Starts eating if hungry and there's food. Returns true if they started. */
+	protected boolean tryEat() {
+		if (this.eatTicks > 0 || this.eatCooldown > 0 || !this.isHungry() || this.player.isUsingItem() && !this.combat.isShieldUp()) {
+			return false;
+		}
+		int slot = Inv.ready(this.player, Inv::isFood, 7);
+		if (slot < 0) {
+			return false;
+		}
+		this.combat.stop();
+		this.controls.selectSlot(slot);
+		this.controls.holdUse(true);
+		this.eatTicks = 50;
+		this.eatStarted = false;
+		return true;
+	}
+
+	/** Eats (or drinks) something right now, hungry or not: golden apples in a fight. True if they started. */
+	protected boolean eatNow(java.util.function.Predicate<ItemStack> what) {
+		if (this.eatTicks > 0 || this.eatCooldown > 0) {
+			return false;
+		}
+		int slot = Inv.ready(this.player, what, 7);
+		if (slot < 0) {
+			return false;
+		}
+		this.combat.stop();
+		this.controls.selectSlot(slot);
+		this.controls.holdUse(true);
+		this.eatTicks = 50;
+		this.eatStarted = false;
+		return true;
+	}
+
+	/** While eating: hold right-click with the food (looking up, so the click doesn't hit a door or a bed). */
+	private boolean tickEating() {
+		if (this.eatTicks <= 0) {
+			return false;
+		}
+		this.eatTicks--;
+		if (this.player.isUsingItem()) {
+			this.eatStarted = true;
+		}
+		boolean done = this.eatStarted && !this.player.isUsingItem() || this.eatTicks <= 0
+				|| !this.player.getMainHandItem().has(net.minecraft.core.component.DataComponents.CONSUMABLE) && !this.player.isUsingItem();
+		if (done) {
+			this.controls.holdUse(false);
+			this.eatTicks = 0;
+			this.eatCooldown = 30;
+			return false;
+		}
+		this.controls.holdUse(true);
+		if (!this.controls.hasLook()) {
+			this.controls.look(this.player.getYRot(), -35.0F);
+		}
+		// Keep backing off from a target while eating.
+		if (this.target != null && this.player.distanceTo(this.target) < 6.0) {
+			this.controls.walk(this.player.position().subtract(this.target.position()));
+		}
+		return true;
+	}
+
+	public boolean isEating() {
+		return this.eatTicks > 0;
+	}
+
+	// ================================================================ babies and love
+
+	public boolean isBaby() {
+		return this.baby;
+	}
+
+	public void setBaby(boolean baby) {
+		this.baby = baby;
+		this.babyAge = 0;
+		if (baby) {
+			// Babies carry nothing: no weapon, no armor.
+			this.player.getInventory().clearContent();
+		}
+		this.applyAttributes();
+		this.player.setHealth(this.player.getMaxHealth());
+	}
+
+	public int getBabyAge() {
+		return this.babyAge;
+	}
+
+	/** Feeding a baby its parent's food: 10% of the growing time off. */
+	public void ageUp(int amount) {
+		this.babyAge = Math.min(GROW_UP_TICKS, this.babyAge + amount);
+		this.applyBabyModifiers();
+	}
+
+	protected void growUp() {
+		this.baby = false;
+		this.applyAttributes();
+		this.rollGear();
+		this.restock();
+		this.player.setHealth(this.player.getMaxHealth());
+		this.particles(ParticleTypes.HAPPY_VILLAGER, 10);
+	}
+
+	public void setParents(UUID a, UUID b) {
+		this.parentA = a;
+		this.parentB = b;
+	}
+
+	public boolean canFallInLove() {
+		return this.isTame() && !this.baby && this.breedCooldown <= 0 && this.love <= 0;
+	}
+
+	public void setInLove() {
+		this.love = LOVE_TICKS;
+		this.particles(ParticleTypes.HEART, 7);
+	}
+
+	public boolean isInLove() {
+		return this.love > 0;
+	}
+
+	public void startBreedCooldown() {
+		this.breedCooldown = BREED_COOLDOWN_TICKS;
+		this.love = 0;
+	}
+
+	/** Babies stay near a parent (or the owner). True while walking to them. */
+	protected boolean followParent() {
+		if (!this.baby) {
+			return false;
+		}
+		Entity parent = null;
+		double best = Double.MAX_VALUE;
+		for (UUID id : new UUID[]{this.parentA, this.parentB}) {
+			if (id == null) {
+				continue;
+			}
+			LoafCharacter other = CharacterManager.get(id);
+			if (other != null && other.player.level() == this.player.level()) {
+				double distance = other.player.distanceTo(this.player);
+				if (distance < best) {
+					best = distance;
+					parent = other.player;
+				}
+			}
+		}
+		if (parent == null || best < 4.0 || best > 24.0) {
+			return false;
+		}
+		this.nav.follow(parent, 2.5, Navigator.Speed.WALK);
+		return true;
+	}
+
+	/**
+	 * Love mode: walk to a partner in love (ItzBreadLoaf + ImLilyLol or ItzBreadLoaf + Madison, same owner,
+	 * within 8 blocks). ItzBreadLoaf's side makes the baby. True while busy with that.
+	 */
+	protected boolean tickLove() {
+		if (!this.isInLove() || this.baby || this.owner == null) {
+			return false;
+		}
+		LoafBrain partner = null;
+		double best = 8.0;
+		for (LoafCharacter other : CharacterManager.active()) {
+			LoafBrain brain = other.brain;
+			if (brain == null || brain == this || !brain.isInLove() || brain.baby || !this.owner.equals(brain.owner)
+					|| !isCouple(this.kind, brain.kind) || other.player.level() != this.player.level()) {
+				continue;
+			}
+			double distance = other.player.distanceTo(this.player);
+			if (distance < best) {
+				best = distance;
+				partner = brain;
+			}
+		}
+		if (partner == null) {
+			return false;
+		}
+		this.controls.lookAt(partner.player.getEyePosition());
+		if (best > 2.0) {
+			this.nav.follow(partner.player, 1.5, Navigator.Speed.WALK);
+		} else if (this.kind == CharacterKind.BREADLOAF && this.love < LOVE_TICKS - 60) {
+			this.breedWith(partner);
+		}
+		return true;
+	}
+
+	public static boolean isCouple(CharacterKind a, CharacterKind b) {
+		return a == CharacterKind.BREADLOAF && (b == CharacterKind.LILY || b == CharacterKind.MADISON)
+				|| b == CharacterKind.BREADLOAF && (a == CharacterKind.LILY || a == CharacterKind.MADISON);
+	}
+
+	private void breedWith(LoafBrain partner) {
+		ServerLevel level = this.player.level();
+		UUID ownerId = this.owner;
+		boolean withMadison = partner.kind == CharacterKind.MADISON;
+		CharacterKind babyKind = this.random.nextBoolean() ? CharacterKind.BREADLOAF : partner.kind;
+		Vec3 middle = this.player.position().add(partner.player.position()).scale(0.5);
+		this.startBreedCooldown();
+		partner.startBreedCooldown();
+		UUID mom = partner.player.getUUID();
+		UUID dad = this.player.getUUID();
+		LoafCharacter child = CharacterManager.create(level, babyKind, middle, this.player.getYRot(), brain -> {
+			brain.setBaby(true);
+			brain.adoptByOwner(ownerId);
+			brain.setParents(dad, mom);
+			brain.onAdopted(ownerId);
+		});
+		if (child == null) {
+			return;
+		}
+		if (withMadison) {
+			// Orange and yellow sparkles for Madison's babies.
+			child.brain.particles(new DustParticleOptions(0xFFA500, 1.4F), 10);
+			child.brain.particles(new DustParticleOptions(0xFFE040, 1.2F), 10);
+		} else {
+			child.brain.particles(ParticleTypes.HEART, 7);
+		}
+		net.minecraft.world.entity.ExperienceOrb.award(level, middle, 1 + this.random.nextInt(7));
+		ServerPlayer ownerPlayer = this.getOwnerPlayer();
+		if (ownerPlayer != null) {
+			if (withMadison) {
+				ownerPlayer.sendSystemMessage(net.minecraft.network.chat.Component.literal("A new little loaf has arrived!")
+						.withStyle(net.minecraft.ChatFormatting.GOLD));
+				ModAdvancements.award(ownerPlayer, ModAdvancements.LITTLE_LOAF);
+			} else {
+				ownerPlayer.sendSystemMessage(net.minecraft.network.chat.Component.literal("A little one joined the family!")
+						.withStyle(net.minecraft.ChatFormatting.LIGHT_PURPLE));
+				ModAdvancements.award(ownerPlayer, ModAdvancements.FAMILY_REUNION);
+			}
+		}
+	}
+
+	/** A baby trusts the player who bred them from the start (Lily and Madison use this). */
+	public void onAdopted(UUID ownerId) {
+	}
+
+	// ================================================================ interaction
+
+	public InteractionResult onInteract(ServerPlayer clicker, InteractionHand hand) {
+		if (hand != InteractionHand.MAIN_HAND) {
+			return InteractionResult.PASS;
+		}
+		ItemStack stack = clicker.getItemInHand(hand);
+		InteractionResult result = this.interact(clicker, stack);
+		return result != null ? result : InteractionResult.PASS;
+	}
+
+	/** Each character's own right-click handling (taming, trust gifts, sit/stand...). Null if not handled. */
+	protected @Nullable InteractionResult interact(ServerPlayer clicker, ItemStack stack) {
+		return null;
+	}
+
+	/** Should this item be picked up off the ground? (Players pick up anything they touch.) */
+	public boolean wantsToPickUp(ItemStack stack) {
+		return false;
+	}
+
+	// ================================================================ effects and helpers
+
+	public EntityPlayerMPFake player() {
+		return this.player;
+	}
+
+	public CharacterKind kind() {
+		return this.kind;
+	}
+
+	public CharacterVariant variant() {
+		return this.variant;
+	}
+
+	public Navigator nav() {
+		return this.nav;
+	}
+
+	public Controls controls() {
+		return this.controls;
+	}
+
+	public Builder builder() {
+		return this.builder;
+	}
+
+	public RandomSource random() {
+		return this.random;
+	}
+
+	public int ticks() {
+		return this.ticks;
+	}
+
+	public void setPaused(boolean paused) {
+		this.paused = paused;
+		if (paused) {
+			this.nav.stop();
+			this.combat.stop();
+			this.controls.releaseAll();
+		}
+	}
+
+	public boolean isPaused() {
+		return this.paused;
+	}
+
+	public void setWild(boolean wild) {
+		this.wild = wild;
+	}
+
+	public void particles(ParticleOptions particle, int count) {
+		this.player.level().sendParticles(particle, this.player.getX(), this.player.getY(0.6), this.player.getZ(), count,
+				0.4, 0.5, 0.4, 0.02);
+	}
+
+	public void playSound(SoundEvent sound, float volume, float pitch) {
+		this.player.level().playSound(null, this.player.getX(), this.player.getY(), this.player.getZ(), sound,
+				this.soundSource(), volume, pitch);
+	}
+
+	protected SoundSource soundSource() {
+		return SoundSource.PLAYERS;
+	}
+
+	public void say(ServerPlayer to, String text) {
+		ModMessages.say(to, this.player, text);
+	}
+
+	/** Tosses an item to a player; only that player can pick it up. */
+	public void giveTo(ServerPlayer receiver, ItemStack stack) {
+		ItemEntity item = new ItemEntity(this.player.level(), this.player.getX(), this.player.getEyeY() - 0.3, this.player.getZ(), stack);
+		Vec3 toss = receiver.position().subtract(this.player.position()).normalize().scale(0.25);
+		item.setDeltaMovement(toss.x, 0.2, toss.z);
+		item.setPickUpDelay(10);
+		item.setTarget(receiver.getUUID());
+		this.player.level().addFreshEntity(item);
+	}
+
+	// ================================================================ hands-on helpers (used by the character types)
+
+	/** A potion item stack (drinkable, splash or lingering) of one potion type. */
+	public static ItemStack potion(Item item, net.minecraft.core.Holder<net.minecraft.world.item.alchemy.Potion> potion) {
+		return net.minecraft.world.item.alchemy.PotionContents.createItemStack(item, potion);
+	}
+
+	public static boolean isPotion(ItemStack stack, Item item, net.minecraft.core.Holder<net.minecraft.world.item.alchemy.Potion> potion) {
+		net.minecraft.world.item.alchemy.PotionContents contents = stack.get(net.minecraft.core.component.DataComponents.POTION_CONTENTS);
+		return stack.is(item) && contents != null && contents.is(potion);
+	}
+
+	/** Throws a splash potion of this type at an entity (or at our own feet if it's us). True if one was thrown. */
+	protected boolean throwSplash(LivingEntity at, net.minecraft.core.Holder<net.minecraft.world.item.alchemy.Potion> potion) {
+		int slot = Inv.ready(this.player, stack -> isPotion(stack, Items.SPLASH_POTION, potion), 7);
+		if (slot < 0) {
+			return false;
+		}
+		this.controls.selectSlot(slot);
+		if (at == this.player) {
+			this.controls.lookInstantly(this.player.getYRot(), 90.0F);
+		} else {
+			this.combat.aimProjectile(at, 0.5, 0.05);
+		}
+		this.controls.useOnce();
+		return true;
+	}
+
+	/** Right-clicks the given face of a block with an item from the inventory (planting, bone meal, bottles...). */
+	protected boolean useItemOn(BlockPos pos, net.minecraft.core.Direction face, java.util.function.Predicate<ItemStack> item) {
+		int slot = Inv.ready(this.player, item, 6);
+		if (slot < 0) {
+			return false;
+		}
+		this.controls.selectSlot(slot);
+		this.controls.aimAt(Vec3.atCenterOf(pos).add(face.getStepX() * 0.499, face.getStepY() * 0.499, face.getStepZ() * 0.499));
+		this.controls.useOnce();
+		return true;
+	}
+
+	/** One left-click on a block (breaks crops and other instant blocks). */
+	protected void hitBlock(BlockPos pos) {
+		this.controls.aimAt(Vec3.atCenterOf(pos));
+		this.controls.attackOnce();
+	}
+
+	/** The closest block within {@code radius} (and {@code height} up or down) matching the test, or null. */
+	protected @Nullable BlockPos findBlock(BlockPos center, int radius, int height,
+			java.util.function.Predicate<net.minecraft.world.level.block.state.BlockState> test) {
+		ServerLevel level = this.player.level();
+		return BlockPos.findClosestMatch(center, radius, height, pos -> level.isLoaded(pos) && test.test(level.getBlockState(pos)))
+				.map(BlockPos::immutable).orElse(null);
+	}
+
+	/** Within arm's reach (eyes to block center). */
+	protected boolean canReach(BlockPos pos) {
+		return this.player.getEyePosition().distanceTo(Vec3.atCenterOf(pos)) < 4.2;
+	}
+
+	// ================================================================ saving
+
+	public void save(CompoundTag tag) {
+		if (this.owner != null) {
+			tag.store("Owner", UUIDUtil.CODEC, this.owner);
+		}
+		tag.putBoolean("Sitting", this.sitting);
+		if (this.home != null) {
+			tag.store("Home", BlockPos.CODEC, this.home);
+			tag.putInt("HomeRadius", this.homeRadius);
+		}
+		if (this.bed != null) {
+			tag.store("Bed", BlockPos.CODEC, this.bed);
+		}
+		tag.putBoolean("Wild", this.wild);
+		tag.putBoolean("Paused", this.paused);
+		tag.putBoolean("Baby", this.baby);
+		tag.putInt("BabyAge", this.babyAge);
+		tag.putInt("BreedCooldown", this.breedCooldown);
+		if (this.parentA != null && this.parentB != null) {
+			tag.store("ParentA", UUIDUtil.CODEC, this.parentA);
+			tag.store("ParentB", UUIDUtil.CODEC, this.parentB);
+		}
+	}
+
+	public void load(CompoundTag tag) {
+		this.owner = tag.read("Owner", UUIDUtil.CODEC).orElse(null);
+		this.sitting = tag.getBooleanOr("Sitting", false);
+		this.home = tag.read("Home", BlockPos.CODEC).orElse(null);
+		this.homeRadius = tag.getIntOr("HomeRadius", 10);
+		this.bed = tag.read("Bed", BlockPos.CODEC).orElse(null);
+		this.wild = tag.getBooleanOr("Wild", false);
+		this.paused = tag.getBooleanOr("Paused", false);
+		this.baby = tag.getBooleanOr("Baby", false);
+		this.babyAge = tag.getIntOr("BabyAge", 0);
+		this.breedCooldown = tag.getIntOr("BreedCooldown", 0);
+		this.parentA = tag.read("ParentA", UUIDUtil.CODEC).orElse(null);
+		this.parentB = tag.read("ParentB", UUIDUtil.CODEC).orElse(null);
+	}
+
+	protected static List<UUID> uuids(@Nullable UUID... ids) {
+		List<UUID> list = new ArrayList<>();
+		for (UUID id : ids) {
+			if (id != null) {
+				list.add(id);
+			}
+		}
+		return list;
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/brain/MaceJump.java
+
+```java
+package com.itzbreadloaf.brain;
+
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.phys.Vec3;
+
+/**
+ * The PvP mace move, with real inputs: look straight down, jump, throw a wind charge at your feet (it launches you
+ * up), switch to the mace, drift toward the target and smash them on the way down (a mace hit while falling more than
+ * 1.5 blocks is a smash attack; Wind Burst bounces you back up for another). Used by FelixSyn and Harley.
+ */
+public final class MaceJump {
+	private final ServerPlayer player;
+	private final Controls controls;
+	private final Combat combat;
+	private int ticks = -1;
+	private int cooldown;
+
+	public MaceJump(ServerPlayer player, Controls controls, Combat combat) {
+		this.player = player;
+		this.controls = controls;
+		this.combat = combat;
+	}
+
+	public boolean isActive() {
+		return this.ticks >= 0;
+	}
+
+	public void tickCooldown() {
+		if (this.cooldown > 0) {
+			this.cooldown--;
+		}
+	}
+
+	public boolean canStart() {
+		return this.ticks < 0 && this.cooldown <= 0 && this.player.onGround()
+				&& Inv.find(this.player, stack -> stack.is(Items.WIND_CHARGE)) >= 0
+				&& Inv.find(this.player, stack -> stack.is(Items.MACE)) >= 0;
+	}
+
+	public void start(int cooldownTicks) {
+		this.ticks = 0;
+		this.cooldown = cooldownTicks;
+		this.combat.stop();
+	}
+
+	public void cancel() {
+		this.ticks = -1;
+	}
+
+	/** One tick of the move. Returns false once it's over (landed or gave up). */
+	public boolean tick(LivingEntity target, float maxSmashFall) {
+		this.ticks++;
+		if (this.ticks <= 6) {
+			int charge = Inv.ready(this.player, stack -> stack.is(Items.WIND_CHARGE), 4);
+			if (charge < 0) {
+				this.ticks = -1;
+				return false;
+			}
+			this.controls.selectSlot(charge);
+			this.controls.lookInstantly(Controls.yawTo(this.player.position(), target.position()), 90.0F);
+			if (this.player.onGround() && this.ticks <= 2) {
+				this.controls.jumpOnce();
+			} else if (!this.player.onGround() && this.ticks >= 3) {
+				this.controls.useOnce();
+				this.ticks = 6;
+			} else if (this.ticks == 6) {
+				// The jump never happened (ceiling, stuck): give up.
+				this.ticks = -1;
+				return false;
+			}
+			return true;
+		}
+		int mace = Inv.ready(this.player, stack -> stack.is(Items.MACE), 2);
+		if (mace >= 0) {
+			this.controls.selectSlot(mace);
+		}
+		Vec3 aim = this.combat.aimPoint(target);
+		this.controls.aimAt(aim);
+		this.controls.walkToward(target.position());
+		this.controls.setSprinting(false);
+		if (this.player.fallDistance > maxSmashFall) {
+			this.player.fallDistance = maxSmashFall;
+		}
+		boolean falling = this.player.getDeltaMovement().y < 0.0 && !this.player.onGround();
+		if (falling && this.player.getEyePosition().distanceTo(aim) <= this.combat.reach() - 0.1
+				&& this.player.fallDistance > 1.5 && this.player.getAttackStrengthScale(0.5F) >= 0.9F) {
+			this.controls.attackOnce();
+		}
+		if (this.ticks > 12 && this.player.onGround() || this.ticks > 120) {
+			this.ticks = -1;
+			return false;
+		}
+		return true;
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/brain/MadisonBrain.java
+
+```java
+package com.itzbreadloaf.brain;
+
+import com.itzbreadloaf.ModAdvancements;
+import com.itzbreadloaf.character.CharacterKind;
+import com.itzbreadloaf.character.CharacterManager;
+import com.itzbreadloaf.character.CharacterVariant;
+import com.itzbreadloaf.character.LoafCharacter;
+import com.itzbreadloaf.character.LoafIds;
+import com.itzbreadloaf.item.ModItems;
+import com.itzbreadloaf.mixin.FishingHookAccessor;
+import com.itzbreadloaf.sound.ModSounds;
+import java.util.UUID;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.core.UUIDUtil;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.tags.BlockTags;
+import net.minecraft.tags.FluidTags;
+import net.minecraft.tags.ItemTags;
+import net.minecraft.world.Container;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.inventory.ChestMenu;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.BeehiveBlock;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.CropBlock;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * Madison, ImLilyLol's cousin, and her types: slightly shy (keeps about 3 blocks from strangers, but walks, never
+ * runs), trusts a player after 3 gifts, fast (about 5 blocks/s walking), tends her garden, opens her pantry chest to
+ * check on it, visits Lily, and gets very angry (45 s, stone or iron axe) at anyone who raids her pantry. Putting
+ * the food back calms her down.
+ *
+ * Types (each does her job with real clicks):
+ * - Farmer: breaks fully grown crops near her home and replants them with the right seed.
+ * - Baker: runs the bakery. Right-click her with an emerald for 2 Loaf Bread, crouch with 3 emeralds for a cake.
+ * - Fisher: casts a fishing rod into water near her home, waits for a bite, and reels in real fishing loot.
+ * - Beekeeper: collects honey from full beehives with glass bottles (her hives sit over campfires so the bees stay calm).
+ */
+public class MadisonBrain extends NeutralBrain {
+	public static final int GIFTS_TO_TRUST = 3;
+	public static final int ANGER_TICKS = 900;
+	public static final int HOME_RADIUS = 10;
+	public static final double PANTRY_WATCH_DISTANCE = 16.0;
+	public static final double KEEP_DISTANCE = 3.0;
+	/** Player walk speed is 0.1 (4.3 blocks/s). 0.116 is about 5 blocks/s. */
+	public static final double SPEED = 0.116;
+
+	private enum Idle { NONE, TEND_GARDEN, CHECK_PANTRY, VISIT_LILY, VISIT_FRIEND }
+
+	private @Nullable BlockPos pantryPos;
+	private int lastPantryFood = -1;
+	/** Food in the pantry before it was raided; putting it back calms her down. */
+	private int foodBeforeTheft = -1;
+	private @Nullable UUID thief;
+
+	private Idle idle = Idle.NONE;
+	private int idleTicks;
+	private @Nullable BlockPos spot;
+	private @Nullable Entity buddy;
+	private boolean pantryOpen;
+
+	// ---- job state
+	private @Nullable BlockPos jobPos;
+	private int jobStep;
+	private int jobTimer;
+	private int jobCooldown;
+	private @Nullable Item replant;
+	private int fishingTicks;
+	private int pickupTicks;
+	private final Fishing fishing = new Fishing(this);
+
+	public MadisonBrain(LoafCharacter character) {
+		super(character);
+		// Defensive until provoked, then she backs off early to heal.
+		this.combat.retreatBelow = (float) com.itzbreadloaf.config.ModConfig.get().cousinsRetreatHealth;
+	}
+
+	@Override
+	protected double baseMaxHealth() {
+		return com.itzbreadloaf.config.ModConfig.get().madisonHealth;
+	}
+
+	@Override
+	protected double baseSpeed() {
+		return SPEED;
+	}
+
+	@Override
+	protected void rollGear() {
+		Kits.madison(this.player, this.player.level(), this.variant, this.random);
+	}
+
+	@Override
+	protected void restock() {
+		if (this.baby) {
+			return;
+		}
+		if (Inv.count(this.player, Inv::isFood) < 4) {
+			Inv.give(this.player, new ItemStack(Items.BREAD, 6));
+			Inv.give(this.player, new ItemStack(Items.BAKED_POTATO, 6));
+		}
+		switch (this.variant) {
+			case BAKER -> {
+				if (Inv.count(this.player, stack -> stack.is(ModItems.LOAF_BREAD)) < 16) {
+					Inv.give(this.player, new ItemStack(ModItems.LOAF_BREAD, 32));
+				}
+				if (Inv.count(this.player, stack -> stack.is(Items.CAKE)) < 2) {
+					Inv.give(this.player, new ItemStack(Items.CAKE, 2));
+				}
+			}
+			case MERCHANT -> {
+				if (Inv.count(this.player, stack -> stack.is(Items.APPLE)) < 8) {
+					Inv.give(this.player, new ItemStack(Items.APPLE, 16));
+					Inv.give(this.player, new ItemStack(Items.GOLDEN_CARROT, 6));
+					Inv.give(this.player, new ItemStack(Items.MELON_SLICE, 16));
+				}
+				if (Inv.count(this.player, stack -> stack.is(Items.EMERALD)) < 3) {
+					Inv.give(this.player, new ItemStack(Items.EMERALD, 4));
+				}
+			}
+			case BEEKEEPER -> {
+				if (Inv.count(this.player, stack -> stack.is(Items.GLASS_BOTTLE)) < 4) {
+					Inv.give(this.player, new ItemStack(Items.GLASS_BOTTLE, 12));
+				}
+			}
+			case FARMER -> {
+				if (Inv.count(this.player, stack -> stack.is(Items.WHEAT_SEEDS)) < 4) {
+					Inv.give(this.player, new ItemStack(Items.WHEAT_SEEDS, 8));
+				}
+			}
+			default -> {
+			}
+		}
+	}
+
+	// ---------------------------------------------------------------- personality settings
+
+	@Override
+	public int giftsToTrust() {
+		return GIFTS_TO_TRUST;
+	}
+
+	@Override
+	public boolean isTrustGift(ItemStack stack) {
+		return isFavoriteGift(stack) || stack.is(ModItems.LOAF_BREAD)
+				|| this.variant == CharacterVariant.FISHER && stack.is(ItemTags.FISHES)
+				|| this.variant == CharacterVariant.FARMER && (stack.is(Items.BONE_MEAL) || stack.is(Items.BEETROOT_SEEDS));
+	}
+
+	/** Madison's favorite gifts: golden carrots, pumpkin pie, honey bottles, glow berries. */
+	public static boolean isFavoriteGift(ItemStack stack) {
+		return stack.is(Items.GOLDEN_CARROT) || stack.is(Items.PUMPKIN_PIE) || stack.is(Items.HONEY_BOTTLE) || stack.is(Items.GLOW_BERRIES);
+	}
+
+	@Override
+	protected int angerTicksOnHit() {
+		return ANGER_TICKS;
+	}
+
+	@Override
+	protected ItemStack createFightWeapon() {
+		return new ItemStack(this.random.nextBoolean() ? Items.STONE_AXE : Items.IRON_AXE);
+	}
+
+	@Override
+	public void playVoice() {
+		this.playSound(ModSounds.MADISON_VOICE, 0.8F, 1.0F);
+	}
+
+	@Override
+	protected int defaultHomeRadius() {
+		return HOME_RADIUS;
+	}
+
+	@Override
+	protected String cousinCriterion() {
+		return "madison";
+	}
+
+	@Override
+	protected void onBefriended(ServerPlayer friend) {
+		this.say(friend, "okay, you're cool. friends!");
+	}
+
+	@Override
+	protected String[] helloLines() {
+		return switch (this.variant) {
+			case MERCHANT -> new String[]{"fresh produce! one emerald!", "hey! got any crops to sell?", "best apples in town!"};
+			case FARMER -> new String[]{"hey! harvest's looking good", "hi! want some carrots?", "*wipes her hands* hey!"};
+			case BAKER -> new String[]{"welcome to the bakery!", "fresh loaves, one emerald!", "hey! smell that?"};
+			case FISHER -> new String[]{"shh, they're biting", "hey! caught a big one earlier", "hi! nice day for fishing"};
+			case BEEKEEPER -> new String[]{"hey! careful, the bees are busy", "hi! want some honey?", "*buzz buzz* hey!"};
+			default -> new String[]{"hey!", "oh, hi there", "want a snack?", "hi! the carrots are growing nicely"};
+		};
+	}
+
+	@Override
+	public Item breedFood() {
+		return Items.PUMPKIN_PIE;
+	}
+
+	/** Farmers pick up their harvest, fishers their catch. */
+	@Override
+	public boolean wantsToPickUp(ItemStack stack) {
+		if (this.variant == CharacterVariant.FARMER) {
+			return stack.is(Items.WHEAT) || stack.is(Items.WHEAT_SEEDS) || stack.is(Items.CARROT) || stack.is(Items.POTATO)
+					|| stack.is(Items.BEETROOT) || stack.is(Items.BEETROOT_SEEDS) || stack.is(Items.POISONOUS_POTATO);
+		}
+		if (this.variant == CharacterVariant.FISHER) {
+			return this.fishing.isCollecting() || stack.is(ItemTags.FISHES);
+		}
+		return false;
+	}
+
+	// ---------------------------------------------------------------- baker trading
+
+	@Override
+	protected @Nullable InteractionResult interact(ServerPlayer clicker, ItemStack stack) {
+		if (this.variant == CharacterVariant.BAKER && stack.is(Items.EMERALD) && !this.baby) {
+			boolean cake = clicker.isShiftKeyDown() && stack.getCount() >= 3;
+			int price = cake ? 3 : 1;
+			Item sold = cake ? Items.CAKE : ModItems.LOAF_BREAD;
+			int amount = cake ? 1 : 2;
+			int slot = Inv.find(this.player, held -> held.is(sold) && held.getCount() >= amount);
+			if (slot < 0) {
+				this.say(clicker, "sold out! come back tomorrow");
+				return InteractionResult.FAIL;
+			}
+			// Real items change hands: her stock out, your emeralds in.
+			ItemStack goods = this.player.getInventory().getItem(slot).split(amount);
+			Inv.give(this.player, stack.copyWithCount(price));
+			stack.consume(price, clicker);
+			clicker.getInventory().placeItemBackInInventory(goods);
+			this.player.swing(InteractionHand.MAIN_HAND);
+			this.particles(ParticleTypes.HAPPY_VILLAGER, 5);
+			this.say(clicker, cake ? "one cake, fresh from the oven!" : "two loaves, still warm! enjoy");
+			ModAdvancements.award(clicker, ModAdvancements.FRESH_FROM_THE_OVEN);
+			return InteractionResult.SUCCESS;
+		}
+		if (this.variant == CharacterVariant.MERCHANT && !this.baby) {
+			InteractionResult trade = this.marketTrade(clicker, stack);
+			if (trade != null) {
+				return trade;
+			}
+		}
+		return super.interact(clicker, stack);
+	}
+
+	/**
+	 * Merchant Madison at her market stall. An emerald buys a bundle of food from her stock; 16 crops (wheat, carrots,
+	 * potatoes, beetroots) earn you an emerald from her purse. Real items change hands both ways.
+	 */
+	private @Nullable InteractionResult marketTrade(ServerPlayer clicker, ItemStack stack) {
+		if (stack.is(Items.EMERALD)) {
+			Item[] goods = {Items.GOLDEN_CARROT, Items.PUMPKIN_PIE, Items.APPLE, Items.HONEY_BOTTLE, Items.MELON_SLICE};
+			int[] amounts = {3, 2, 4, 1, 8};
+			int pick = this.random.nextInt(goods.length);
+			Item good = goods[pick];
+			int slot = Inv.find(this.player, held -> held.is(good) && held.getCount() >= amounts[pick]);
+			if (slot < 0) {
+				this.say(clicker, "out of that one, try again!");
+				return InteractionResult.FAIL;
+			}
+			ItemStack bought = this.player.getInventory().getItem(slot).split(amounts[pick]);
+			Inv.give(this.player, stack.copyWithCount(1));
+			stack.consume(1, clicker);
+			clicker.getInventory().placeItemBackInInventory(bought);
+			this.player.swing(InteractionHand.MAIN_HAND);
+			this.particles(ParticleTypes.HAPPY_VILLAGER, 5);
+			this.say(clicker, "fresh from the farm! thanks!");
+			return InteractionResult.SUCCESS;
+		}
+		boolean crop = stack.is(Items.WHEAT) || stack.is(Items.CARROT) || stack.is(Items.POTATO) || stack.is(Items.BEETROOT);
+		if (crop && stack.getCount() >= 16) {
+			int purse = Inv.find(this.player, held -> held.is(Items.EMERALD));
+			if (purse < 0) {
+				this.say(clicker, "I'm out of emeralds right now, sorry!");
+				return InteractionResult.FAIL;
+			}
+			ItemStack pay = this.player.getInventory().getItem(purse).split(1);
+			Inv.give(this.player, stack.copyWithCount(16));
+			stack.consume(16, clicker);
+			clicker.getInventory().placeItemBackInInventory(pay);
+			this.say(clicker, "nice crops! here's an emerald");
+			return InteractionResult.SUCCESS;
+		}
+		return null;
+	}
+
+	// ---------------------------------------------------------------- pantry
+
+	public void setPantryPos(@Nullable BlockPos pos) {
+		this.pantryPos = pos == null ? null : pos.immutable();
+	}
+
+	public @Nullable BlockPos getPantryPos() {
+		return this.pantryPos;
+	}
+
+	private @Nullable Container getPantry(ServerLevel level) {
+		if (this.pantryPos == null || !level.isLoaded(this.pantryPos)) {
+			return null;
+		}
+		BlockEntity blockEntity = level.getBlockEntity(this.pantryPos);
+		return blockEntity instanceof Container container ? container : null;
+	}
+
+	private static int countFood(Container container) {
+		int food = 0;
+		for (int i = 0; i < container.getContainerSize(); i++) {
+			ItemStack stack = container.getItem(i);
+			if (stack.has(DataComponents.FOOD)) {
+				food += stack.getCount();
+			}
+		}
+		return food;
+	}
+
+	/**
+	 * Every half second: did the food in her pantry drop while a real player she doesn't trust had it open
+	 * (and she was close enough to notice)? Did it come back?
+	 */
+	private void watchPantry() {
+		ServerLevel level = this.player.level();
+		Container pantry = this.getPantry(level);
+		if (pantry == null) {
+			return;
+		}
+		int food = countFood(pantry);
+		if (this.lastPantryFood >= 0 && food < this.lastPantryFood) {
+			ServerPlayer culprit = this.findPlayerUsing(level, pantry);
+			boolean watching = this.player.position().distanceTo(this.pantryPos.getCenter()) <= PANTRY_WATCH_DISTANCE;
+			if (culprit != null && watching && !this.trustsPlayer(culprit) && !culprit.isCreative() && !this.baby) {
+				if (!this.isAngry() || this.foodBeforeTheft < 0) {
+					this.foodBeforeTheft = this.lastPantryFood;
+				}
+				this.thief = culprit.getUUID();
+				this.becomeAngryAt(culprit, ANGER_TICKS);
+				this.playVoice();
+				this.say(culprit, "Hey! That's my food!");
+				ModAdvancements.award(culprit, ModAdvancements.HANDS_OFF_THE_PANTRY);
+			}
+		}
+		// Putting the food back calms her down instantly.
+		if (this.isAngry() && this.foodBeforeTheft >= 0 && food >= this.foodBeforeTheft) {
+			ServerPlayer returner = this.thief == null ? null : level.getServer().getPlayerList().getPlayer(this.thief);
+			this.calmDown();
+			this.foodBeforeTheft = -1;
+			this.thief = null;
+			if (returner != null) {
+				this.say(returner, "...oh. thank you. we're okay.");
+				ModAdvancements.award(returner, ModAdvancements.PEACE_OFFERING);
+			}
+		}
+		this.lastPantryFood = food;
+	}
+
+	/** The real player who has this exact chest open right now (or is standing at it). */
+	private @Nullable ServerPlayer findPlayerUsing(ServerLevel level, Container pantry) {
+		ServerPlayer nearest = null;
+		for (ServerPlayer player : level.players()) {
+			if (!LoafIds.isRealPlayer(player)) {
+				continue;
+			}
+			if (player.containerMenu instanceof ChestMenu menu && menu.getContainer() == pantry) {
+				return player;
+			}
+			if (player.position().distanceTo(this.pantryPos.getCenter()) < 5.0) {
+				nearest = player;
+			}
+		}
+		return nearest;
+	}
+
+	@Override
+	public void calmDown() {
+		super.calmDown();
+		this.foodBeforeTheft = -1;
+	}
+
+	// ---------------------------------------------------------------- routine
+
+	@Override
+	protected void tickBehavior() {
+		if (this.ticks % 10 == 0) {
+			this.watchPantry();
+		}
+		if (this.pickupTicks > 0) {
+			this.pickupTicks--;
+		}
+		if (this.jobCooldown > 0) {
+			this.jobCooldown--;
+		}
+		if (this.target != null || this.anger > 0) {
+			this.stopJob();
+		}
+		super.tickBehavior();
+	}
+
+	@Override
+	protected void tickCalm() {
+		// Keeps about 3 blocks from players she doesn't know, but doesn't run away.
+		Player stranger = this.nearestStranger(KEEP_DISTANCE);
+		if (stranger != null) {
+			this.endIdle();
+			this.stopJob();
+			if (!this.nav.isMoving()) {
+				this.moveAwayFrom(stranger.position(), KEEP_DISTANCE + 1.5, Navigator.Speed.WALK);
+			}
+			return;
+		}
+		if (this.goToBed() || this.returnHome()) {
+			this.stopJob();
+			return;
+		}
+		if (this.tickJob() || this.tickIdle()) {
+			return;
+		}
+		this.wander(this.variant == CharacterVariant.BAKER ? 3.0 : HOME_RADIUS);
+		this.lookAround(6.0);
+	}
+
+	@Override
+	protected void tickCalmWithFriend() {
+		if (!this.tickJob()) {
+			this.lookAround(6.0);
+		}
+	}
+
+	// ---------------------------------------------------------------- jobs
+
+	/** Her type's job. True while busy with it. */
+	private boolean tickJob() {
+		return switch (this.variant) {
+			case FARMER -> this.farm();
+			case BEEKEEPER -> this.collectHoney();
+			case FISHER -> this.fish();
+			default -> false;
+		};
+	}
+
+	private void stopJob() {
+		if (this.variant == CharacterVariant.FISHER) {
+			// Reel in before doing anything else.
+			this.fishing.stop();
+		}
+		this.jobPos = null;
+		this.jobStep = 0;
+	}
+
+	private BlockPos workCenter() {
+		return this.home != null ? this.home : this.player.blockPosition();
+	}
+
+	/** Farmer: break a fully grown crop, wait for the drops, plant the right seed back on the farmland. */
+	private boolean farm() {
+		if (this.jobPos == null) {
+			if (this.jobCooldown > 0 || this.ticks % 20 != 0) {
+				return false;
+			}
+			this.jobPos = this.findBlock(this.workCenter(), 12, 3, state -> state.getBlock() instanceof CropBlock crop && crop.isMaxAge(state));
+			this.jobStep = 0;
+			if (this.jobPos == null) {
+				this.jobCooldown = 200;
+				return false;
+			}
+		}
+		ServerLevel level = this.player.level();
+		switch (this.jobStep) {
+			case 0 -> {
+				BlockState state = level.getBlockState(this.jobPos);
+				if (!(state.getBlock() instanceof CropBlock crop) || !crop.isMaxAge(state)) {
+					this.stopJob();
+					return false;
+				}
+				if (!this.canReach(this.jobPos)) {
+					this.nav.moveTo(this.jobPos, 2.0, Navigator.Speed.WALK);
+					return true;
+				}
+				this.nav.stop();
+				this.replant = seedFor(state.getBlock());
+				this.hitBlock(this.jobPos);
+				this.jobStep = 1;
+				this.jobTimer = 15;
+			}
+			case 1 -> {
+				// Step onto the spot to collect the drops.
+				this.nav.moveTo(this.jobPos, 0.4, Navigator.Speed.WALK);
+				if (--this.jobTimer <= 0) {
+					this.jobStep = 2;
+				}
+			}
+			case 2 -> {
+				BlockPos farmland = this.jobPos.below();
+				if (level.getBlockState(this.jobPos).isAir() && level.getBlockState(farmland).is(Blocks.FARMLAND) && this.replant != null) {
+					Item seed = this.replant;
+					if (!this.canReach(farmland)) {
+						this.nav.moveTo(this.jobPos, 2.0, Navigator.Speed.WALK);
+						return true;
+					}
+					this.useItemOn(farmland, Direction.UP, stack -> stack.is(seed));
+				}
+				this.jobCooldown = 30;
+				this.stopJob();
+				this.controls.selectSlot(CALM_SLOT);
+			}
+			default -> this.stopJob();
+		}
+		return true;
+	}
+
+	private static Item seedFor(Block crop) {
+		if (crop == Blocks.CARROTS) {
+			return Items.CARROT;
+		}
+		if (crop == Blocks.POTATOES) {
+			return Items.POTATO;
+		}
+		if (crop == Blocks.BEETROOTS) {
+			return Items.BEETROOT_SEEDS;
+		}
+		return Items.WHEAT_SEEDS;
+	}
+
+	/** Beekeeper: right-click a full beehive with a glass bottle. */
+	private boolean collectHoney() {
+		if (this.jobPos == null) {
+			if (this.jobCooldown > 0 || this.ticks % 20 != 0) {
+				return false;
+			}
+			this.jobPos = this.findBlock(this.workCenter(), 12, 4, state -> state.is(BlockTags.BEEHIVES)
+					&& state.hasProperty(BeehiveBlock.HONEY_LEVEL) && state.getValue(BeehiveBlock.HONEY_LEVEL) >= BeehiveBlock.MAX_HONEY_LEVELS);
+			if (this.jobPos == null) {
+				this.jobCooldown = 300;
+				return false;
+			}
+		}
+		BlockState state = this.player.level().getBlockState(this.jobPos);
+		if (!state.is(BlockTags.BEEHIVES) || state.getValue(BeehiveBlock.HONEY_LEVEL) < BeehiveBlock.MAX_HONEY_LEVELS) {
+			this.stopJob();
+			return false;
+		}
+		if (!this.canReach(this.jobPos)) {
+			this.nav.moveTo(this.jobPos, 2.0, Navigator.Speed.WALK);
+			return true;
+		}
+		this.nav.stop();
+		Vec3 offset = this.player.getEyePosition().subtract(Vec3.atCenterOf(this.jobPos));
+		Direction face = Direction.getApproximateNearest(offset.x, offset.y, offset.z);
+		this.useItemOn(this.jobPos, face, stack -> stack.is(Items.GLASS_BOTTLE));
+		this.jobCooldown = 60;
+		this.jobPos = null;
+		return true;
+	}
+
+	/** Fisher: stand by the water, cast, wait for a bite, reel in (the catch flies to her and she picks it up). */
+	private boolean fish() {
+		return this.fishing.tick(this.workCenter(), CALM_SLOT);
+	}
+
+	/** Tend the garden, check the pantry, visit cousin Lily, or walk up to her friend. True while busy. */
+	private boolean tickIdle() {
+		if (this.idle == Idle.NONE) {
+			if (this.random.nextInt(200) != 0) {
+				return false;
+			}
+			Idle[] options = {Idle.TEND_GARDEN, Idle.CHECK_PANTRY, Idle.VISIT_LILY, Idle.VISIT_FRIEND};
+			this.idle = options[this.random.nextInt(options.length)];
+			this.spot = null;
+			this.buddy = null;
+			switch (this.idle) {
+				case TEND_GARDEN -> this.spot = this.findBlock(this.workCenter(), 12, 3, state -> state.is(BlockTags.CROPS));
+				case CHECK_PANTRY -> this.spot = this.pantryPos;
+				case VISIT_LILY -> {
+					for (LoafCharacter other : CharacterManager.active()) {
+						if (other.kind() == CharacterKind.LILY && other.player.level() == this.player.level()
+								&& other.player.distanceTo(this.player) < 48.0) {
+							this.buddy = other.player;
+							break;
+						}
+					}
+				}
+				case VISIT_FRIEND -> this.buddy = this.player.level().getNearestPlayer(this.player.getX(), this.player.getY(),
+						this.player.getZ(), 16.0, p -> p != this.player && p instanceof Player pl && this.trustsPlayer(pl));
+				default -> {
+				}
+			}
+			if (this.spot == null && this.buddy == null) {
+				this.idle = Idle.NONE;
+				return false;
+			}
+			this.idleTicks = this.idle == Idle.VISIT_LILY ? 400 : 160;
+		}
+		if (--this.idleTicks <= 0) {
+			this.endIdle();
+			return false;
+		}
+		if (this.spot != null) {
+			double distance = this.player.position().distanceTo(this.spot.getCenter());
+			this.controls.lookAt(Vec3.atCenterOf(this.spot));
+			if (distance > 2.5) {
+				this.nav.moveTo(this.spot, 2.0, Navigator.Speed.WALK);
+			} else {
+				this.nav.stop();
+				if (this.idle == Idle.CHECK_PANTRY) {
+					// Really opens the chest (right-click), looks inside, closes it again.
+					if (!this.pantryOpen && this.idleTicks % 40 == 0) {
+						this.controls.aimAt(Vec3.atCenterOf(this.spot));
+						this.controls.useOnce();
+						this.pantryOpen = true;
+					} else if (this.pantryOpen && this.idleTicks % 40 == 20) {
+						this.player.closeContainer();
+						this.pantryOpen = false;
+					}
+				} else if (this.idleTicks % 30 == 0) {
+					this.player.swing(InteractionHand.MAIN_HAND);
+				}
+			}
+		} else if (this.buddy != null && this.buddy.isAlive()) {
+			this.controls.lookAt(this.buddy.getEyePosition());
+			if (this.player.distanceTo(this.buddy) > 2.5) {
+				this.nav.follow(this.buddy, 2.0, Navigator.Speed.WALK);
+			} else {
+				this.nav.stop();
+				if (this.idle == Idle.VISIT_FRIEND && this.idleTicks % 60 == 0) {
+					this.playVoice();
+				}
+			}
+		} else {
+			this.endIdle();
+			return false;
+		}
+		return true;
+	}
+
+	@Override
+	protected String[] chatterLines() {
+		return switch (this.variant) {
+			case BAKER -> new String[]{"fresh bread coming up!", "*kneads dough*", "the oven's nice and hot", "who wants a cookie?"};
+			case FARMER -> new String[]{"these carrots won't plant themselves!", "*wipes her forehead*", "rain would be nice", "harvest time soon"};
+			case BEEKEEPER -> new String[]{"the bees are extra busy today", "honey's almost ready", "*buzz buzz*", "don't swat them!"};
+			case FISHER, MERCHANT -> new String[]{"nice day for it!", "business is good", "*hums*", "come back anytime!"};
+			default -> new String[]{"need to restock the pantry", "anyone hungry?", "Lily's probably reading again", "*hums a farm song*"};
+		};
+	}
+
+	@Override
+	protected @Nullable String[] chatWith(LoafBrain other) {
+		return switch (other.kind()) {
+			case LILY -> new String[]{"hey Lily! I baked something for you", "cousin time!", "your flowers look amazing, Lily"};
+			case BREADLOAF -> new String[]{"don't touch my pantry, ItzBreadLoaf", "want some bread? ask nicely", "hey you"};
+			case MADISON -> new String[]{"nice hat!", "how's your farm doing?"};
+			default -> null;
+		};
+	}
+
+	private void endIdle() {
+		if (this.pantryOpen) {
+			this.player.closeContainer();
+			this.pantryOpen = false;
+		}
+		this.idle = Idle.NONE;
+		this.spot = null;
+		this.buddy = null;
+	}
+
+	@Override
+	public void onDeactivated() {
+		this.endIdle();
+		super.onDeactivated();
+	}
+
+	// ---------------------------------------------------------------- saving
+
+	@Override
+	public void save(CompoundTag tag) {
+		super.save(tag);
+		if (this.pantryPos != null) {
+			tag.store("Pantry", BlockPos.CODEC, this.pantryPos);
+		}
+		tag.putInt("FoodBeforeTheft", this.foodBeforeTheft);
+		if (this.thief != null) {
+			tag.store("Thief", UUIDUtil.CODEC, this.thief);
+		}
+	}
+
+	@Override
+	public void load(CompoundTag tag) {
+		super.load(tag);
+		this.pantryPos = tag.read("Pantry", BlockPos.CODEC).orElse(null);
+		this.foodBeforeTheft = tag.getIntOr("FoodBeforeTheft", -1);
+		this.thief = tag.read("Thief", UUIDUtil.CODEC).orElse(null);
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/brain/MasterBreadLoafBrain.java
+
+```java
+package com.itzbreadloaf.brain;
+
+import com.itzbreadloaf.ModAdvancements;
+import com.itzbreadloaf.character.CharacterKind;
+import com.itzbreadloaf.character.CharacterManager;
+import com.itzbreadloaf.character.LoafCharacter;
+import com.itzbreadloaf.character.LoafIds;
+import com.itzbreadloaf.config.ModConfig;
+import com.itzbreadloaf.item.ModItems;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.UUID;
+import java.util.function.Predicate;
+import net.minecraft.core.UUIDUtil;
+import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.resources.Identifier;
+import net.minecraft.server.level.ServerBossEvent;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvent;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.tags.DamageTypeTags;
+import net.minecraft.world.BossEvent;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.damagesource.DamageTypes;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.ai.attributes.AttributeInstance;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
+import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.alchemy.PotionContents;
+import net.minecraft.world.item.alchemy.Potions;
+import net.minecraft.world.item.enchantment.Enchantments;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * Master BreadLoaf: a boss who fights like a PvP mace player, entirely with real player inputs.
+ *
+ * Kit (real hotbar): 1 Sharpness V netherite sword, 2 Wind Burst II mace, 3 Density V mace, 4 Breach IV mace,
+ * 5 wind charges, 6 firework rockets, 7 ender pearls, 8 golden apples, 9 elytra; real potions in the inventory
+ * (Strength II, Swiftness II, Fire Resistance, Splash Healing II); full netherite with Protection IV.
+ *
+ * Elytra mace dive: right-click the elytra (it swaps with the chestplate), jump, start gliding, climb on firework
+ * rockets until well above the target, glide over them, warn (charge-up sound and sparks), right-click the
+ * chestplate back on (the glide stops), pick a mace for the fall and the target's armor, and smash on the way down.
+ * Wind-charge jumps: look down, jump, throw a wind charge at his feet, smash. Pearls to close long gaps.
+ *
+ * Phase 1 (100-60%): sword on the ground, an occasional dive and wind jump.
+ * Phase 2 (60-25%): dives and wind jumps much more often.
+ * Phase 3 (under 25%): faster, constant mace pressure, calls in 2 ItzBreadLoafs.
+ */
+public class MasterBreadLoafBrain extends LoafBrain {
+	public static final int SLOT_SWORD = 0;
+	public static final int SLOT_WIND_BURST_MACE = 1;
+	public static final int SLOT_DENSITY_MACE = 2;
+	public static final int SLOT_BREACH_MACE = 3;
+	public static final int SLOT_WIND_CHARGE = 4;
+	public static final int SLOT_ROCKET = 5;
+	public static final int SLOT_PEARL = 6;
+	public static final int SLOT_GOLDEN_APPLE = 7;
+	public static final int SLOT_ELYTRA = 8;
+	/** How high above the target he climbs before a dive. */
+	public static final double DIVE_HEIGHT = 18.0;
+	public static final double BOSS_BAR_RANGE = 64.0;
+	public static final double HUNT_RANGE = 48.0;
+
+	private static final Identifier PHASE3_SPEED_ID = Identifier.fromNamespaceAndPath("itzbreadloaf", "boss_phase3_speed");
+	private static final Identifier DAMAGE_PRESET_ID = Identifier.fromNamespaceAndPath("itzbreadloaf", "boss_damage_preset");
+
+	private enum State { GROUND, DRINK, WIND_JUMP, TAKEOFF, CLIMB, CRUISE, TELEGRAPH, DROP, RECOVER }
+
+	private final ServerBossEvent bossEvent = (ServerBossEvent) new ServerBossEvent(
+			net.minecraft.network.chat.Component.literal("Master BreadLoaf"),
+			BossEvent.BossBarColor.PURPLE, BossEvent.BossBarOverlay.PROGRESS).setDarkenScreen(true);
+	private final Set<UUID> tookFallDamage = new HashSet<>();
+
+	private State state = State.GROUND;
+	private int stateTicks;
+	private int specialCooldown = 100;
+	private int pearlCooldown;
+	private int lastRocketTick = -100;
+	private int buffStep;
+	private boolean summonedHelpers;
+	private boolean drinkStarted;
+	private int smashChain;
+	private boolean telegraphed;
+	private double diveTopY;
+
+	public MasterBreadLoafBrain(LoafCharacter character) {
+		super(character);
+		this.combat.useShield = false;
+	}
+
+	// ---------------------------------------------------------------- stats and kit
+
+	private static ModConfig.BossPreset preset() {
+		return ModConfig.get().bossPreset();
+	}
+
+	@Override
+	protected double baseMaxHealth() {
+		return preset().health;
+	}
+
+	@Override
+	public void applyAttributes() {
+		super.applyAttributes();
+		this.setBase(Attributes.KNOCKBACK_RESISTANCE, 0.5);
+		AttributeInstance damage = this.player.getAttribute(Attributes.ATTACK_DAMAGE);
+		if (damage != null) {
+			damage.addOrReplacePermanentModifier(new AttributeModifier(DAMAGE_PRESET_ID, preset().damageMultiplier - 1.0,
+					AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL));
+		}
+	}
+
+	@Override
+	protected void rollGear() {
+		ServerLevel level = this.player.level();
+		this.player.setItemSlot(EquipmentSlot.HEAD, Gear.enchanted(level, Items.NETHERITE_HELMET, Enchantments.PROTECTION, 4));
+		this.player.setItemSlot(EquipmentSlot.CHEST, Gear.enchanted(level, Items.NETHERITE_CHESTPLATE, Enchantments.PROTECTION, 4));
+		this.player.setItemSlot(EquipmentSlot.LEGS, Gear.enchanted(level, Items.NETHERITE_LEGGINGS, Enchantments.PROTECTION, 4));
+		this.player.setItemSlot(EquipmentSlot.FEET, Gear.enchanted(level, Items.NETHERITE_BOOTS, Enchantments.PROTECTION, 4));
+		this.player.setItemSlot(EquipmentSlot.OFFHAND, ItemStack.EMPTY);
+		var inventory = this.player.getInventory();
+		inventory.setItem(SLOT_SWORD, Gear.enchanted(level, Items.NETHERITE_SWORD, Enchantments.SHARPNESS, 5));
+		inventory.setItem(SLOT_WIND_BURST_MACE, Gear.enchanted(level, Items.MACE, Enchantments.WIND_BURST, 2));
+		inventory.setItem(SLOT_DENSITY_MACE, Gear.enchanted(level, Items.MACE, Enchantments.DENSITY, 5));
+		inventory.setItem(SLOT_BREACH_MACE, Gear.enchanted(level, Items.MACE, Enchantments.BREACH, 4));
+		inventory.setItem(SLOT_WIND_CHARGE, new ItemStack(Items.WIND_CHARGE, 64));
+		inventory.setItem(SLOT_ROCKET, new ItemStack(Items.FIREWORK_ROCKET, 64));
+		inventory.setItem(SLOT_PEARL, new ItemStack(Items.ENDER_PEARL, 16));
+		inventory.setItem(SLOT_GOLDEN_APPLE, new ItemStack(Items.GOLDEN_APPLE, 3));
+		inventory.setItem(SLOT_ELYTRA, new ItemStack(Items.ELYTRA));
+		inventory.setItem(9, PotionContents.createItemStack(Items.POTION, Potions.STRONG_STRENGTH));
+		inventory.setItem(10, PotionContents.createItemStack(Items.POTION, Potions.STRONG_SWIFTNESS));
+		inventory.setItem(11, PotionContents.createItemStack(Items.POTION, Potions.LONG_FIRE_RESISTANCE));
+		inventory.setItem(12, PotionContents.createItemStack(Items.SPLASH_POTION, Potions.STRONG_HEALING));
+		inventory.setItem(13, PotionContents.createItemStack(Items.SPLASH_POTION, Potions.STRONG_HEALING));
+		inventory.setSelectedSlot(SLOT_SWORD);
+	}
+
+	@Override
+	protected void restock() {
+		// Food so he can sprint and regenerate between fights.
+		if (Inv.count(this.player, stack -> stack.is(Items.COOKED_BEEF)) < 8) {
+			Inv.give(this.player, new ItemStack(Items.COOKED_BEEF, 16));
+		}
+	}
+
+	@Override
+	protected SoundSource soundSource() {
+		return SoundSource.HOSTILE;
+	}
+
+	@Override
+	public SoundEvent deathSound() {
+		return SoundEvents.WITHER_DEATH;
+	}
+
+	@Override
+	public int experienceReward() {
+		return 200;
+	}
+
+	/** His rockets and wind charges are his own; he doesn't pick things up. */
+	@Override
+	public boolean wantsToPickUp(ItemStack stack) {
+		return false;
+	}
+
+	/** 1, 2 or 3, from his health. */
+	public int phase() {
+		float fraction = this.player.getHealth() / this.player.getMaxHealth();
+		return fraction > 0.6F ? 1 : fraction > 0.25F ? 2 : 3;
+	}
+
+	// ---------------------------------------------------------------- lifecycle
+
+	@Override
+	public void onActivated() {
+		super.onActivated();
+		// Despawned mid-dive: put the chestplate back on.
+		if (this.player.getItemBySlot(EquipmentSlot.CHEST).is(Items.ELYTRA)) {
+			int chest = Inv.find(this.player, stack -> stack.is(Items.NETHERITE_CHESTPLATE));
+			if (chest >= 0) {
+				ItemStack chestplate = this.player.getInventory().getItem(chest);
+				this.player.getInventory().setItem(chest, this.player.getItemBySlot(EquipmentSlot.CHEST));
+				this.player.setItemSlot(EquipmentSlot.CHEST, chestplate);
+			}
+		}
+		this.bossEvent.setName(this.player.getDisplayName());
+	}
+
+	@Override
+	public void onDeactivated() {
+		super.onDeactivated();
+		this.bossEvent.removeAllPlayers();
+	}
+
+	@Override
+	public boolean allowDamage(DamageSource source, float amount) {
+		// No fall damage (mace smashes, missed dives) and no elytra wall crashes.
+		return !source.is(DamageTypeTags.IS_FALL) && !source.is(DamageTypes.FLY_INTO_WALL);
+	}
+
+	/** Mace Master: players who took fall damage during the fight don't get it. */
+	public void markFallDamage(UUID player) {
+		this.tookFallDamage.add(player);
+	}
+
+	@Override
+	public boolean onDeath(DamageSource source) {
+		ServerLevel level = this.player.level();
+		this.bossEvent.removeAllPlayers();
+		if (source.getEntity() instanceof ServerPlayer killer && LoafIds.isRealPlayer(killer)) {
+			ModAdvancements.award(killer, ModAdvancements.GROUNDED);
+			if (!this.tookFallDamage.contains(killer.getUUID())) {
+				ModAdvancements.award(killer, ModAdvancements.MACE_MASTER);
+			}
+		}
+		// Guaranteed: his Wind Burst mace and the trophy. 35%: one of his other maces. Not his whole kit.
+		this.player.spawnAtLocation(level, Gear.enchanted(level, Items.MACE, Enchantments.WIND_BURST, 2));
+		this.player.spawnAtLocation(level, new ItemStack(ModItems.MASTER_LOAF_TROPHY));
+		if (this.random.nextFloat() < 0.35F) {
+			this.player.spawnAtLocation(level, this.random.nextBoolean()
+					? Gear.enchanted(level, Items.MACE, Enchantments.DENSITY, 5)
+					: Gear.enchanted(level, Items.MACE, Enchantments.BREACH, 4));
+		}
+		this.player.getInventory().clearContent();
+		return false;
+	}
+
+	// ---------------------------------------------------------------- ticking
+
+	@Override
+	protected void tickBehavior() {
+		if (this.ticks % 10 == 0) {
+			this.updateBossBar();
+		}
+		if (this.specialCooldown > 0) {
+			this.specialCooldown--;
+		}
+		if (this.pearlCooldown > 0) {
+			this.pearlCooldown--;
+		}
+		if (this.ticks % 10 == 0 && (this.target == null || this.state == State.GROUND)) {
+			this.chooseTarget();
+		}
+		LivingEntity target = this.target;
+		if (target == null) {
+			if (this.state != State.GROUND && this.state != State.RECOVER) {
+				this.setState(State.RECOVER);
+			}
+			if (this.state == State.RECOVER) {
+				this.recover();
+				return;
+			}
+			this.controls.selectSlot(SLOT_SWORD);
+			if (!this.tryEat()) {
+				this.wander(10.0);
+			}
+			return;
+		}
+		this.phaseEffects(target);
+		this.stateTicks++;
+		switch (this.state) {
+			case GROUND -> this.ground(target);
+			case DRINK -> this.drink();
+			case WIND_JUMP -> this.windJump(target);
+			case TAKEOFF -> this.takeoff(target);
+			case CLIMB -> this.climb(target);
+			case CRUISE -> this.cruise(target);
+			case TELEGRAPH -> this.telegraphOver(target);
+			case DROP -> this.drop(target);
+			case RECOVER -> this.recover();
+		}
+	}
+
+	private void setState(State state) {
+		this.state = state;
+		this.stateTicks = 0;
+		this.telegraphed = false;
+	}
+
+	private void chooseTarget() {
+		if (this.lastAttacker != null && this.lastAttacker.isAlive() && this.ticks - this.lastHurtTick < 200
+				&& this.lastAttacker.distanceTo(this.player) < HUNT_RANGE && CharacterManager.brain(this.lastAttacker) == null) {
+			if (!(this.lastAttacker instanceof Player p) || !p.isCreative() && !p.isSpectator()) {
+				this.setTarget(this.lastAttacker);
+				return;
+			}
+		}
+		if (this.target != null) {
+			return;
+		}
+		Player nearest = this.player.level().getNearestPlayer(this.player.getX(), this.player.getY(), this.player.getZ(), HUNT_RANGE,
+				p -> p != this.player && p instanceof Player pl && LoafIds.isRealPlayer(pl) && !pl.isSpectator() && !pl.isCreative());
+		if (nearest != null) {
+			this.setTarget(nearest);
+		}
+	}
+
+	private void updateBossBar() {
+		this.bossEvent.setProgress(this.player.getHealth() / this.player.getMaxHealth());
+		for (ServerPlayer viewer : Set.copyOf(this.bossEvent.getPlayers())) {
+			if (viewer.level() != this.player.level() || viewer.distanceTo(this.player) > BOSS_BAR_RANGE + 16.0 || viewer.isRemoved()) {
+				this.bossEvent.removePlayer(viewer);
+			}
+		}
+		for (ServerPlayer viewer : this.player.level().players()) {
+			if (LoafIds.isRealPlayer(viewer) && viewer.distanceTo(this.player) <= BOSS_BAR_RANGE) {
+				this.bossEvent.addPlayer(viewer);
+			}
+		}
+	}
+
+	/** Buffs at the start of a fight, healing when low, phase 3 speed and helpers. */
+	private void phaseEffects(LivingEntity target) {
+		if (this.phase() == 3) {
+			AttributeInstance speed = this.player.getAttribute(Attributes.MOVEMENT_SPEED);
+			if (speed != null && !speed.hasModifier(PHASE3_SPEED_ID)) {
+				speed.addPermanentModifier(new AttributeModifier(PHASE3_SPEED_ID, 0.15, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL));
+			}
+			if (!this.summonedHelpers) {
+				this.summonedHelpers = true;
+				this.summonHelpers(target);
+			}
+		}
+	}
+
+	private void summonHelpers(LivingEntity target) {
+		this.playSound(SoundEvents.EVOKER_PREPARE_SUMMON, 1.5F, 0.8F);
+		ServerLevel level = this.player.level();
+		for (int i = 0; i < 2; i++) {
+			Vec3 spot = this.findSpotNear(this.player.blockPosition().offset(i == 0 ? 2 : -2, 0, 1), 1);
+			if (spot == null) {
+				spot = this.player.position();
+			}
+			LoafCharacter helper = CharacterManager.create(level, CharacterKind.BREADLOAF, spot, this.player.getYRot(), brain -> brain.setWild(true));
+			if (helper != null) {
+				helper.brain.setTarget(target);
+			}
+		}
+	}
+
+	// ---------------------------------------------------------------- ground fighting
+
+	private void ground(LivingEntity target) {
+		double distance = this.player.distanceTo(target);
+		int phase = this.phase();
+
+		// Drink buffs (Strength II, Swiftness II, Fire Resistance) at the start of the fight.
+		if (this.buffStep < 3 && distance > 5.0) {
+			if (this.startDrinking(this.buffPotion(this.buffStep))) {
+				this.buffStep++;
+				return;
+			}
+			this.buffStep++;
+		}
+		// Low health: Splash Healing II at his feet, then golden apples.
+		if (this.player.getHealth() < this.player.getMaxHealth() * 0.4F && this.stateTicks > 40) {
+			if (this.throwHealing() || distance > 6.0 && this.startDrinking(stack -> stack.is(Items.GOLDEN_APPLE))) {
+				return;
+			}
+		}
+		// Far away (or out of walking reach): ender pearl.
+		boolean unreachable = this.nav.isAtDeadEnd() || this.nav.failed();
+		if ((distance > 24.0 || unreachable && distance > 6.0) && this.pearlCooldown <= 0 && this.throwPearl(target)) {
+			return;
+		}
+		// Special moves.
+		if (this.specialCooldown <= 0 && this.player.onGround()) {
+			boolean dive = this.random.nextFloat() < (phase == 1 ? 0.5F : 0.65F) && this.hasRoomAbove(6) && distance < 40.0;
+			if (dive) {
+				this.setState(State.TAKEOFF);
+				this.diveTopY = target.getY() + DIVE_HEIGHT;
+			} else {
+				this.setState(State.WIND_JUMP);
+				this.smashChain = 0;
+			}
+			this.specialCooldown = phase == 1 ? 260 : phase == 2 ? 140 : 90;
+			return;
+		}
+		this.controls.selectSlot(SLOT_SWORD);
+		this.combat.fight(target, this.nav);
+	}
+
+	private Predicate<ItemStack> buffPotion(int step) {
+		return switch (step) {
+			case 0 -> stack -> stack.is(Items.POTION) && hasPotion(stack, Potions.STRONG_STRENGTH);
+			case 1 -> stack -> stack.is(Items.POTION) && hasPotion(stack, Potions.STRONG_SWIFTNESS);
+			default -> stack -> stack.is(Items.POTION) && hasPotion(stack, Potions.LONG_FIRE_RESISTANCE);
+		};
+	}
+
+	private static boolean hasPotion(ItemStack stack, net.minecraft.core.Holder<net.minecraft.world.item.alchemy.Potion> potion) {
+		PotionContents contents = stack.get(net.minecraft.core.component.DataComponents.POTION_CONTENTS);
+		return contents != null && contents.is(potion);
+	}
+
+	/** Moves a drink (or food) into hotbar slot 8 and holds right-click until it's finished. */
+	private boolean startDrinking(Predicate<ItemStack> what) {
+		int slot = Inv.ready(this.player, what, SLOT_GOLDEN_APPLE);
+		if (slot < 0) {
+			return false;
+		}
+		this.controls.selectSlot(slot);
+		this.controls.holdUse(true);
+		this.drinkStarted = false;
+		this.setState(State.DRINK);
+		return true;
+	}
+
+	private void drink() {
+		// Back off while drinking.
+		if (this.target != null && this.player.distanceTo(this.target) < 8.0) {
+			this.controls.walk(this.player.position().subtract(this.target.position()));
+			this.controls.setSprinting(false);
+		}
+		this.controls.look(this.player.getYRot(), -30.0F);
+		if (this.player.isUsingItem()) {
+			this.drinkStarted = true;
+		}
+		if (this.drinkStarted && !this.player.isUsingItem() || this.stateTicks > 50) {
+			this.controls.holdUse(false);
+			this.setState(State.GROUND);
+		}
+	}
+
+	/** Splash Healing II thrown straight down at his own feet. */
+	private boolean throwHealing() {
+		int slot = Inv.ready(this.player, stack -> stack.is(Items.SPLASH_POTION), SLOT_GOLDEN_APPLE);
+		if (slot < 0) {
+			return false;
+		}
+		this.controls.selectSlot(slot);
+		this.controls.lookInstantly(this.player.getYRot(), 90.0F);
+		this.controls.useOnce();
+		this.stateTicks = 0;
+		this.particles(ParticleTypes.HEART, 5);
+		return true;
+	}
+
+	private boolean throwPearl(LivingEntity target) {
+		if (this.player.getInventory().getItem(SLOT_PEARL).isEmpty()) {
+			return false;
+		}
+		this.controls.selectSlot(SLOT_PEARL);
+		this.combat.aimProjectile(target, 1.5, 0.03);
+		this.controls.useOnce();
+		this.pearlCooldown = 120;
+		this.playSound(SoundEvents.ENDER_PEARL_THROW, 1.0F, 0.6F);
+		return true;
+	}
+
+	// ---------------------------------------------------------------- wind charge mace jump
+
+	private void windJump(LivingEntity target) {
+		if (this.stateTicks == 1) {
+			this.controls.selectSlot(SLOT_WIND_CHARGE);
+		}
+		if (this.stateTicks <= 6) {
+			// Look down, jump, throw the wind charge at our feet: up we go.
+			this.controls.lookInstantly(Controls.yawTo(this.player.position(), target.position()), 90.0F);
+			if (this.player.onGround() && this.stateTicks <= 2) {
+				this.controls.jumpOnce();
+			} else if (!this.player.onGround() && this.stateTicks >= 3 && this.stateTicks <= 5) {
+				this.controls.useOnce();
+				this.stateTicks = 6;
+			}
+			return;
+		}
+		this.airSmash(target, this.stateTicks > 12 && this.player.onGround());
+	}
+
+	/**
+	 * In the air above or near the target: pick a mace for the fall, warn once at the top, drift toward them and
+	 * smash on the way down. Wind Burst throws him back up after a hit, so he can chain smashes.
+	 */
+	private void airSmash(LivingEntity target, boolean landed) {
+		Vec3 aim = this.combat.aimPoint(target);
+		double distance = this.player.getEyePosition().distanceTo(aim);
+		boolean falling = this.player.getDeltaMovement().y < 0.0 && !this.player.onGround();
+		if (!this.telegraphed && falling) {
+			this.telegraph(true);
+		}
+		this.selectMaceFor(target, this.player.getY() - target.getY());
+		this.controls.aimAt(aim);
+		this.controls.walkToward(target.position());
+		this.controls.setSprinting(false);
+		// Fairness: cap how far a smash counts as a fall (mace damage grows with the fall).
+		if (this.player.fallDistance > preset().maxSmashFall) {
+			this.player.fallDistance = preset().maxSmashFall;
+		}
+		if (falling && distance <= this.combat.reach() - 0.1 && this.player.fallDistance > 1.5
+				&& this.player.getAttackStrengthScale(0.5F) >= 0.9F) {
+			this.controls.attackOnce();
+			this.smashChain++;
+			this.telegraphed = false;
+		}
+		if (landed || this.stateTicks > 160) {
+			this.setState(State.RECOVER);
+		}
+	}
+
+	/** Breach against heavy armor, Density for big drops, Wind Burst otherwise. */
+	public void selectMaceFor(LivingEntity target, double dropHeight) {
+		int slot = target.getArmorValue() >= 15 ? SLOT_BREACH_MACE : dropHeight >= 6.0 ? SLOT_DENSITY_MACE : SLOT_WIND_BURST_MACE;
+		if (this.player.getInventory().getItem(slot).isEmpty()) {
+			slot = Inv.find(this.player, stack -> stack.is(Items.MACE));
+			slot = Inv.toHotbar(this.player, slot, SLOT_WIND_BURST_MACE);
+		}
+		if (slot >= 0) {
+			this.controls.selectSlot(slot);
+		}
+	}
+
+	/** Warning before every smash so players can dodge: a charge-up sound and sparks. */
+	private void telegraph(boolean withSound) {
+		this.telegraphed = true;
+		ServerLevel level = this.player.level();
+		level.sendParticles(ParticleTypes.ELECTRIC_SPARK, this.player.getX(), this.player.getY(1.0), this.player.getZ(), 10, 0.5, 0.6, 0.5, 0.05);
+		level.sendParticles(ParticleTypes.REVERSE_PORTAL, this.player.getX(), this.player.getY(0.5), this.player.getZ(), 6, 0.4, 0.5, 0.4, 0.02);
+		if (withSound) {
+			this.playSound(SoundEvents.BREEZE_CHARGE, 1.5F, 0.7F);
+		}
+	}
+
+	// ---------------------------------------------------------------- elytra mace dive (rockets)
+
+	/** Swap the chestplate for the elytra (right-click it in the hotbar), jump, and start gliding. */
+	private void takeoff(LivingEntity target) {
+		boolean wearingElytra = this.player.getItemBySlot(EquipmentSlot.CHEST).is(Items.ELYTRA);
+		if (!wearingElytra) {
+			int elytra = Inv.ready(this.player, stack -> stack.is(Items.ELYTRA), SLOT_ELYTRA);
+			if (elytra < 0 || this.stateTicks > 10) {
+				this.setState(State.WIND_JUMP);
+				return;
+			}
+			this.controls.selectSlot(elytra);
+			this.controls.look(this.player.getYRot(), -60.0F);
+			if (this.stateTicks % 3 == 1) {
+				this.controls.useOnce();
+			}
+			return;
+		}
+		this.controls.selectSlot(SLOT_ROCKET);
+		this.controls.look(Controls.yawTo(this.player.position(), target.position()), -60.0F);
+		if (this.player.isFallFlying()) {
+			this.useRocket();
+			this.setState(State.CLIMB);
+			return;
+		}
+		if (this.player.onGround()) {
+			this.controls.jumpOnce();
+		} else if (this.player.getDeltaMovement().y < 0.1) {
+			// The jump key in mid-air: start gliding.
+			this.player.tryToStartFallFlying();
+		}
+		if (this.stateTicks > 40) {
+			this.setState(State.RECOVER);
+		}
+	}
+
+	private void useRocket() {
+		if (this.ticks - this.lastRocketTick < 18 || this.player.getInventory().getItem(SLOT_ROCKET).isEmpty()) {
+			return;
+		}
+		this.controls.selectSlot(SLOT_ROCKET);
+		this.controls.useOnce();
+		this.lastRocketTick = this.ticks;
+	}
+
+	/** Rocket up at a steep angle until well above the target (or a ceiling). */
+	private void climb(LivingEntity target) {
+		if (!this.player.isFallFlying()) {
+			this.setState(State.DROP);
+			return;
+		}
+		this.controls.look(Controls.yawTo(this.player.position(), target.position()), -55.0F);
+		this.useRocket();
+		if (this.player.getY() >= this.diveTopY || !this.hasRoomAbove(4) || this.stateTicks > 160) {
+			this.diveTopY = Math.max(target.getY() + 8.0, Math.min(this.diveTopY, this.player.getY()));
+			this.setState(State.CRUISE);
+		}
+	}
+
+	/** Glide to a point above the target, rocketing when slow or too low. */
+	private void cruise(LivingEntity target) {
+		if (!this.player.isFallFlying()) {
+			this.setState(State.DROP);
+			return;
+		}
+		Vec3 over = new Vec3(target.getX(), this.diveTopY, target.getZ());
+		double horizontal = Math.sqrt(Math.pow(target.getX() - this.player.getX(), 2) + Math.pow(target.getZ() - this.player.getZ(), 2));
+		float pitch = this.player.getY() < this.diveTopY - 3.0 ? -25.0F : horizontal > 20.0 ? 5.0F : 15.0F;
+		this.controls.look(Controls.yawTo(this.player.position(), over), pitch);
+		double speed = this.player.getDeltaMovement().horizontalDistance();
+		if ((speed < 0.6 || this.player.getY() < this.diveTopY - 5.0) && horizontal > 8.0) {
+			this.useRocket();
+		}
+		if (horizontal < 5.0 || this.stateTicks > 200) {
+			this.setState(State.TELEGRAPH);
+		}
+	}
+
+	/** Over the target: pull up to bleed speed, sparks and the charge-up sound, then drop. */
+	private void telegraphOver(LivingEntity target) {
+		this.controls.look(Controls.yawTo(this.player.position(), target.position()), -35.0F);
+		if (this.stateTicks == 1) {
+			this.telegraph(true);
+		} else if (this.stateTicks % 4 == 0) {
+			this.telegraph(false);
+		}
+		if (this.stateTicks >= 10 || !this.player.isFallFlying()) {
+			this.setState(State.DROP);
+		}
+	}
+
+	/** Chestplate back on (stops the glide), mace out, smash. */
+	private void drop(LivingEntity target) {
+		if (this.player.getItemBySlot(EquipmentSlot.CHEST).is(Items.ELYTRA)) {
+			int chestplate = Inv.ready(this.player, stack -> stack.is(Items.NETHERITE_CHESTPLATE), SLOT_ELYTRA);
+			if (chestplate >= 0 && this.stateTicks <= 6) {
+				this.controls.selectSlot(chestplate);
+				this.controls.look(this.player.getYRot(), -60.0F);
+				if (this.stateTicks % 2 == 1) {
+					this.controls.useOnce();
+				}
+				return;
+			}
+		}
+		this.telegraphed = true;
+		this.airSmash(target, this.player.onGround() && this.stateTicks > 4);
+	}
+
+	/** After a special move: back to the sword (and the chestplate, if the elytra is still on). */
+	private void recover() {
+		if (this.player.getItemBySlot(EquipmentSlot.CHEST).is(Items.ELYTRA) && this.player.onGround()) {
+			int chestplate = Inv.ready(this.player, stack -> stack.is(Items.NETHERITE_CHESTPLATE), SLOT_ELYTRA);
+			if (chestplate >= 0 && this.stateTicks < 10) {
+				this.controls.selectSlot(chestplate);
+				this.controls.look(this.player.getYRot(), -60.0F);
+				if (this.stateTicks % 3 == 1) {
+					this.controls.useOnce();
+				}
+				return;
+			}
+		}
+		this.controls.selectSlot(SLOT_SWORD);
+		this.setState(State.GROUND);
+	}
+
+	/** Open sky (no blocks) for {@code blocks} blocks above his head. */
+	private boolean hasRoomAbove(int blocks) {
+		AABB above = this.player.getBoundingBox().move(0.0, 1.0, 0.0).expandTowards(0.0, blocks, 0.0);
+		return this.player.level().noCollision(this.player, above);
+	}
+
+	// ---------------------------------------------------------------- saving
+
+	@Override
+	public void save(CompoundTag tag) {
+		super.save(tag);
+		tag.putInt("BuffStep", this.buffStep);
+		tag.putBoolean("SummonedHelpers", this.summonedHelpers);
+		tag.store("FallDamaged", UUIDUtil.CODEC_SET, Set.copyOf(this.tookFallDamage));
+	}
+
+	@Override
+	public void load(CompoundTag tag) {
+		super.load(tag);
+		this.buffStep = tag.getIntOr("BuffStep", 0);
+		this.summonedHelpers = tag.getBooleanOr("SummonedHelpers", false);
+		this.tookFallDamage.clear();
+		tag.read("FallDamaged", UUIDUtil.CODEC_SET).ifPresent(this.tookFallDamage::addAll);
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/brain/Navigator.java
+
+```java
+package com.itzbreadloaf.brain;
+
+import java.util.List;
+import net.minecraft.core.BlockPos;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.level.block.DoorBlock;
+import net.minecraft.world.level.block.FenceGateBlock;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * Walks a character along an A* path with real player inputs: it looks along the way (unless the brain is
+ * looking at something else, then it strafes), presses forward/strafe, jumps up blocks and out of water, sprints,
+ * and opens wooden doors and gates in the way.
+ *
+ * Repaths every second when following something that moves, and right away when stuck. After a few failed tries
+ * it reports {@link #failed()} so the brain can build, dig or give up.
+ */
+public final class Navigator {
+	public enum Speed { WALK, SPRINT, SNEAK }
+
+	public static final int REPATH_TICKS = 20;
+	public static final int MAX_FAILURES = 4;
+	public static final int MAX_RANGE = 48;
+
+	private final ServerPlayer player;
+	private final Controls controls;
+
+	private @Nullable Vec3 targetPos;
+	private @Nullable Entity targetEntity;
+	private double reach = 1.0;
+	private Speed speed = Speed.WALK;
+
+	private @Nullable List<BlockPos> path;
+	private boolean partial;
+	private int index;
+	private int repathTimer;
+	private @Nullable Vec3 pathGoal;
+	private int stuckTimer;
+	private Vec3 lastCheck = Vec3.ZERO;
+	private int failures;
+	private boolean failed;
+	private boolean arrived;
+	private int jumpCooldown;
+	private int doorCooldown;
+	/** The door or gate this character opened last, so it can close it again behind itself. */
+	private @Nullable BlockPos openedDoor;
+	private int openedDoorTicks;
+	/** Path search budget shared by every character (server thread only). */
+	private static long budgetTick = -1;
+	private static int searchesThisTick;
+
+	public Navigator(ServerPlayer player, Controls controls) {
+		this.player = player;
+		this.controls = controls;
+	}
+
+	// ---------------------------------------------------------------- goals
+
+	public void moveTo(Vec3 pos, double reach, Speed speed) {
+		boolean same = this.targetEntity == null && this.targetPos != null && this.targetPos.distanceToSqr(pos) < 1.0;
+		this.targetEntity = null;
+		this.targetPos = pos;
+		this.reach = reach;
+		this.speed = speed;
+		if (!same) {
+			this.reset();
+		}
+	}
+
+	public void moveTo(BlockPos pos, double reach, Speed speed) {
+		this.moveTo(Vec3.atBottomCenterOf(pos), reach, speed);
+	}
+
+	public void follow(Entity entity, double reach, Speed speed) {
+		boolean same = this.targetEntity == entity;
+		this.targetEntity = entity;
+		this.targetPos = null;
+		this.reach = reach;
+		this.speed = speed;
+		if (!same) {
+			this.reset();
+		}
+	}
+
+	public void stop() {
+		this.targetEntity = null;
+		this.targetPos = null;
+		this.path = null;
+		this.arrived = false;
+	}
+
+	private void reset() {
+		this.path = null;
+		this.failures = 0;
+		this.failed = false;
+		this.arrived = false;
+		this.repathTimer = 0;
+		this.stuckTimer = 0;
+		this.lastCheck = this.player.position();
+	}
+
+	/** Try again after a failure (for example after building a pillar or digging through a wall). */
+	public void retry() {
+		this.reset();
+	}
+
+	public boolean isMoving() {
+		return (this.targetPos != null || this.targetEntity != null) && !this.arrived;
+	}
+
+	public boolean hasGoal() {
+		return this.targetPos != null || this.targetEntity != null;
+	}
+
+	public boolean hasArrived() {
+		return this.arrived;
+	}
+
+	/** True once it tried several times and can't get closer. */
+	public boolean failed() {
+		return this.failed;
+	}
+
+	/** The path only gets partway (the goal is up a cliff, across a gap...). */
+	public boolean isPartial() {
+		return this.path != null && this.partial;
+	}
+
+	/** Reached the end of a partial path: as close as walking gets. */
+	public boolean isAtDeadEnd() {
+		return this.failed || this.partial && this.path != null && this.index >= this.path.size();
+	}
+
+	public @Nullable Vec3 goal() {
+		if (this.targetEntity != null) {
+			return this.targetEntity.isRemoved() ? null : this.targetEntity.position();
+		}
+		return this.targetPos;
+	}
+
+	// ---------------------------------------------------------------- ticking
+
+	public void tick() {
+		if (this.jumpCooldown > 0) {
+			this.jumpCooldown--;
+		}
+		if (this.doorCooldown > 0) {
+			this.doorCooldown--;
+		}
+		this.closeDoorBehind();
+		Vec3 goal = this.goal();
+		if (goal == null) {
+			this.stop();
+			return;
+		}
+		Vec3 pos = this.player.position();
+		double horizontal = Math.sqrt(sqr(goal.x - pos.x) + sqr(goal.z - pos.z));
+		double dy = goal.y - pos.y;
+		if (horizontal <= this.reach && Math.abs(dy) <= Math.max(1.5, this.reach)) {
+			this.arrived = true;
+			this.path = null;
+			this.controls.setSprinting(false);
+			this.swimUp();
+			return;
+		}
+		this.arrived = false;
+
+		// Close, same height and nothing in the way: just walk straight there.
+		if (horizontal < 3.0 && Math.abs(dy) < 1.0 && this.clearLine(pos, goal)) {
+			this.steer(goal, false);
+			this.checkStuck(pos);
+			return;
+		}
+
+		boolean goalMoved = this.pathGoal != null && this.pathGoal.distanceToSqr(goal) > 2.25;
+		this.repathTimer--;
+		if ((this.path == null || goalMoved || this.partial) && this.repathTimer <= 0 && !this.failed) {
+			this.repath(goal);
+		}
+		if (this.path == null) {
+			if (!this.failed) {
+				this.steer(goal, false);
+			}
+			this.checkStuck(pos);
+			return;
+		}
+
+		// Next waypoint: skip the ones we've reached.
+		while (this.index < this.path.size()) {
+			BlockPos node = this.path.get(this.index);
+			double ndx = node.getX() + 0.5 - pos.x;
+			double ndz = node.getZ() + 0.5 - pos.z;
+			double ndy = node.getY() - pos.y;
+			if (ndx * ndx + ndz * ndz < 0.35 * 0.35 && Math.abs(ndy) < 1.2
+					|| ndx * ndx + ndz * ndz < 0.7 * 0.7 && Math.abs(ndy) < 0.6 && this.index + 1 < this.path.size()) {
+				this.index++;
+			} else {
+				break;
+			}
+		}
+		if (this.index >= this.path.size()) {
+			// End of the path: the goal itself, if it's close; otherwise this is as far as we get.
+			if (this.partial) {
+				this.controls.setSprinting(false);
+				this.checkStuck(pos);
+				return;
+			}
+			this.steer(goal, false);
+		} else {
+			BlockPos node = this.path.get(this.index);
+			boolean up = node.getY() > Math.floor(pos.y + 0.2);
+			this.openDoorIfNeeded(node);
+			this.steer(Vec3.atBottomCenterOf(node), up);
+		}
+		this.checkStuck(pos);
+	}
+
+	private void repath(Vec3 goal) {
+		ServerLevel level = this.player.level();
+		// Spread path searches out: only a few per tick for all characters together, and each one on its own beat.
+		long now = level.getGameTime();
+		if (now != budgetTick) {
+			budgetTick = now;
+			searchesThisTick = 0;
+		}
+		if (searchesThisTick >= Math.max(1, com.itzbreadloaf.config.ModConfig.get().maxPathSearchesPerTick)) {
+			this.repathTimer = 1 + (this.player.getId() & 3);
+			return;
+		}
+		searchesThisTick++;
+		this.repathTimer = REPATH_TICKS + (this.player.getId() & 7);
+		Pathfinder.Path found = Pathfinder.find(level, this.player.blockPosition(), BlockPos.containing(goal),
+				Math.max(0.9, this.reach), MAX_RANGE);
+		this.pathGoal = goal;
+		if (found == null) {
+			this.path = null;
+			this.partial = true;
+			this.failures++;
+			if (this.failures >= MAX_FAILURES) {
+				this.failed = true;
+			}
+			return;
+		}
+		this.path = found.nodes();
+		this.partial = !found.complete();
+		this.index = 0;
+	}
+
+	/** Sets the movement input toward a point, jumping where needed. */
+	private void steer(Vec3 point, boolean jumpUp) {
+		Vec3 pos = this.player.position();
+		this.controls.walkToward(point);
+		if (!this.controls.hasLook()) {
+			float yaw = Controls.yawTo(pos, point);
+			this.controls.look(yaw, 8.0F);
+		}
+		boolean inWater = this.player.isInWater();
+		this.controls.setSprinting(this.speed == Speed.SPRINT && !this.player.isUnderWater());
+		this.controls.setSneaking(this.speed == Speed.SNEAK);
+		if (inWater) {
+			// Swim: hold jump to stay up (and to climb out onto the bank).
+			this.controls.holdJump(point.y > pos.y - 0.6 || this.player.isUnderWater());
+			return;
+		}
+		this.controls.holdJump(false);
+		double horizontal = Math.sqrt(sqr(point.x - pos.x) + sqr(point.z - pos.z));
+		boolean bump = this.player.horizontalCollision && this.player.onGround();
+		if ((jumpUp && horizontal < 1.6 || bump) && this.player.onGround() && this.jumpCooldown <= 0) {
+			this.controls.jumpOnce();
+			this.jumpCooldown = 8;
+		}
+	}
+
+	private void swimUp() {
+		this.controls.holdJump(this.player.isInWater());
+	}
+
+	/** Not getting anywhere for a second: try a new path; after a few tries, give up. */
+	private void checkStuck(Vec3 pos) {
+		if (++this.stuckTimer < 20) {
+			return;
+		}
+		this.stuckTimer = 0;
+		if (pos.distanceToSqr(this.lastCheck) < 0.25 * 0.25) {
+			this.failures++;
+			this.path = null;
+			this.repathTimer = 0;
+			if (this.failures >= MAX_FAILURES) {
+				this.failed = true;
+			}
+		} else if (this.failures > 0 && pos.distanceToSqr(this.lastCheck) > 1.0) {
+			this.failures = Math.max(0, this.failures - 1);
+			this.failed = false;
+		}
+		this.lastCheck = pos;
+	}
+
+	/** Right-clicks a closed wooden door or fence gate that's in the way. */
+	private void openDoorIfNeeded(BlockPos node) {
+		if (this.doorCooldown > 0) {
+			return;
+		}
+		for (BlockPos pos : new BlockPos[]{node, node.above()}) {
+			BlockState state = this.player.level().getBlockState(pos);
+			boolean closedDoor = state.getBlock() instanceof DoorBlock door && door.type().canOpenByHand() && !door.isOpen(state);
+			boolean closedGate = state.getBlock() instanceof FenceGateBlock && !state.getValue(BlockStateProperties.OPEN);
+			if ((closedDoor || closedGate) && this.player.position().distanceTo(Vec3.atCenterOf(pos)) < 3.0) {
+				this.controls.aimAt(Vec3.atCenterOf(pos));
+				this.controls.useOnce();
+				this.doorCooldown = 20;
+				this.openedDoor = pos.immutable();
+				this.openedDoorTicks = 0;
+				return;
+			}
+		}
+	}
+
+	/** Once through a door or gate it opened, it closes it again (unless someone is standing in it). */
+	private void closeDoorBehind() {
+		if (this.openedDoor == null) {
+			return;
+		}
+		BlockPos door = this.openedDoor;
+		double distance = this.player.position().distanceTo(Vec3.atCenterOf(door));
+		if (++this.openedDoorTicks > 200 || distance > 5.0) {
+			this.openedDoor = null;
+			return;
+		}
+		if (distance < 1.8 || this.openedDoorTicks < 10 || this.doorCooldown > 0) {
+			return;
+		}
+		this.openedDoor = null;
+		BlockState state = this.player.level().getBlockState(door);
+		boolean open = state.getBlock() instanceof DoorBlock doorBlock && doorBlock.isOpen(state)
+				|| state.getBlock() instanceof FenceGateBlock && state.getValue(BlockStateProperties.OPEN);
+		if (open && this.player.level().getEntities(null, new net.minecraft.world.phys.AABB(door)).isEmpty()) {
+			this.controls.aimAt(Vec3.atCenterOf(door));
+			this.controls.useOnce();
+			this.doorCooldown = 10;
+		}
+	}
+
+	private boolean clearLine(Vec3 from, Vec3 to) {
+		Vec3 start = from.add(0.0, 0.5, 0.0);
+		Vec3 end = to.add(0.0, 0.5, 0.0);
+		HitResult hit = this.player.level().clip(new ClipContext(start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, this.player));
+		if (hit.getType() != HitResult.Type.MISS) {
+			return false;
+		}
+		// No hole in the floor along the way.
+		Vec3 mid = start.add(end).scale(0.5);
+		BlockPos below = BlockPos.containing(mid.x, from.y - 0.5, mid.z);
+		return !this.player.level().getBlockState(below).getCollisionShape(this.player.level(), below).isEmpty()
+				|| this.player.level().getFluidState(below).isSource();
+	}
+
+	private static double sqr(double value) {
+		return value * value;
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/brain/NeutralBrain.java
+
+```java
+package com.itzbreadloaf.brain;
+
+import com.itzbreadloaf.ModAdvancements;
+import com.itzbreadloaf.character.LoafCharacter;
+import com.itzbreadloaf.character.LoafIds;
+import com.mojang.serialization.Codec;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+import net.minecraft.core.UUIDUtil;
+import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * Shared by the neutral girls, ImLilyLol and Madison: they never attack first, get angry when hurt (their weapon
+ * only comes out while they fight: it waits in hotbar slot 3 and they switch to it), trust a player after enough
+ * gifts, defend whoever they trust, and live around their home.
+ */
+public abstract class NeutralBrain extends LoafBrain {
+	/** Hotbar slot of the calm item (a flower, a carrot... or nothing). */
+	public static final int CALM_SLOT = 0;
+	/** Hotbar slot of the weapon they switch to when angry. */
+	public static final int WEAPON_SLOT = 2;
+
+	private static final Codec<Map<UUID, Integer>> TRUST_CODEC = Codec.unboundedMap(UUIDUtil.STRING_CODEC, Codec.INT);
+
+	protected final Map<UUID, Integer> trust = new HashMap<>();
+	protected int anger;
+	protected boolean homeAssigned;
+	private int nextVoiceTick;
+	private int nextHelloTick;
+
+	protected NeutralBrain(LoafCharacter character) {
+		super(character);
+	}
+
+	// ---------------------------------------------------------------- per-character settings
+
+	public abstract int giftsToTrust();
+
+	public abstract boolean isTrustGift(ItemStack stack);
+
+	/** Lily only takes gifts from crouching players. */
+	protected boolean giftsNeedCrouch() {
+		return false;
+	}
+
+	protected abstract int angerTicksOnHit();
+
+	/** The weapon that waits in hotbar slot 3 for when she fights. */
+	protected abstract ItemStack createFightWeapon();
+
+	public abstract void playVoice();
+
+	protected abstract int defaultHomeRadius();
+
+	/** Criterion name in the "Cousin Club" advancement ("lily" or "madison"). */
+	protected abstract String cousinCriterion();
+
+	/** Called once when she starts trusting a player. */
+	protected abstract void onBefriended(ServerPlayer friend);
+
+	protected abstract String[] helloLines();
+
+	/** Her calm routine (shyness, idle actions, wandering). */
+	protected abstract void tickCalm();
+
+	// ---------------------------------------------------------------- basics
+
+	@Override
+	public boolean isFriendlyToMobs() {
+		return true;
+	}
+
+	@Override
+	public boolean isAngry() {
+		return this.anger > 0;
+	}
+
+	@Override
+	protected SoundSource soundSource() {
+		return SoundSource.NEUTRAL;
+	}
+
+	/** Lily and Madison don't pick things up off the ground. */
+	@Override
+	public boolean wantsToPickUp(ItemStack stack) {
+		return false;
+	}
+
+	/** Archer Lily draws her bow at range; everyone else fights up close. */
+	protected boolean fightsAtRange() {
+		return false;
+	}
+
+	/** A move before the normal fight (Witchy Lily throws a potion). True if it used this tick. */
+	protected boolean fightTrick(LivingEntity target) {
+		return false;
+	}
+
+	// ---------------------------------------------------------------- behavior
+
+	@Override
+	protected void tickBehavior() {
+		// She always has a home: her house, or wherever she first appeared.
+		if (!this.homeAssigned && !this.isTame()) {
+			this.homeAssigned = true;
+			if (this.home == null) {
+				this.setupHome(this.player.blockPosition(), this.defaultHomeRadius(), null);
+			}
+		}
+		if (this.anger > 0) {
+			this.anger--;
+			if (this.anger == 0 || this.target == null || !this.target.isAlive()) {
+				this.calmDown();
+			}
+		}
+		if (this.ticks % 10 == 0) {
+			this.noticePlayers();
+		}
+		if (this.target != null && !this.baby) {
+			this.drawWeapon();
+			if (!this.fightTrick(this.target)) {
+				this.fightTarget(this.fightsAtRange());
+			}
+			return;
+		}
+		if (this.target != null) {
+			// Babies don't fight: they run to a parent or away.
+			this.setTarget(null);
+		}
+		this.holsterWeapon();
+		if (this.tryEat() || this.tickLove() || this.followParent()) {
+			return;
+		}
+		if (this.isTame()) {
+			this.protectOwner(false);
+			if (this.target != null) {
+				return;
+			}
+			if (!this.followOwner()) {
+				this.tickCalmWithFriend();
+			}
+			return;
+		}
+		this.tickCalm();
+	}
+
+	/** With her friend: mostly the same quiet routine, but staying close. */
+	protected void tickCalmWithFriend() {
+		this.lookAround(8.0);
+	}
+
+	private void drawWeapon() {
+		if (this.player.getInventory().getItem(WEAPON_SLOT).isEmpty()) {
+			int weapon = Inv.find(this.player, stack -> Combat.kindOf(stack) == Combat.Weapon.MELEE);
+			if (weapon >= 0) {
+				Inv.toHotbar(this.player, weapon, WEAPON_SLOT);
+			} else {
+				this.player.getInventory().setItem(WEAPON_SLOT, this.createFightWeapon());
+			}
+		}
+		this.controls.selectSlot(WEAPON_SLOT);
+	}
+
+	private void holsterWeapon() {
+		if (this.player.getInventory().getSelectedSlot() == WEAPON_SLOT && !this.isEating()) {
+			this.controls.selectSlot(CALM_SLOT);
+		}
+	}
+
+	/** Plays her voice when she first notices someone (10 s cooldown) and says hi to her friend now and then. */
+	private void noticePlayers() {
+		Player nearest = this.player.level().getNearestPlayer(this.player.getX(), this.player.getY(), this.player.getZ(), 10.0,
+				p -> p != this.player && LoafIds.isRealPlayer(p) && !p.isSpectator());
+		if (nearest == null) {
+			return;
+		}
+		if (this.ticks >= this.nextVoiceTick) {
+			this.playVoice();
+			this.nextVoiceTick = this.ticks + 200;
+		}
+		if (nearest instanceof ServerPlayer friend && this.isOwnedBy(friend) && this.ticks >= this.nextHelloTick) {
+			this.say(friend, com.itzbreadloaf.ModMessages.pick(this.random, this.helloLines()));
+			this.nextHelloTick = this.ticks + 3600;
+		}
+	}
+
+	/** The nearest real player within {@code range} she doesn't trust, or null. */
+	protected @Nullable Player nearestStranger(double range) {
+		return this.player.level().getNearestPlayer(this.player.getX(), this.player.getY(), this.player.getZ(), range,
+				p -> p != this.player && p instanceof Player pl && LoafIds.isRealPlayer(pl) && !pl.isSpectator() && !this.trustsPlayer(pl));
+	}
+
+	/** Walks to a spot {@code distance} blocks away from {@code from}, trying angled escapes if straight away is blocked. */
+	protected boolean moveAwayFrom(Vec3 from, double distance, Navigator.Speed speed) {
+		Vec3 away = this.player.position().subtract(from).multiply(1.0, 0.0, 1.0);
+		if (away.lengthSqr() < 1.0E-4) {
+			away = new Vec3(1.0, 0.0, 0.0);
+		}
+		away = away.normalize();
+		for (double angle : new double[]{0, 35, -35, 70, -70, 110, -110}) {
+			Vec3 direction = away.yRot((float) Math.toRadians(angle));
+			Vec3 goal = this.player.position().add(direction.scale(distance));
+			Vec3 spot = this.findSpotNear(net.minecraft.core.BlockPos.containing(goal), 0);
+			if (spot != null && spot.distanceToSqr(from) > this.player.position().distanceToSqr(from)) {
+				this.nav.moveTo(spot, 1.0, speed);
+				return true;
+			}
+		}
+		return false;
+	}
+
+	// ---------------------------------------------------------------- anger
+
+	@Override
+	public void onHurt(DamageSource source, float damage, boolean blocked) {
+		super.onHurt(source, damage, blocked);
+		if (source.getEntity() instanceof LivingEntity attacker && attacker != this.player && !this.baby) {
+			this.becomeAngryAt(attacker, this.angerTicksOnHit());
+		}
+	}
+
+	public void becomeAngryAt(LivingEntity attacker, int ticks) {
+		this.anger = ticks;
+		this.setTarget(attacker);
+		this.drawWeapon();
+		this.sitting = false;
+		if (attacker instanceof Player player) {
+			// Attacking her resets her trust to 0, even for her friend.
+			this.trust.put(player.getUUID(), 0);
+			if (this.isOwnedBy(player)) {
+				this.owner = null;
+				this.homeAssigned = false;
+			}
+		}
+	}
+
+	public void calmDown() {
+		this.anger = 0;
+		this.setTarget(null);
+		this.lastAttacker = null;
+		this.nav.stop();
+		if (this.home != null) {
+			this.nav.moveTo(this.home, 2.0, Navigator.Speed.WALK);
+		}
+	}
+
+	// ---------------------------------------------------------------- trust
+
+	public int getTrust(Player player) {
+		return this.trust.getOrDefault(player.getUUID(), 0);
+	}
+
+	public boolean trustsPlayer(Player player) {
+		return this.isOwnedBy(player);
+	}
+
+	/** Makes the player her friend: she follows them, sits on command and defends them. */
+	public void befriend(ServerPlayer friend) {
+		this.trust.put(friend.getUUID(), this.giftsToTrust());
+		this.setOwner(friend);
+		ModAdvancements.award(friend, ModAdvancements.COUSIN_CLUB, this.cousinCriterion());
+		this.onBefriended(friend);
+	}
+
+	@Override
+	public void onAdopted(UUID ownerId) {
+		this.trust.put(ownerId, this.giftsToTrust());
+		this.homeAssigned = true;
+	}
+
+	/** A gift from someone she doesn't trust yet: it goes into her inventory. */
+	protected InteractionResult receiveTrustGift(ServerPlayer giver, ItemStack stack) {
+		if (this.giftsNeedCrouch() && !giver.isShiftKeyDown()) {
+			// Too shy to take it from someone standing over her.
+			this.particles(ParticleTypes.SMOKE, 7);
+			this.say(giver, "(she's too shy... try crouching)");
+			return InteractionResult.FAIL;
+		}
+		ItemStack gift = stack.copyWithCount(1);
+		stack.consume(1, giver);
+		Inv.give(this.player, gift);
+		int newTrust = Math.min(this.giftsToTrust(), this.getTrust(giver) + 1);
+		this.trust.put(giver.getUUID(), newTrust);
+		this.playVoice();
+		if (newTrust >= this.giftsToTrust() && !this.isTame()) {
+			this.befriend(giver);
+			this.particles(ParticleTypes.HEART, 7);
+		} else {
+			this.particles(ParticleTypes.HAPPY_VILLAGER, 7);
+			this.say(giver, "...thank you (" + newTrust + "/" + this.giftsToTrust() + ")");
+		}
+		return InteractionResult.SUCCESS;
+	}
+
+	@Override
+	public InteractionResult onInteract(ServerPlayer clicker, net.minecraft.world.InteractionHand hand) {
+		if (this.isAngry()) {
+			return InteractionResult.PASS;
+		}
+		return super.onInteract(clicker, hand);
+	}
+
+	@Override
+	protected @Nullable InteractionResult interact(ServerPlayer clicker, ItemStack stack) {
+		if (this.isOwnedBy(clicker)) {
+			if (stack.is(this.breedFood()) && this.baby) {
+				stack.consume(1, clicker);
+				this.ageUp(GROW_UP_TICKS / 10);
+				this.particles(ParticleTypes.HAPPY_VILLAGER, 7);
+				return InteractionResult.SUCCESS;
+			}
+			if (this.isTrustGift(stack) && this.player.getHealth() < this.player.getMaxHealth()) {
+				ItemStack gift = stack.copyWithCount(1);
+				stack.consume(1, clicker);
+				this.player.heal(4.0F);
+				this.particles(ParticleTypes.HEART, 7);
+				return InteractionResult.SUCCESS;
+			}
+			if (stack.is(this.breedFood()) && this.canFallInLove()) {
+				stack.consume(1, clicker);
+				this.setInLove();
+				this.playVoice();
+				return InteractionResult.SUCCESS;
+			}
+			if (stack.isEmpty()) {
+				this.setSitting(!this.sitting);
+				return InteractionResult.SUCCESS;
+			}
+			return null;
+		}
+		if (this.isTrustGift(stack)) {
+			return this.receiveTrustGift(clicker, stack);
+		}
+		return null;
+	}
+
+	// ---------------------------------------------------------------- saving
+
+	@Override
+	public void save(CompoundTag tag) {
+		super.save(tag);
+		tag.store("Trust", TRUST_CODEC, Map.copyOf(this.trust));
+		tag.putInt("Anger", this.anger);
+		tag.putBoolean("HomeAssigned", this.homeAssigned);
+	}
+
+	@Override
+	public void load(CompoundTag tag) {
+		super.load(tag);
+		this.trust.clear();
+		tag.read("Trust", TRUST_CODEC).ifPresent(this.trust::putAll);
+		this.anger = 0;
+		this.homeAssigned = tag.getBooleanOr("HomeAssigned", false);
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/brain/Pathfinder.java
+
+```java
+package com.itzbreadloaf.brain;
+
+import it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.PriorityQueue;
+import net.minecraft.core.BlockPos;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.tags.BlockTags;
+import net.minecraft.tags.FluidTags;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.DoorBlock;
+import net.minecraft.world.level.block.FenceGateBlock;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.material.FluidState;
+import net.minecraft.world.phys.shapes.VoxelShape;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * A* over block positions (the block a player's feet are in).
+ *
+ * Moves: walk to any of the 8 neighbours (diagonals only if both sides are open), jump up 1 block, drop down up to
+ * 3 blocks (or further into water), and swim up/down in water. Avoids lava, fire, magma, cactus, berry bushes,
+ * cobwebs and powder snow. Wooden doors and fence gates count as open (the brain opens them on the way).
+ * Gives up after {@link #MAX_NODES} nodes and returns the path to the closest point it found instead.
+ */
+public final class Pathfinder {
+	public static final int MAX_NODES = 2500;
+	public static final int MAX_DROP = 3;
+	public static final int MAX_WATER_DROP = 12;
+
+	private static final int[][] DIRECTIONS = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
+
+	private final ServerLevel level;
+	/** 0 = unknown, 1 = open (feet/head can be here), 2 = blocked, 3 = dangerous. */
+	private final Long2ByteOpenHashMap openCache = new Long2ByteOpenHashMap();
+	/** 0 = unknown, 1 = standable, 2 = not, 3 = swim. */
+	private final Long2ByteOpenHashMap standCache = new Long2ByteOpenHashMap();
+
+	private Pathfinder(ServerLevel level) {
+		this.level = level;
+	}
+
+	private static final class Node implements Comparable<Node> {
+		final long pos;
+		final double g;
+		final double f;
+		final @Nullable Node parent;
+
+		Node(long pos, double g, double f, @Nullable Node parent) {
+			this.pos = pos;
+			this.g = g;
+			this.f = f;
+			this.parent = parent;
+		}
+
+		@Override
+		public int compareTo(Node other) {
+			return Double.compare(this.f, other.f);
+		}
+	}
+
+	/**
+	 * Path from {@code start} to within {@code reach} blocks of {@code goal}. Never longer than {@code maxRange}
+	 * blocks from the start. Returns a partial path toward the closest reachable point when the goal can't be
+	 * reached, or null if not even one step is possible.
+	 */
+	public static @Nullable Path find(ServerLevel level, BlockPos start, BlockPos goal, double reach, int maxRange) {
+		return new Pathfinder(level).search(start, goal, reach, maxRange);
+	}
+
+	public record Path(List<BlockPos> nodes, boolean complete) {
+	}
+
+	private @Nullable Path search(BlockPos start, BlockPos goal, double reach, int maxRange) {
+		BlockPos begin = this.settle(start);
+		PriorityQueue<Node> open = new PriorityQueue<>();
+		Long2ObjectOpenHashMap<Node> best = new Long2ObjectOpenHashMap<>();
+		Node first = new Node(begin.asLong(), 0.0, heuristic(begin, goal), null);
+		open.add(first);
+		best.put(first.pos, first);
+		Node closest = first;
+		double closestDistance = distance(begin, goal);
+		int expanded = 0;
+		BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+		List<long[]> neighbours = new ArrayList<>(16);
+
+		while (!open.isEmpty() && expanded < MAX_NODES) {
+			Node node = open.poll();
+			Node known = best.get(node.pos);
+			if (known != null && known.g < node.g) {
+				continue;
+			}
+			expanded++;
+			cursor.set(BlockPos.getX(node.pos), BlockPos.getY(node.pos), BlockPos.getZ(node.pos));
+			double toGoal = distance(cursor, goal);
+			if (toGoal <= reach) {
+				return new Path(this.build(node), true);
+			}
+			if (toGoal < closestDistance) {
+				closestDistance = toGoal;
+				closest = node;
+			}
+			neighbours.clear();
+			this.neighbours(cursor.immutable(), neighbours);
+			for (long[] next : neighbours) {
+				long pos = next[0];
+				int x = BlockPos.getX(pos);
+				int z = BlockPos.getZ(pos);
+				if (Math.abs(x - begin.getX()) > maxRange || Math.abs(z - begin.getZ()) > maxRange) {
+					continue;
+				}
+				double g = node.g + Double.longBitsToDouble(next[1]);
+				Node old = best.get(pos);
+				if (old != null && old.g <= g) {
+					continue;
+				}
+				BlockPos nextPos = BlockPos.of(pos);
+				Node child = new Node(pos, g, g + heuristic(nextPos, goal), node);
+				best.put(pos, child);
+				open.add(child);
+			}
+		}
+		if (closest == first) {
+			return null;
+		}
+		return new Path(this.build(closest), false);
+	}
+
+	private List<BlockPos> build(Node end) {
+		List<BlockPos> path = new ArrayList<>();
+		for (Node node = end; node != null; node = node.parent) {
+			path.add(BlockPos.of(node.pos));
+		}
+		Collections.reverse(path);
+		return path;
+	}
+
+	private static double heuristic(BlockPos a, BlockPos b) {
+		return distance(a, b) * 1.1;
+	}
+
+	private static double distance(BlockPos a, BlockPos b) {
+		double dx = a.getX() - b.getX();
+		double dy = a.getY() - b.getY();
+		double dz = a.getZ() - b.getZ();
+		return Math.sqrt(dx * dx + dy * dy + dz * dz);
+	}
+
+	/** Mid-jump or standing on a slab: use the first standable block at or below the start. */
+	private BlockPos settle(BlockPos start) {
+		BlockPos pos = start;
+		for (int i = 0; i < 4; i++) {
+			if (this.standable(pos) != 2) {
+				return pos;
+			}
+			pos = pos.below();
+		}
+		return start;
+	}
+
+	// ---------------------------------------------------------------- moves
+
+	private void neighbours(BlockPos pos, List<long[]> out) {
+		boolean swimming = this.standable(pos) == 3;
+		for (int[] dir : DIRECTIONS) {
+			boolean diagonal = dir[0] != 0 && dir[1] != 0;
+			BlockPos side = pos.offset(dir[0], 0, dir[1]);
+			if (diagonal) {
+				// No cutting corners.
+				if (!this.bodyFits(pos.offset(dir[0], 0, 0)) || !this.bodyFits(pos.offset(0, 0, dir[1]))) {
+					continue;
+				}
+			}
+			double stepCost = diagonal ? 1.414 : 1.0;
+			int stand = this.standable(side);
+			if (stand == 1 || stand == 3) {
+				out.add(move(side, stepCost * (stand == 3 ? 2.0 : 1.0) + this.dangerNear(side)));
+				continue;
+			}
+			// Jump up one block (straight moves only): needs room above our head.
+			if (!diagonal) {
+				BlockPos up = side.above();
+				if (this.open(pos.above(2)) == 1 && this.standable(up) == 1) {
+					out.add(move(up, 2.0 + this.dangerNear(up)));
+					continue;
+				}
+			}
+			// Drop down: the side must be open all the way to the landing spot. At most 3 blocks onto ground
+			// (no fall damage), further only into water.
+			if (this.bodyFits(side)) {
+				for (int drop = 1; drop <= MAX_WATER_DROP; drop++) {
+					BlockPos below = side.below(drop);
+					int landing = this.standable(below);
+					if (landing == 1) {
+						if (drop <= MAX_DROP) {
+							out.add(move(below, stepCost + drop * 0.5 + this.dangerNear(below)));
+						}
+						break;
+					}
+					if (landing == 3) {
+						out.add(move(below, stepCost + drop * 0.3));
+						break;
+					}
+					if (this.open(below) != 1) {
+						break;
+					}
+				}
+			}
+		}
+		// Swim straight up or down.
+		if (swimming) {
+			BlockPos up = pos.above();
+			int stand = this.standable(up);
+			if (stand == 1 || stand == 3) {
+				out.add(move(up, 1.5));
+			}
+			BlockPos down = pos.below();
+			if (this.standable(down) == 3) {
+				out.add(move(down, 1.5));
+			}
+		}
+	}
+
+	private static long[] move(BlockPos pos, double cost) {
+		return new long[]{pos.asLong(), Double.doubleToRawLongBits(cost)};
+	}
+
+	/** Extra cost for walking right next to cactus, fire or lava. */
+	private double dangerNear(BlockPos pos) {
+		for (int[] dir : DIRECTIONS) {
+			if (dir[0] != 0 && dir[1] != 0) {
+				continue;
+			}
+			if (this.open(pos.offset(dir[0], 0, dir[1])) == 3) {
+				return 4.0;
+			}
+		}
+		return 0.0;
+	}
+
+	// ---------------------------------------------------------------- block checks
+
+	private boolean bodyFits(BlockPos feet) {
+		return this.open(feet) == 1 && this.open(feet.above()) == 1;
+	}
+
+	private boolean isWater(BlockPos pos) {
+		return this.level.getFluidState(pos).is(FluidTags.WATER);
+	}
+
+	/** 1: standable, 2: no, 3: swimming spot. */
+	private int standable(BlockPos feet) {
+		long key = feet.asLong();
+		byte cached = this.standCache.get(key);
+		if (cached != 0) {
+			return cached;
+		}
+		byte result = this.computeStandable(feet);
+		this.standCache.put(key, result);
+		return result;
+	}
+
+	private byte computeStandable(BlockPos feet) {
+		if (!this.level.isLoaded(feet) || feet.getY() <= this.level.getMinY() || feet.getY() >= this.level.getMaxY()) {
+			return 2;
+		}
+		BlockState feetState = this.level.getBlockState(feet);
+		int feetOpen = this.open(feet);
+		int headOpen = this.open(feet.above());
+		if (headOpen != 1) {
+			return 2;
+		}
+		if (feetOpen == 1) {
+			if (this.isWater(feet)) {
+				return 3;
+			}
+			BlockPos below = feet.below();
+			BlockState belowState = this.level.getBlockState(below);
+			if (this.isHazard(belowState) || belowState.getFluidState().is(FluidTags.LAVA)) {
+				return 2;
+			}
+			if (this.isWater(below)) {
+				return 3;
+			}
+			VoxelShape shape = belowState.getCollisionShape(this.level, below);
+			if (shape.isEmpty() || belowState.getBlock() instanceof DoorBlock || belowState.getBlock() instanceof FenceGateBlock) {
+				return 2;
+			}
+			double top = shape.max(net.minecraft.core.Direction.Axis.Y);
+			// Fences and walls are 1.5 tall: you can't stand on them.
+			return top >= 0.5 && top <= 1.0 ? (byte) 1 : (byte) 2;
+		}
+		// A low block in the feet space (slab, carpet, snow layer, path): you stand on top of it, inside this space.
+		if (feetOpen == 2 && !feetState.isAir()) {
+			VoxelShape shape = feetState.getCollisionShape(this.level, feet);
+			if (!shape.isEmpty() && shape.max(net.minecraft.core.Direction.Axis.Y) <= 0.6 && !this.isHazard(feetState)
+					&& this.open(feet.above(2)) == 1) {
+				return 1;
+			}
+		}
+		return 2;
+	}
+
+	/** 1: a player's body can be here, 2: solid, 3: dangerous (lava, fire, cactus...). */
+	private int open(BlockPos pos) {
+		long key = pos.asLong();
+		byte cached = this.openCache.get(key);
+		if (cached != 0) {
+			return cached;
+		}
+		byte result = this.computeOpen(pos);
+		this.openCache.put(key, result);
+		return result;
+	}
+
+	private byte computeOpen(BlockPos pos) {
+		if (!this.level.isLoaded(pos)) {
+			return 2;
+		}
+		BlockState state = this.level.getBlockState(pos);
+		FluidState fluid = state.getFluidState();
+		if (fluid.is(FluidTags.LAVA) || this.isHazard(state)) {
+			return 3;
+		}
+		if (state.is(Blocks.COBWEB) || state.is(Blocks.POWDER_SNOW) || state.is(Blocks.SWEET_BERRY_BUSH)) {
+			return 3;
+		}
+		if (state.getBlock() instanceof DoorBlock door) {
+			return door.type().canOpenByHand() ? (byte) 1 : (byte) 2;
+		}
+		if (state.getBlock() instanceof FenceGateBlock) {
+			return 1;
+		}
+		return state.getCollisionShape(this.level, pos).isEmpty() ? (byte) 1 : (byte) 2;
+	}
+
+	private boolean isHazard(BlockState state) {
+		return state.is(BlockTags.FIRE) || state.is(Blocks.MAGMA_BLOCK) || state.is(Blocks.CACTUS)
+				|| state.is(BlockTags.CAMPFIRES) || state.is(Blocks.LAVA) || state.is(Blocks.WITHER_ROSE);
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/character/BastionThrones.java
+
+```java
+package com.itzbreadloaf.character;
+
+import com.itzbreadloaf.worldgen.HomeKind;
+import com.itzbreadloaf.worldgen.HomePiece;
+import com.itzbreadloaf.worldgen.RuntimeSites;
+import com.mojang.serialization.Codec;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.minecraft.core.BlockPos;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
+import net.minecraft.world.level.levelgen.structure.BuiltinStructures;
+import net.minecraft.world.level.levelgen.structure.StructureStart;
+import net.minecraft.world.level.saveddata.SavedData;
+import net.minecraft.world.level.saveddata.SavedDataType;
+
+/**
+ * Bastion Throne Rooms: the first time a real player walks into a bastion remnant, Master BreadLoaf's throne room is
+ * carved into the middle of it (a closed blackstone-and-gold hall, so no lava gets in) with Master waiting inside.
+ * Each bastion gets one, saved with the world. Find bastions with /locate structure minecraft:bastion_remnant.
+ */
+public final class BastionThrones {
+	private BastionThrones() {
+	}
+
+	public static void register() {
+		ServerTickEvents.END_SERVER_TICK.register(BastionThrones::tick);
+	}
+
+	private static void tick(MinecraftServer server) {
+		if (server.getTickCount() % 100 != 61) {
+			return;
+		}
+		ServerLevel nether = server.getLevel(Level.NETHER);
+		if (nether == null) {
+			return;
+		}
+		for (ServerPlayer player : CharacterManager.realPlayers(server)) {
+			if (player.level() != nether) {
+				continue;
+			}
+			StructureStart bastion = nether.structureManager().getStructureWithPieceAt(player.blockPosition(),
+					holder -> holder.is(BuiltinStructures.BASTION_REMNANT));
+			if (!bastion.isValid()) {
+				continue;
+			}
+			Data data = server.overworld().getDataStorage().computeIfAbsent(Data.TYPE);
+			String id = String.valueOf(bastion.getChunkPos().toLong());
+			if (data.bastions.contains(id)) {
+				continue;
+			}
+			BoundingBox area = bastion.getBoundingBox();
+			BlockPos center = area.getCenter();
+			int size = HomeKind.BASTION_THRONE_ROOM.width;
+			int x0 = center.getX() - size / 2;
+			int z0 = center.getZ() - size / 2;
+			// Wait until the whole room's area is loaded.
+			if (!nether.hasChunkAt(new BlockPos(x0, 64, z0)) || !nether.hasChunkAt(new BlockPos(x0 + size, 64, z0 + size))) {
+				continue;
+			}
+			data.bastions.add(id);
+			data.setDirty();
+			int floor = findFloor(nether, center, area);
+			BoundingBox built = HomePiece.buildNow(nether, HomeKind.BASTION_THRONE_ROOM, x0, z0, floor, nether.getRandom());
+			RuntimeSites.add(nether, HomeKind.BASTION_THRONE_ROOM, built);
+		}
+	}
+
+	/** A floor height near the middle of the bastion: the first solid block with air above, going down from the center. */
+	private static int findFloor(ServerLevel level, BlockPos center, BoundingBox area) {
+		int top = Math.min(area.maxY() - 8, center.getY() + 6);
+		for (int y = top; y > area.minY() + 1; y--) {
+			BlockPos at = new BlockPos(center.getX(), y, center.getZ());
+			if (!level.getBlockState(at).isAir() && level.getFluidState(at).isEmpty() && level.getBlockState(at.above()).isAir()) {
+				return y;
+			}
+		}
+		return center.getY();
+	}
+
+	/** Bastions that already have their throne room. */
+	public static class Data extends SavedData {
+		public static final Codec<Data> CODEC = Codec.STRING.listOf().fieldOf("bastions").codec()
+				.xmap(Data::new, data -> List.copyOf(data.bastions));
+		public static final SavedDataType<Data> TYPE = new SavedDataType<>("itzbreadloaf_bastion_thrones", Data::new, CODEC, null);
+
+		final Set<String> bastions;
+
+		public Data() {
+			this(List.of());
+		}
+
+		public Data(List<String> bastions) {
+			this.bastions = new HashSet<>(bastions);
+		}
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/character/CharacterInteractions.java
+
+```java
+package com.itzbreadloaf.character;
+
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.tags.ItemTags;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+
+/**
+ * Client side of right-clicking a character. Characters are players, and right-clicking a player normally does
+ * nothing, so the client would go on to use the held item (eat the steak you meant to give). For characters the
+ * client counts the click as handled and only sends it to the server, unless the item is something you'd want
+ * to fire or throw while looking at them (bows, tridents, pearls, potions...).
+ */
+public final class CharacterInteractions {
+	private CharacterInteractions() {
+	}
+
+	public static InteractionResult clientResult(Player player, InteractionHand hand) {
+		if (hand != InteractionHand.MAIN_HAND) {
+			return InteractionResult.PASS;
+		}
+		ItemStack stack = player.getItemInHand(hand);
+		return isAimedItem(stack) ? InteractionResult.PASS : InteractionResult.SUCCESS;
+	}
+
+	public static boolean isAimedItem(ItemStack stack) {
+		return stack.is(Items.BOW) || stack.is(Items.CROSSBOW) || stack.is(Items.TRIDENT) || stack.is(Items.SHIELD)
+				|| stack.is(Items.ENDER_PEARL) || stack.is(Items.ENDER_EYE) || stack.is(Items.SNOWBALL)
+				|| stack.is(Items.WIND_CHARGE) || stack.is(Items.SPLASH_POTION) || stack.is(Items.LINGERING_POTION)
+				|| stack.is(Items.FISHING_ROD) || stack.is(Items.FIREWORK_ROCKET) || stack.is(Items.EXPERIENCE_BOTTLE)
+				|| stack.is(ItemTags.SPEARS) || stack.has(DataComponents.KINETIC_WEAPON);
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/character/CharacterKind.java
+
+```java
+package com.itzbreadloaf.character;
+
+import com.itzbreadloaf.ItzBreadLoaf;
+import java.util.Locale;
+import net.minecraft.resources.Identifier;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * The four LoafCraft characters. Each one is a Carpet fake player with a fixed name, skin and arm width.
+ */
+public enum CharacterKind {
+	BREADLOAF("itzbreadloaf", "ItzBreadLoaf", "ItzBreadLoaf", true, "itzbreadloaf"),
+	LILY("imlilylol", "ImLilyLol", "ImLilyLol", true, "imlilylol"),
+	MADISON("madison", "Madison", "Madison", false, "madison"),
+	MASTER("master_breadloaf", "MasterBreadLoaf", "Master BreadLoaf", true, ""),
+	/** Homeless mace fighter who drifts between villages; ItzBreadLoaf's rival. */
+	FELIXSYN("felixsyn", "FelixSyn", "FelixSyn", false, ""),
+	/** FelixSyn's duo partner, the best fighter outside Master BreadLoaf. Tamable with golden apples. */
+	HARLEY("harley", "Harley", "Harley", true, "");
+
+	/** Command and save name, also the skin file name in assets/itzbreadloaf/textures/entity/. */
+	public final String id;
+	/** Player profile name (at most 16 characters, numbered for extra copies: ItzBreadLoaf_2). */
+	public final String profileName;
+	/** Clean name shown above their head, in chat and in messages. */
+	public final String displayName;
+	/** Alex-style 3px arms (true) or classic 4px arms (false). */
+	public final boolean slim;
+	/** Criterion name in the "Squad Goals" advancement. */
+	public final String friendKey;
+
+	CharacterKind(String id, String profileName, String displayName, boolean slim, String friendKey) {
+		this.id = id;
+		this.profileName = profileName;
+		this.displayName = displayName;
+		this.slim = slim;
+		this.friendKey = friendKey;
+	}
+
+	public Identifier skinTexture() {
+		return ItzBreadLoaf.id("textures/entity/" + this.id + ".png");
+	}
+
+	/** Not used for anything since friendship hearts were removed; kept for older code paths. */
+	public boolean canBeFriends() {
+		return this != MASTER;
+	}
+
+	/** Lily and Madison: never attack first. */
+	public boolean isNeutral() {
+		return this == LILY || this == MADISON;
+	}
+
+	public static @Nullable CharacterKind byId(String id) {
+		String key = id.toLowerCase(Locale.ROOT);
+		for (CharacterKind kind : values()) {
+			if (kind.id.equals(key) || kind.name().toLowerCase(Locale.ROOT).equals(key)
+					|| kind.profileName.toLowerCase(Locale.ROOT).equals(key)) {
+				return kind;
+			}
+		}
+		return null;
+	}
+
+	public static @Nullable CharacterKind byOrdinal(int ordinal) {
+		CharacterKind[] kinds = values();
+		return ordinal >= 0 && ordinal < kinds.length ? kinds[ordinal] : null;
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/character/CharacterManager.java
+
+```java
+package com.itzbreadloaf.character;
+
+import carpet.patches.EntityPlayerMPFake;
+import com.itzbreadloaf.ItzBreadLoaf;
+import com.itzbreadloaf.brain.LoafBrain;
+import com.itzbreadloaf.config.ModConfig;
+import com.mojang.authlib.GameProfile;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.function.Consumer;
+import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.fabricmc.fabric.api.event.player.UseEntityCallback;
+import net.minecraft.ChatFormatting;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.ExperienceOrb;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.gamerules.GameRules;
+import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * Spawns, ticks, saves and despawns the character fake players.
+ *
+ * - Activation: a character exists as a fake player only while a real player is within about 4 chunks (64 blocks).
+ *   Farther away it is saved to {@link LoafWorldData} and removed; it comes back when someone is near again.
+ *   At most {@code maxActiveCharacters} (config, default 20) are active at once, closest first.
+ * - Every server tick each brain runs before the world ticks, then Carpet's action pack plays its inputs.
+ * - Death is handled here (Fabric ALLOW_DEATH), not by Carpet: custom drops and a short message, then the
+ *   character is gone for good.
+ */
+public final class CharacterManager {
+	public static final double DEACTIVATION_MARGIN = 16.0;
+
+	private static final Map<UUID, LoafCharacter> ACTIVE = new LinkedHashMap<>();
+	private static @Nullable MinecraftServer server;
+
+	private CharacterManager() {
+	}
+
+	public static void register() {
+
+		ServerLifecycleEvents.SERVER_STARTED.register(started -> {
+			server = started;
+			ACTIVE.clear();
+		});
+		ServerLifecycleEvents.SERVER_STOPPING.register(CharacterManager::onStopping);
+		ServerLifecycleEvents.SERVER_STOPPED.register(stopped -> {
+			ACTIVE.clear();
+			server = null;
+		});
+		ServerTickEvents.START_SERVER_TICK.register(CharacterManager::tickBrains);
+		ServerTickEvents.END_SERVER_TICK.register(CharacterManager::endTick);
+
+		ServerLivingEntityEvents.ALLOW_DAMAGE.register((entity, source, amount) -> {
+			LoafCharacter character = get(entity);
+			return character == null || character.isGone() || character.brain.allowDamage(source, amount);
+		});
+		ServerLivingEntityEvents.AFTER_DAMAGE.register((entity, source, baseDamage, damageTaken, blocked) -> {
+			LoafCharacter character = get(entity);
+			if (character != null && !character.isGone()) {
+				character.brain.onHurt(source, damageTaken, blocked);
+			}
+			// Let attackers' brains know they landed a hit.
+			LoafCharacter attacker = get(source.getEntity());
+			if (attacker != null && !attacker.isGone() && entity != attacker.player) {
+				attacker.brain.onDealtDamage(entity, damageTaken);
+			}
+		});
+		ServerLivingEntityEvents.ALLOW_DEATH.register((entity, source, amount) -> {
+			LoafCharacter character = get(entity);
+			if (character == null) {
+				return true;
+			}
+			if (!character.isGone()) {
+				die(character, source);
+			}
+			character.player.setHealth(character.player.getMaxHealth());
+			return false;
+		});
+		UseEntityCallback.EVENT.register((player, level, hand, entity, hitResult) -> {
+			if (!LoafIds.isCharacter(entity) || LoafIds.isCharacter(player)) {
+				return InteractionResult.PASS;
+			}
+			if (level.isClientSide()) {
+				return CharacterInteractions.clientResult(player, hand);
+			}
+			LoafCharacter character = ACTIVE.get(entity.getUUID());
+			if (character == null || character.isGone() || !(player instanceof ServerPlayer serverPlayer)) {
+				return InteractionResult.PASS;
+			}
+			// The client can send both "interact at" and "interact" for one click; only act once.
+			long tick = serverPlayer.level().getServer().getTickCount();
+			String who = serverPlayer.getStringUUID() + hand;
+			if (character.lastInteractTick == tick && character.lastInteractPlayer.equals(who)) {
+				return InteractionResult.SUCCESS;
+			}
+			InteractionResult result = character.brain.onInteract(serverPlayer, hand);
+			if (result.consumesAction()) {
+				character.lastInteractTick = tick;
+				character.lastInteractPlayer = who;
+			}
+			return result;
+		});
+	}
+
+	// ---------------------------------------------------------------- lookups
+
+	public static Collection<LoafCharacter> active() {
+		return ACTIVE.values();
+	}
+
+	public static @Nullable LoafCharacter get(UUID id) {
+		return ACTIVE.get(id);
+	}
+
+	public static @Nullable LoafCharacter get(@Nullable Entity entity) {
+		return entity instanceof Player && LoafIds.isCharacter(entity.getUUID()) ? ACTIVE.get(entity.getUUID()) : null;
+	}
+
+	public static @Nullable LoafBrain brain(@Nullable Entity entity) {
+		LoafCharacter character = get(entity);
+		return character == null || character.isGone() ? null : character.brain;
+	}
+
+	public static @Nullable LoafCharacter byName(String name) {
+		for (LoafCharacter character : ACTIVE.values()) {
+			if (character.record.profileName().equalsIgnoreCase(name)) {
+				return character;
+			}
+		}
+		return null;
+	}
+
+	public static LoafWorldData data(MinecraftServer server) {
+		return LoafWorldData.get(server);
+	}
+
+
+	/** Vanilla mobs leave friendly characters alone (Lily, Madison, tamed ItzBreadLoafs). */
+	public static boolean isFriendlyToMobs(UUID id) {
+		LoafCharacter character = ACTIVE.get(id);
+		return character != null && character.brain != null && character.brain.isFriendlyToMobs();
+	}
+
+	public static boolean wantsToPickUp(Player player, ItemStack stack) {
+		LoafCharacter character = ACTIVE.get(player.getUUID());
+		return character != null && character.brain != null && !character.isGone() && character.brain.wantsToPickUp(stack);
+	}
+
+	/** Real players who can activate characters (not spectators, not characters). */
+	public static List<ServerPlayer> realPlayers(MinecraftServer server) {
+		List<ServerPlayer> players = new ArrayList<>();
+		for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+			if (!LoafIds.isCharacter(player) && !player.isSpectator()) {
+				players.add(player);
+			}
+		}
+		return players;
+	}
+
+	// ---------------------------------------------------------------- creating, activating, despawning
+
+	/**
+	 * Creates a brand-new character at a position and spawns it right away (even past the active cap).
+	 * {@code setup} runs after its first gear roll: set a home, an owner, a baby flag...
+	 */
+	public static @Nullable LoafCharacter create(ServerLevel level, CharacterKind kind, Vec3 pos, float yaw,
+			@Nullable Consumer<LoafBrain> setup) {
+		return create(level, CharacterVariant.base(kind), pos, yaw, setup);
+	}
+
+	/** Same, for a specific type (Knight ItzBreadLoaf, Witchy ImLilyLol, Baker Madison...). */
+	public static @Nullable LoafCharacter create(ServerLevel level, CharacterVariant variant, Vec3 pos, float yaw,
+			@Nullable Consumer<LoafBrain> setup) {
+		MinecraftServer owner = level.getServer();
+		LoafWorldData data = data(owner);
+		int index = data.freeIndex(variant.kind, owner);
+		CharacterRecord record = CharacterRecord.create(variant, index, level.dimension(), pos, yaw);
+		data.put(record);
+		LoafCharacter character = activate(owner, record);
+		if (character == null) {
+			data.remove(record.id);
+			return null;
+		}
+		character.brain.onFirstSpawn();
+		if (setup != null) {
+			setup.accept(character.brain);
+		}
+		character.brain.applyAttributes();
+		snapshot(character);
+		return character;
+	}
+
+	private static @Nullable LoafCharacter activate(MinecraftServer server, CharacterRecord record) {
+		if (ACTIVE.containsKey(record.id) || server.getPlayerList().getPlayer(record.id) != null) {
+			return null;
+		}
+		ServerLevel level = server.getLevel(record.dimension);
+		if (level == null) {
+			level = server.overworld();
+			record.dimension = level.dimension();
+		}
+		EntityPlayerMPFake fake;
+		try {
+			fake = FakePlayers.spawn(server, level, new GameProfile(record.id, record.profileName()), record.pos, record.yaw, record.pitch);
+		} catch (RuntimeException e) {
+			ItzBreadLoaf.LOGGER.error("Could not spawn {}", record.profileName(), e);
+			return null;
+		}
+		LoafCharacter character = new LoafCharacter(fake, record);
+		ACTIVE.put(record.id, character);
+		character.brain = LoafBrain.create(character);
+		character.brain.load(record.brain);
+		character.brain.applyAttributes();
+		applyRecord(record, fake);
+		character.brain.onActivated();
+		return character;
+	}
+
+	/** Writes the saved state into the fake player's real player data. */
+	private static void applyRecord(CharacterRecord record, ServerPlayer player) {
+		Inventory inventory = player.getInventory();
+		inventory.clearContent();
+		for (CharacterRecord.Slot slot : record.inventory) {
+			if (slot.slot() >= 0 && slot.slot() < inventory.getContainerSize()) {
+				inventory.setItem(slot.slot(), slot.stack().copy());
+			}
+		}
+		inventory.setSelectedSlot(Math.max(0, Math.min(8, record.selectedSlot)));
+		player.removeAllEffects();
+		for (MobEffectInstance effect : record.effects) {
+			player.addEffect(new MobEffectInstance(effect));
+		}
+		player.setHealth(record.health > 0.0F ? Math.min(record.health, player.getMaxHealth()) : player.getMaxHealth());
+		player.getFoodData().setFoodLevel(record.food);
+		player.getFoodData().setSaturation(record.saturation);
+	}
+
+	/** Copies the fake player's current state into its record (and marks the world data for saving). */
+	public static void snapshot(LoafCharacter character) {
+		CharacterRecord record = character.record;
+		ServerPlayer player = character.player;
+		record.dimension = player.level().dimension();
+		record.pos = player.position();
+		record.yaw = player.getYRot();
+		record.pitch = player.getXRot();
+		record.health = Math.max(1.0F, player.getHealth());
+		record.food = player.getFoodData().getFoodLevel();
+		record.saturation = player.getFoodData().getSaturationLevel();
+		Inventory inventory = player.getInventory();
+		List<CharacterRecord.Slot> slots = new ArrayList<>();
+		for (int i = 0; i < inventory.getContainerSize(); i++) {
+			ItemStack stack = inventory.getItem(i);
+			if (!stack.isEmpty()) {
+				slots.add(new CharacterRecord.Slot(i, stack.copy()));
+			}
+		}
+		record.inventory = slots;
+		record.selectedSlot = inventory.getSelectedSlot();
+		List<MobEffectInstance> effects = new ArrayList<>();
+		for (MobEffectInstance effect : player.getActiveEffects()) {
+			effects.add(new MobEffectInstance(effect));
+		}
+		record.effects = effects;
+		net.minecraft.nbt.CompoundTag brainTag = new net.minecraft.nbt.CompoundTag();
+		character.brain.save(brainTag);
+		record.brain = brainTag;
+		data(player.level().getServer()).setDirty();
+	}
+
+	/** Saves (unless {@code keepRecord} is false) and removes the fake player. */
+	public static void deactivate(LoafCharacter character, boolean keepRecord) {
+		if (character.deactivating) {
+			return;
+		}
+		MinecraftServer owner = character.player.level().getServer();
+		if (keepRecord) {
+			snapshot(character);
+		}
+		character.brain.onDeactivated();
+		character.deactivating = true;
+		ACTIVE.remove(character.record.id);
+		if (!keepRecord) {
+			data(owner).remove(character.record.id);
+		}
+		character.actions().stopAll();
+		character.player.kill(Component.literal("LoafCraft: despawned"));
+	}
+
+	/** Removes a character for good (the /loafcraft despawn command). */
+	public static void delete(LoafCharacter character) {
+		deactivate(character, false);
+	}
+
+	private static void die(LoafCharacter character, DamageSource source) {
+		ServerPlayer player = character.player;
+		ServerLevel level = player.level();
+		boolean dropInventory = character.brain.onDeath(source);
+		if (dropInventory) {
+			player.getInventory().dropAll();
+		}
+		int xp = character.brain.experienceReward();
+		if (xp > 0) {
+			ExperienceOrb.award(level, player.position(), xp);
+		}
+		if (level.getGameRules().get(GameRules.SHOW_DEATH_MESSAGES)) {
+			Entity killer = source.getEntity();
+			Component message = Component.empty().append(player.getDisplayName())
+					.append(killer != null && killer != player
+							? Component.literal(" was defeated by ").append(killer.getDisplayName())
+							: Component.literal(" was defeated"))
+					.withStyle(ChatFormatting.GRAY);
+			level.getServer().getPlayerList().broadcastSystemMessage(message, false);
+		}
+		level.playSound(null, player.getX(), player.getY(), player.getZ(), character.brain.deathSound(), player.getSoundSource(), 1.0F, 1.0F);
+		level.sendParticles(ParticleTypes.POOF, player.getX(), player.getY(0.5), player.getZ(), 20, 0.3, 0.6, 0.3, 0.02);
+		deactivate(character, false);
+	}
+
+	/** Vanilla /kill on a character: a real death instead of Carpet's silent disconnect. */
+	public static boolean killByCommand(ServerPlayer player) {
+		LoafCharacter character = get(player);
+		if (character == null) {
+			return false;
+		}
+		if (!character.isGone()) {
+			die(character, player.damageSources().genericKill());
+		}
+		return true;
+	}
+
+	// ---------------------------------------------------------------- ticking
+
+	private static void tickBrains(MinecraftServer server) {
+		if (ACTIVE.isEmpty()) {
+			return;
+		}
+		for (LoafCharacter character : List.copyOf(ACTIVE.values())) {
+			if (character.deactivating) {
+				continue;
+			}
+			if (character.player.isRemoved() && !character.player.hasDisconnected() && character.player.isChangingDimension()) {
+				continue;
+			}
+			if (character.player.hasDisconnected() || character.player.isRemoved()) {
+				// Removed by something else (Carpet's /player kill, /kick): keep it saved, it will come back.
+				snapshot(character);
+				character.deactivating = true;
+				ACTIVE.remove(character.record.id);
+				continue;
+			}
+			try {
+				character.brain.tick();
+			} catch (RuntimeException e) {
+				ItzBreadLoaf.LOGGER.error("{}'s brain crashed, pausing it", character.record.profileName(), e);
+				character.brain.setPaused(true);
+			}
+		}
+	}
+
+	private static void endTick(MinecraftServer server) {
+		int tick = server.getTickCount();
+		if (tick % 20 == 0) {
+			scan(server);
+		}
+		if (tick % 1200 == 0) {
+			for (LoafCharacter character : ACTIVE.values()) {
+				if (!character.isGone()) {
+					snapshot(character);
+				}
+			}
+		}
+	}
+
+	/** Despawns characters nobody is near, then spawns saved ones a real player came close to (closest first). */
+	private static void scan(MinecraftServer server) {
+		List<ServerPlayer> real = realPlayers(server);
+		double range = ModConfig.get().activationRange;
+		for (LoafCharacter character : List.copyOf(ACTIVE.values())) {
+			if (character.isGone() || character.brain.keepActive()) {
+				continue;
+			}
+			if (nearestRealDistance(real, character.player.level(), character.player.position()) > range + DEACTIVATION_MARGIN) {
+				deactivate(character, !character.brain.isDisposable());
+			}
+		}
+		int cap = Math.max(0, ModConfig.get().maxActiveCharacters);
+		if (ACTIVE.size() >= cap || real.isEmpty()) {
+			return;
+		}
+		LoafWorldData data = data(server);
+		List<CharacterRecord> candidates = new ArrayList<>();
+		Map<CharacterRecord, Double> distances = new LinkedHashMap<>();
+		for (CharacterRecord record : data.records()) {
+			if (ACTIVE.containsKey(record.id)) {
+				continue;
+			}
+			ServerLevel level = server.getLevel(record.dimension);
+			if (level == null || !level.isLoaded(BlockPos.containing(record.pos))) {
+				continue;
+			}
+			double distance = nearestRealDistance(real, level, record.pos);
+			if (distance <= range) {
+				candidates.add(record);
+				distances.put(record, distance);
+			}
+		}
+		candidates.sort(Comparator.comparingDouble(distances::get));
+		for (CharacterRecord record : candidates) {
+			if (ACTIVE.size() >= cap) {
+				break;
+			}
+			activate(server, record);
+		}
+	}
+
+	private static double nearestRealDistance(List<ServerPlayer> real, ServerLevel level, Vec3 pos) {
+		double best = Double.MAX_VALUE;
+		for (ServerPlayer player : real) {
+			if (player.level() == level) {
+				best = Math.min(best, player.position().distanceTo(pos));
+			}
+		}
+		return best;
+	}
+
+
+	private static void onStopping(MinecraftServer stopping) {
+		for (LoafCharacter character : List.copyOf(ACTIVE.values())) {
+			if (!character.isGone()) {
+				snapshot(character);
+				character.brain.onDeactivated();
+			}
+		}
+		ACTIVE.clear();
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/character/CharacterNames.java
+
+```java
+package com.itzbreadloaf.character;
+
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.entity.player.Player;
+
+/**
+ * Clean display names: "Master BreadLoaf" instead of the profile name "MasterBreadLoaf", "Knight ItzBreadLoaf"
+ * for a knight, "ItzBreadLoaf" for ItzBreadLoaf_2 too. Works the same on server and client (it comes from the UUID).
+ */
+public final class CharacterNames {
+	private CharacterNames() {
+	}
+
+	public static Component displayName(Player player) {
+		CharacterVariant variant = LoafIds.variant(player.getUUID());
+		return Component.literal(variant == null ? player.getGameProfile().name() : variant.displayName());
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/character/CharacterRecord.java
+
+```java
+package com.itzbreadloaf.character;
+
+import com.mojang.serialization.Codec;
+import com.mojang.serialization.codecs.RecordCodecBuilder;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+import net.minecraft.core.UUIDUtil;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.Vec3;
+
+/**
+ * Everything about one character that survives while they are despawned: where they are, their real player
+ * inventory (every slot, armor and offhand included), health, hunger, potion effects, and their brain's data
+ * (owner, home, bed, friendship, trust, baby age...). Stored in {@link LoafWorldData}, never in player files.
+ */
+public final class CharacterRecord {
+	/** One non-empty inventory slot (0-35 main, 36-39 armor, 40 offhand). */
+	public record Slot(int slot, ItemStack stack) {
+		public static final Codec<Slot> CODEC = RecordCodecBuilder.create(instance -> instance.group(
+				Codec.INT.fieldOf("slot").forGetter(Slot::slot),
+				ItemStack.CODEC.fieldOf("item").forGetter(Slot::stack)
+		).apply(instance, Slot::new));
+	}
+
+	public static final Codec<CharacterRecord> CODEC = RecordCodecBuilder.create(instance -> instance.group(
+			UUIDUtil.CODEC.fieldOf("id").forGetter(r -> r.id),
+			Codec.STRING.fieldOf("kind").forGetter(r -> r.kind.id),
+			Codec.INT.fieldOf("index").forGetter(r -> r.index),
+			Level.RESOURCE_KEY_CODEC.fieldOf("dimension").forGetter(r -> r.dimension),
+			Vec3.CODEC.fieldOf("pos").forGetter(r -> r.pos),
+			Codec.FLOAT.fieldOf("yaw").forGetter(r -> r.yaw),
+			Codec.FLOAT.fieldOf("pitch").forGetter(r -> r.pitch),
+			Codec.FLOAT.fieldOf("health").forGetter(r -> r.health),
+			Codec.INT.fieldOf("food").forGetter(r -> r.food),
+			Codec.FLOAT.fieldOf("saturation").forGetter(r -> r.saturation),
+			Slot.CODEC.listOf().fieldOf("inventory").forGetter(r -> r.inventory),
+			Codec.INT.fieldOf("selected").forGetter(r -> r.selectedSlot),
+			MobEffectInstance.CODEC.listOf().fieldOf("effects").forGetter(r -> r.effects),
+			CompoundTag.CODEC.fieldOf("brain").forGetter(r -> r.brain)
+	).apply(instance, CharacterRecord::new));
+
+	public final UUID id;
+	public final CharacterKind kind;
+	public final int index;
+	public ResourceKey<Level> dimension;
+	public Vec3 pos;
+	public float yaw;
+	public float pitch;
+	/** 0 means "full health" (a brand-new character). */
+	public float health;
+	public int food;
+	public float saturation;
+	public List<Slot> inventory;
+	public int selectedSlot;
+	public List<MobEffectInstance> effects;
+	public CompoundTag brain;
+
+	private CharacterRecord(UUID id, String kind, int index, ResourceKey<Level> dimension, Vec3 pos, float yaw, float pitch,
+			float health, int food, float saturation, List<Slot> inventory, int selectedSlot, List<MobEffectInstance> effects,
+			CompoundTag brain) {
+		this.id = id;
+		CharacterKind parsed = CharacterKind.byId(kind);
+		this.kind = parsed == null ? CharacterKind.BREADLOAF : parsed;
+		this.index = index;
+		this.dimension = dimension;
+		this.pos = pos;
+		this.yaw = yaw;
+		this.pitch = pitch;
+		this.health = health;
+		this.food = food;
+		this.saturation = saturation;
+		this.inventory = new ArrayList<>(inventory);
+		this.selectedSlot = selectedSlot;
+		this.effects = new ArrayList<>(effects);
+		this.brain = brain.copy();
+	}
+
+	public static CharacterRecord create(CharacterVariant variant, int index, ResourceKey<Level> dimension, Vec3 pos, float yaw) {
+		return new CharacterRecord(LoafIds.uuid(variant, index), variant.kind.id, index, dimension, pos, yaw, 0.0F, 0.0F, 20, 5.0F,
+				List.of(), 0, List.of(), new CompoundTag());
+	}
+
+	public CharacterVariant variant() {
+		CharacterVariant variant = LoafIds.variant(this.id);
+		return variant == null ? CharacterVariant.base(this.kind) : variant;
+	}
+
+	public String profileName() {
+		return LoafIds.profileName(this.kind, this.index);
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/character/CharacterVariant.java
+
+```java
+package com.itzbreadloaf.character;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * Types of each character. The first type of each character is the original. A character's type is chosen when
+ * it is created and is part of its UUID, so it never changes and the client knows it too (for the name tag).
+ */
+public enum CharacterVariant {
+	// ItzBreadLoaf
+	BREADLOAF(CharacterKind.BREADLOAF, "itzbreadloaf", ""),
+	KNIGHT(CharacterKind.BREADLOAF, "knight", "Knight"),
+	ARCHER(CharacterKind.BREADLOAF, "archer", "Archer"),
+	MINER(CharacterKind.BREADLOAF, "miner", "Miner"),
+	PIRATE(CharacterKind.BREADLOAF, "pirate", "Pirate"),
+	NETHER(CharacterKind.BREADLOAF, "nether", "Nether"),
+	SWEATY(CharacterKind.BREADLOAF, "sweaty", "Sweaty"),
+	CAPTAIN(CharacterKind.BREADLOAF, "captain", "Captain"),
+	BANDIT(CharacterKind.BREADLOAF, "bandit", "Bandit"),
+	VILLAGER(CharacterKind.BREADLOAF, "villager", "Village"),
+	// ImLilyLol
+	LILY(CharacterKind.LILY, "imlilylol", ""),
+	BOOKWORM(CharacterKind.LILY, "bookworm", "Bookworm"),
+	GARDENER(CharacterKind.LILY, "gardener", "Gardener"),
+	WITCHY(CharacterKind.LILY, "witchy", "Witchy"),
+	ARCHER_LILY(CharacterKind.LILY, "archer_lily", "Archer"),
+	// Madison
+	MADISON(CharacterKind.MADISON, "madison", ""),
+	FARMER(CharacterKind.MADISON, "farmer", "Farmer"),
+	BAKER(CharacterKind.MADISON, "baker", "Baker"),
+	FISHER(CharacterKind.MADISON, "fisher", "Fisher"),
+	BEEKEEPER(CharacterKind.MADISON, "beekeeper", "Beekeeper"),
+	// Master BreadLoaf
+	MASTER(CharacterKind.MASTER, "master_breadloaf", ""),
+	// FelixSyn and Harley
+	FELIXSYN(CharacterKind.FELIXSYN, "felixsyn", ""),
+	HARLEY(CharacterKind.HARLEY, "harley", ""),
+	// Added later (kept at the end so older characters keep their type number)
+	FISHERMAN(CharacterKind.BREADLOAF, "fisherman", "Fisherman"),
+	MERCHANT(CharacterKind.MADISON, "merchant", "Merchant");
+
+	public final CharacterKind kind;
+	/** Command name (/loafcraft spawn knight). */
+	public final String id;
+	/** Word in front of the character's name ("Knight ItzBreadLoaf"), empty for the original. */
+	public final String title;
+
+	CharacterVariant(CharacterKind kind, String id, String title) {
+		this.kind = kind;
+		this.id = id;
+		this.title = title;
+	}
+
+	/** Position among this character's types (0 = the original). Stored in the UUID. */
+	public int index() {
+		return variantsOf(this.kind).indexOf(this);
+	}
+
+	public boolean isBase() {
+		return this.index() == 0;
+	}
+
+	public String displayName() {
+		return this.title.isEmpty() ? this.kind.displayName : this.title + " " + this.kind.displayName;
+	}
+
+	public static List<CharacterVariant> variantsOf(CharacterKind kind) {
+		List<CharacterVariant> list = new ArrayList<>();
+		for (CharacterVariant variant : values()) {
+			if (variant.kind == kind) {
+				list.add(variant);
+			}
+		}
+		return list;
+	}
+
+	public static CharacterVariant base(CharacterKind kind) {
+		return variantsOf(kind).get(0);
+	}
+
+	public static CharacterVariant of(CharacterKind kind, int index) {
+		List<CharacterVariant> list = variantsOf(kind);
+		return index >= 0 && index < list.size() ? list.get(index) : list.get(0);
+	}
+
+	public static @Nullable CharacterVariant byId(String id) {
+		String key = id.toLowerCase(Locale.ROOT);
+		for (CharacterVariant variant : values()) {
+			if (variant.id.equals(key) || variant.name().toLowerCase(Locale.ROOT).equals(key)) {
+				return variant;
+			}
+		}
+		CharacterKind kind = CharacterKind.byId(key);
+		return kind == null ? null : base(kind);
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/character/FakePlayers.java
+
+```java
+package com.itzbreadloaf.character;
+
+import carpet.patches.EntityPlayerMPFake;
+import carpet.patches.FakeClientConnection;
+import com.itzbreadloaf.mixin.AvatarAccessor;
+import com.itzbreadloaf.mixin.EntityAccessor;
+import com.itzbreadloaf.mixin.ServerGamePacketListenerImplAccessor;
+import com.mojang.authlib.GameProfile;
+import java.lang.reflect.Constructor;
+import java.util.Set;
+import net.minecraft.network.protocol.PacketFlow;
+import net.minecraft.network.protocol.game.ClientboundEntityPositionSyncPacket;
+import net.minecraft.network.protocol.game.ClientboundRotateHeadPacket;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ClientInformation;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.network.CommonListenerCookie;
+import net.minecraft.world.entity.ai.attributes.AttributeInstance;
+import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.level.GameType;
+import net.minecraft.world.phys.Vec3;
+
+/**
+ * Spawns Carpet fake players with a fixed UUID and name.
+ *
+ * Carpet's own {@code EntityPlayerMPFake.createFake} looks the name up on Mojang's servers (async, random UUID for
+ * unknown names) and loads the player data file. LoafCraft needs fixed offline-style UUIDs and keeps its own saves,
+ * so this does the same steps as Carpet's createFake callback, just with our profile and without the file load.
+ */
+public final class FakePlayers {
+	private static Constructor<EntityPlayerMPFake> constructor;
+
+	private FakePlayers() {
+	}
+
+	public static EntityPlayerMPFake spawn(MinecraftServer server, ServerLevel level, GameProfile profile, Vec3 pos, float yaw, float pitch) {
+		EntityPlayerMPFake fake = construct(server, level, profile);
+		fake.fixStartingPosition = () -> fake.snapTo(pos.x, pos.y, pos.z, yaw, pitch);
+		server.getPlayerList().placeNewPlayer(new FakeClientConnection(PacketFlow.SERVERBOUND), fake,
+				new CommonListenerCookie(profile, 0, fake.clientInformation(), false));
+		fake.stopRiding();
+		fake.teleportTo(level, pos.x, pos.y, pos.z, Set.of(), yaw, pitch, true);
+		fake.setHealth(fake.getMaxHealth());
+		((EntityAccessor) fake).loaf$unsetRemoved();
+		AttributeInstance stepHeight = fake.getAttribute(Attributes.STEP_HEIGHT);
+		if (stepHeight != null) {
+			stepHeight.setBaseValue(0.6);
+		}
+		fake.gameMode.changeGameModeForPlayer(GameType.SURVIVAL);
+		server.getPlayerList().broadcastAll(new ClientboundRotateHeadPacket(fake, (byte) (fake.yHeadRot * 256.0F / 360.0F)), level.dimension());
+		server.getPlayerList().broadcastAll(ClientboundEntityPositionSyncPacket.of(fake), level.dimension());
+		// Show every skin layer (hat, jacket, sleeves, pants).
+		fake.getEntityData().set(AvatarAccessor.loaf$getModeCustomisation(), (byte) 0x7f);
+		fake.getAbilities().flying = false;
+		// A real client tells the server when it has loaded the world; until then players can't be hurt.
+		((ServerGamePacketListenerImplAccessor) fake.connection).loaf$markClientLoaded();
+		return fake;
+	}
+
+	private static EntityPlayerMPFake construct(MinecraftServer server, ServerLevel level, GameProfile profile) {
+		try {
+			if (constructor == null) {
+				constructor = EntityPlayerMPFake.class.getDeclaredConstructor(MinecraftServer.class, ServerLevel.class,
+						GameProfile.class, ClientInformation.class, boolean.class);
+				constructor.setAccessible(true);
+			}
+			return constructor.newInstance(server, level, profile, ClientInformation.createDefault(), false);
+		} catch (ReflectiveOperationException e) {
+			throw new IllegalStateException("LoafCraft could not create a Carpet fake player. Is the right Carpet version installed?", e);
+		}
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/character/LoafCharacter.java
+
+```java
+package com.itzbreadloaf.character;
+
+import carpet.fakes.ServerPlayerInterface;
+import carpet.helpers.EntityPlayerActionPack;
+import carpet.patches.EntityPlayerMPFake;
+import com.itzbreadloaf.brain.LoafBrain;
+
+/** One active (spawned) character: the Carpet fake player, its saved record, and the brain that drives it. */
+public final class LoafCharacter {
+	public final EntityPlayerMPFake player;
+	public final CharacterRecord record;
+	public LoafBrain brain;
+	/** Set while it is being despawned or after it died, so nothing ticks it again. */
+	boolean deactivating;
+	/** Server tick of the last right-click, so one click handled twice (interact + interactAt) only counts once. */
+	long lastInteractTick = -1;
+	String lastInteractPlayer = "";
+
+	LoafCharacter(EntityPlayerMPFake player, CharacterRecord record) {
+		this.player = player;
+		this.record = record;
+	}
+
+	public EntityPlayerActionPack actions() {
+		return ((ServerPlayerInterface) this.player).getActionPack();
+	}
+
+	public CharacterKind kind() {
+		return this.record.kind;
+	}
+
+	public boolean isGone() {
+		return this.deactivating || this.player.isRemoved() || this.player.hasDisconnected();
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/character/LoafIds.java
+
+```java
+package com.itzbreadloaf.character;
+
+import java.util.UUID;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.player.Player;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * Fixed, offline-style (version 3) UUIDs for every character instance, so the same character always comes back
+ * with the same UUID and both server and client can tell who a player entity is (and what type) from its UUID:
+ * <pre>
+ *   4c6f6146-VVKK-3000-8000-4c4f41IIIIII
+ *   "LoaF"   type+character  v3   tag   instance index
+ * </pre>
+ * Characters from before types existed have VV = 00, which is the original type.
+ */
+public final class LoafIds {
+	private static final long MSB_TAG = 0x4C6F6146L;
+	private static final long MSB_VERSION = 0x3000L;
+	private static final long LSB_TAG = 0x80004C4F41000000L;
+	private static final long LSB_MASK = 0xFFFFFFFFFF000000L;
+	public static final int MAX_NAME_LENGTH = 16;
+
+	private LoafIds() {
+	}
+
+	public static UUID uuid(CharacterVariant variant, int index) {
+		long msb = (MSB_TAG << 32) | ((long) (variant.index() & 0xFF) << 24) | ((long) (variant.kind.ordinal() & 0xFF) << 16) | MSB_VERSION;
+		long lsb = LSB_TAG | (index & 0xFFFFFFL);
+		return new UUID(msb, lsb);
+	}
+
+	public static UUID uuid(CharacterKind kind, int index) {
+		return uuid(CharacterVariant.base(kind), index);
+	}
+
+	public static boolean isCharacter(@Nullable UUID id) {
+		if (id == null) {
+			return false;
+		}
+		long msb = id.getMostSignificantBits();
+		return (msb >>> 32) == MSB_TAG && (msb & 0xFFFFL) == MSB_VERSION
+				&& (id.getLeastSignificantBits() & LSB_MASK) == LSB_TAG;
+	}
+
+	/** True for LoafCraft character players (never for real players or other entities). */
+	public static boolean isCharacter(@Nullable Entity entity) {
+		return entity instanceof Player && isCharacter(entity.getUUID());
+	}
+
+	/** A real (human) player: a player that is not a LoafCraft character. */
+	public static boolean isRealPlayer(@Nullable Entity entity) {
+		return entity instanceof Player && !isCharacter(entity.getUUID());
+	}
+
+	public static @Nullable CharacterKind kind(@Nullable UUID id) {
+		if (!isCharacter(id)) {
+			return null;
+		}
+		return CharacterKind.byOrdinal((int) ((id.getMostSignificantBits() >>> 16) & 0xFF));
+	}
+
+	public static @Nullable CharacterVariant variant(@Nullable UUID id) {
+		CharacterKind kind = kind(id);
+		if (kind == null) {
+			return null;
+		}
+		return CharacterVariant.of(kind, (int) ((id.getMostSignificantBits() >>> 24) & 0xFF));
+	}
+
+	public static int index(UUID id) {
+		return (int) (id.getLeastSignificantBits() & 0xFFFFFFL);
+	}
+
+	/** ItzBreadLoaf, ItzBreadLoaf_2, ... shortened if needed so the name fits Minecraft's 16-character limit. */
+	public static String profileName(CharacterKind kind, int index) {
+		if (index <= 1) {
+			return kind.profileName;
+		}
+		String suffix = "_" + index;
+		String base = kind.profileName;
+		if (base.length() + suffix.length() > MAX_NAME_LENGTH) {
+			base = base.substring(0, MAX_NAME_LENGTH - suffix.length());
+		}
+		return base + suffix;
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/character/LoafWorldData.java
+
+```java
+package com.itzbreadloaf.character;
+
+import com.mojang.serialization.Codec;
+import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.world.level.saveddata.SavedData;
+import net.minecraft.world.level.saveddata.SavedDataType;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * Every character in the world, active or not (data/itzbreadloaf_characters.dat in the overworld folder).
+ * Characters are saved here instead of Carpet's rejoin or player data files.
+ */
+public class LoafWorldData extends SavedData {
+	public static final Codec<LoafWorldData> CODEC = CharacterRecord.CODEC.listOf().fieldOf("characters").codec()
+			.xmap(LoafWorldData::new, data -> List.copyOf(data.records.values()));
+	public static final SavedDataType<LoafWorldData> TYPE = new SavedDataType<>("itzbreadloaf_characters", LoafWorldData::new, CODEC, null);
+
+	private final Map<UUID, CharacterRecord> records = new LinkedHashMap<>();
+
+	public LoafWorldData() {
+	}
+
+	private LoafWorldData(List<CharacterRecord> list) {
+		for (CharacterRecord record : list) {
+			this.records.put(record.id, record);
+		}
+	}
+
+	public static LoafWorldData get(MinecraftServer server) {
+		return server.overworld().getDataStorage().computeIfAbsent(TYPE);
+	}
+
+	public Collection<CharacterRecord> records() {
+		return this.records.values();
+	}
+
+	public @Nullable CharacterRecord get(UUID id) {
+		return this.records.get(id);
+	}
+
+	public @Nullable CharacterRecord byName(String name) {
+		for (CharacterRecord record : this.records.values()) {
+			if (record.profileName().equalsIgnoreCase(name)) {
+				return record;
+			}
+		}
+		return null;
+	}
+
+	public void put(CharacterRecord record) {
+		this.records.put(record.id, record);
+		this.setDirty();
+	}
+
+	public void remove(UUID id) {
+		if (this.records.remove(id) != null) {
+			this.setDirty();
+		}
+	}
+
+	/** The lowest free instance number for this kind: 1 is "ItzBreadLoaf", 2 is "ItzBreadLoaf_2"... */
+	public int freeIndex(CharacterKind kind, MinecraftServer server) {
+		for (int index = 1; ; index++) {
+			final int candidate = index;
+			boolean taken = this.records.values().stream().anyMatch(r -> r.kind == kind && r.index == candidate)
+					|| server.getPlayerList().getPlayerByName(LoafIds.profileName(kind, index)) != null;
+			if (!taken) {
+				return index;
+			}
+		}
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/character/NaturalSpawner.java
+
+```java
+package com.itzbreadloaf.character;
+
+import com.itzbreadloaf.config.ModConfig;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.minecraft.core.BlockPos;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.tags.BlockTags;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.Difficulty;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.phys.Vec3;
+
+/**
+ * Wild ItzBreadLoafs: like a rare monster spawn, but a Carpet fake player. On the surface: ItzBreadLoaf (1 in 100 is a
+ * Sweaty one); in caves: Miners; in the Nether: Nether ItzBreadLoafs.
+ * the Overworld, a small chance (from itzBreadLoafSpawnWeight in the config; zombies are 95) to spawn one 24-48 blocks
+ * away on grass/dirt, stone, sand, gravel or snow, at any light level. Never on Peaceful, and not if two are already
+ * near. Wild ones are forgotten when they despawn unless someone befriended or tamed them.
+ */
+public final class NaturalSpawner {
+	public static final int INTERVAL = 400;
+	public static final int MAX_NEARBY = 2;
+
+	private NaturalSpawner() {
+	}
+
+	public static void register() {
+		ServerTickEvents.END_SERVER_TICK.register(NaturalSpawner::tick);
+	}
+
+	private static void tick(MinecraftServer server) {
+		if (server.getTickCount() % INTERVAL != 0) {
+			return;
+		}
+		int weight = ModConfig.get().itzBreadLoafSpawnWeight;
+		if (weight <= 0) {
+			return;
+		}
+		// Weight 5 -> 2.5% per player per check (about one every 13 minutes near each player).
+		float chance = weight / 200.0F;
+		for (ServerPlayer player : CharacterManager.realPlayers(server)) {
+			ServerLevel level = player.level();
+			RandomSource random = level.getRandom();
+			if (level.getDifficulty() == Difficulty.PEACEFUL || !level.getGameRules().get(net.minecraft.world.level.gamerules.GameRules.SPAWN_MONSTERS)
+					|| random.nextFloat() >= chance || nearbyBreads(player) >= MAX_NEARBY) {
+				continue;
+			}
+			CharacterVariant variant;
+			BlockPos spot;
+			if (level.dimension() == Level.NETHER) {
+				// Nether ItzBreadLoafs: gold armor, never burn.
+				variant = CharacterVariant.NETHER;
+				spot = findCaveSpot(level, player.blockPosition(), random, false);
+			} else if (level.dimension() == Level.OVERWORLD && isUnderground(level, player.blockPosition())) {
+				// Miners: down in the caves with their pickaxes and torches.
+				variant = CharacterVariant.MINER;
+				spot = findCaveSpot(level, player.blockPosition(), random, true);
+			} else if (level.dimension() == Level.OVERWORLD) {
+				// 1 in 100 is a Sweaty ItzBreadLoaf.
+				variant = random.nextInt(100) == 0 ? CharacterVariant.SWEATY : CharacterVariant.BREADLOAF;
+				spot = findSpot(level, player.blockPosition(), random);
+			} else {
+				continue;
+			}
+			if (spot != null) {
+				CharacterManager.create(level, variant, Vec3.atBottomCenterOf(spot), random.nextFloat() * 360.0F, brain -> brain.setWild(true));
+			}
+		}
+	}
+
+	private static boolean isUnderground(Level level, BlockPos pos) {
+		return pos.getY() < level.getSeaLevel() - 10 && level.getBrightness(net.minecraft.world.level.LightLayer.SKY, pos) == 0;
+	}
+
+	/** A dark spot in a cave (or anywhere in the Nether) 12-28 blocks away, within 10 blocks up or down. */
+	private static BlockPos findCaveSpot(Level level, BlockPos center, RandomSource random, boolean needsDark) {
+		for (int attempt = 0; attempt < 16; attempt++) {
+			double angle = random.nextDouble() * Math.PI * 2.0;
+			double distance = 12.0 + random.nextDouble() * 16.0;
+			int x = center.getX() + (int) Math.round(Math.cos(angle) * distance);
+			int z = center.getZ() + (int) Math.round(Math.sin(angle) * distance);
+			for (int dy = 10; dy >= -10; dy--) {
+				BlockPos feet = new BlockPos(x, center.getY() + dy, z);
+				if (!level.isLoaded(feet)) {
+					break;
+				}
+				if (level.getBlockState(feet).getCollisionShape(level, feet).isEmpty()
+						&& level.getBlockState(feet.above()).getCollisionShape(level, feet.above()).isEmpty()
+						&& level.getFluidState(feet).isEmpty() && level.getFluidState(feet.below()).isEmpty()
+						&& level.getBlockState(feet.below()).isFaceSturdy(level, feet.below(), net.minecraft.core.Direction.UP)
+						&& (!needsDark || level.getBrightness(net.minecraft.world.level.LightLayer.SKY, feet) == 0)) {
+					return feet;
+				}
+			}
+		}
+		return null;
+	}
+
+	private static int nearbyBreads(ServerPlayer player) {
+		int count = 0;
+		for (LoafCharacter character : CharacterManager.active()) {
+			if (character.kind() == CharacterKind.BREADLOAF && character.player.level() == player.level()
+					&& character.player.distanceTo(player) < 64.0) {
+				count++;
+			}
+		}
+		return count;
+	}
+
+	private static BlockPos findSpot(Level level, BlockPos center, RandomSource random) {
+		for (int attempt = 0; attempt < 10; attempt++) {
+			double angle = random.nextDouble() * Math.PI * 2.0;
+			double distance = 24.0 + random.nextDouble() * 24.0;
+			int x = center.getX() + (int) Math.round(Math.cos(angle) * distance);
+			int z = center.getZ() + (int) Math.round(Math.sin(angle) * distance);
+			BlockPos column = new BlockPos(x, 0, z);
+			if (!level.isLoaded(column)) {
+				continue;
+			}
+			int y = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
+			BlockPos feet = new BlockPos(x, y, z);
+			BlockState below = level.getBlockState(feet.below());
+			boolean ground = below.is(BlockTags.DIRT) || below.is(BlockTags.BASE_STONE_OVERWORLD) || below.is(BlockTags.SAND)
+					|| below.is(Blocks.GRAVEL) || below.is(Blocks.SNOW_BLOCK);
+			if (ground && level.getBlockState(feet).getCollisionShape(level, feet).isEmpty()
+					&& level.getBlockState(feet.above()).getCollisionShape(level, feet.above()).isEmpty()
+					&& level.getFluidState(feet).isEmpty()) {
+				return feet;
+			}
+		}
+		return null;
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/character/StructureTracker.java
+
+```java
+package com.itzbreadloaf.character;
+
+import com.itzbreadloaf.ItzBreadLoaf;
+import com.itzbreadloaf.ModAdvancements;
+import com.mojang.serialization.Codec;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.minecraft.ChatFormatting;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.levelgen.structure.StructureStart;
+import net.minecraft.world.level.saveddata.SavedData;
+import net.minecraft.world.level.saveddata.SavedDataType;
+
+/**
+ * Remembers which kinds of LoafCraft structure each player has stood inside. Awards "Structure Hunter" at 10
+ * different kinds and "Lily's Travels" at 3 different Lily houses. Saved with the world.
+ */
+public final class StructureTracker {
+	public static final int HUNTER_GOAL = 10;
+	public static final int LILY_GOAL = 3;
+	/** Lily's houses, one per biome style. */
+	public static final Set<String> LILY_HOMES = Set.of("lily_house", "lily_meadow_cottage", "lily_flower_cottage",
+			"lily_reading_cabin", "lily_snowy_cabin", "lily_mushroom_house", "floating_island_cottage", "treetop_library");
+
+	private StructureTracker() {
+	}
+
+	public static void register() {
+		ServerTickEvents.END_SERVER_TICK.register(StructureTracker::tick);
+	}
+
+	private static void tick(MinecraftServer server) {
+		if (server.getTickCount() % 40 != 13) {
+			return;
+		}
+		for (ServerPlayer player : CharacterManager.realPlayers(server)) {
+			ServerLevel level = player.level();
+			String kind = null;
+			StructureStart start = level.structureManager().getStructureWithPieceAt(player.blockPosition(),
+					holder -> holder.is(key -> key.identifier().getNamespace().equals(ItzBreadLoaf.MOD_ID)));
+			if (start.isValid()) {
+				Identifier id = level.registryAccess().lookupOrThrow(Registries.STRUCTURE).getKey(start.getStructure());
+				kind = id == null ? null : id.getPath();
+			}
+			if (kind == null) {
+				// Structures built while the game runs (campsites, throne rooms).
+				String dimension = level.dimension().identifier().toString();
+				for (com.itzbreadloaf.worldgen.RuntimeSites.Site site : com.itzbreadloaf.worldgen.RuntimeSites.all(server)) {
+					if (site.dimension().equals(dimension) && site.box().inflatedBy(1).isInside(player.blockPosition())) {
+						kind = site.kind();
+						break;
+					}
+				}
+			}
+			if (kind == null) {
+				continue;
+			}
+			awardFor(player, kind);
+			Data data = server.overworld().getDataStorage().computeIfAbsent(Data.TYPE);
+			Set<String> found = data.found.computeIfAbsent(player.getUUID(), uuid -> new LinkedHashSet<>());
+			if (!found.add(kind)) {
+				continue;
+			}
+			data.setDirty();
+			long lilyHomes = found.stream().filter(LILY_HOMES::contains).count();
+			player.displayClientMessage(Component.literal("Found a new LoafCraft structure! (" + Math.min(found.size(), HUNTER_GOAL) + "/" + HUNTER_GOAL + ")")
+					.withStyle(ChatFormatting.GOLD), true);
+			if (found.size() >= HUNTER_GOAL) {
+				ModAdvancements.award(player, ModAdvancements.STRUCTURE_HUNTER);
+			}
+			if (lilyHomes >= LILY_GOAL) {
+				ModAdvancements.award(player, ModAdvancements.LILYS_TRAVELS);
+			}
+		}
+	}
+
+	/** Advancements for walking into one particular structure. */
+	private static void awardFor(ServerPlayer player, String kind) {
+		Identifier advancement = switch (kind) {
+			case "windmill", "riverside_mill" -> ModAdvancements.MILL_WORKER;
+			case "floating_island_cottage" -> ModAdvancements.SKY_COTTAGE;
+			case "friendship_festival" -> ModAdvancements.FESTIVAL_GOER;
+			case "bastion_throne_room" -> ModAdvancements.THRONE_ROOM_CRASHER;
+			case "mountain_outpost" -> ModAdvancements.PEAK_PERFORMANCE;
+			case "village_campsite" -> ModAdvancements.CAMPFIRE_STORIES;
+			default -> null;
+		};
+		if (advancement != null) {
+			ModAdvancements.award(player, advancement);
+		}
+	}
+
+	/** player UUID -> structure ids found (paths, like "bread_bakery"). */
+	public static class Data extends SavedData {
+		public static final Codec<Data> CODEC = Codec.unboundedMap(Codec.STRING, Codec.STRING.listOf()).fieldOf("found").codec()
+				.xmap(Data::new, Data::encode);
+		public static final SavedDataType<Data> TYPE = new SavedDataType<>("itzbreadloaf_structures_found", Data::new, CODEC, null);
+
+		final Map<UUID, Set<String>> found = new HashMap<>();
+
+		public Data() {
+		}
+
+		public Data(Map<String, List<String>> stored) {
+			stored.forEach((player, ids) -> {
+				try {
+					this.found.put(UUID.fromString(player), new LinkedHashSet<>(ids));
+				} catch (IllegalArgumentException ignored) {
+					// Skip broken entries.
+				}
+			});
+		}
+
+		private Map<String, List<String>> encode() {
+			Map<String, List<String>> out = new HashMap<>();
+			this.found.forEach((player, ids) -> out.put(player.toString(), new ArrayList<>(ids)));
+			return out;
+		}
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/character/VillageSpawner.java
+
+```java
+package com.itzbreadloaf.character;
+
+import com.itzbreadloaf.brain.FelixBrain;
+import com.itzbreadloaf.config.ModConfig;
+import com.mojang.serialization.Codec;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.tags.StructureTags;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
+import net.minecraft.world.level.levelgen.structure.StructureStart;
+import net.minecraft.world.level.saveddata.SavedData;
+import net.minecraft.world.level.saveddata.SavedDataType;
+import net.minecraft.world.phys.Vec3;
+
+/**
+ * FelixSyn (with Harley) in villages: the first time a real player walks into a village, one roll (40% by default,
+ * felixVillageChance in the config) to have the duo show up near its middle. Each village is only rolled once,
+ * saved with the world.
+ */
+public final class VillageSpawner {
+	private VillageSpawner() {
+	}
+
+	public static void register() {
+		ServerTickEvents.END_SERVER_TICK.register(VillageSpawner::tick);
+	}
+
+	private static void tick(MinecraftServer server) {
+		if (server.getTickCount() % 100 != 37) {
+			return;
+		}
+		for (ServerPlayer player : CharacterManager.realPlayers(server)) {
+			ServerLevel level = player.level();
+			StructureStart village = level.structureManager().getStructureWithPieceAt(player.blockPosition(), StructureTags.VILLAGE);
+			if (!village.isValid()) {
+				continue;
+			}
+			String id = level.dimension().identifier() + "|" + village.getChunkPos().toLong();
+			Data data = server.overworld().getDataStorage().computeIfAbsent(Data.TYPE);
+			if (!data.villages.add(id)) {
+				continue;
+			}
+			data.setDirty();
+			RandomSource random = level.getRandom();
+			if (random.nextDouble() >= ModConfig.get().felixVillageChance) {
+				continue;
+			}
+			// They set up camp at the edge of the village (the camp's marker brings them in); if there's no good
+			// spot for a camp, they just show up near the middle like before.
+			if (buildCampsite(level, village.getBoundingBox(), random)) {
+				continue;
+			}
+			BlockPos spot = findSpot(level, village.getBoundingBox(), random);
+			if (spot != null) {
+				FelixBrain.spawnDuo(level, Vec3.atBottomCenterOf(spot), spot);
+			}
+		}
+	}
+
+	/** Builds a Village Campsite just outside one side of the village. True if it did. */
+	private static boolean buildCampsite(ServerLevel level, BoundingBox village, RandomSource random) {
+		com.itzbreadloaf.worldgen.HomeKind kind = com.itzbreadloaf.worldgen.HomeKind.VILLAGE_CAMPSITE;
+		int size = Math.max(kind.width, kind.depth);
+		BlockPos center = village.getCenter();
+		int[][] corners = {
+				{village.maxX() + 3, center.getZ() - size / 2},
+				{village.minX() - 3 - size, center.getZ() - size / 2},
+				{center.getX() - size / 2, village.maxZ() + 3},
+				{center.getX() - size / 2, village.minZ() - 3 - size}};
+		int first = random.nextInt(corners.length);
+		for (int i = 0; i < corners.length; i++) {
+			int x0 = corners[(first + i) % corners.length][0];
+			int z0 = corners[(first + i) % corners.length][1];
+			if (!level.hasChunkAt(new BlockPos(x0, 64, z0)) || !level.hasChunkAt(new BlockPos(x0 + size, 64, z0 + size))) {
+				continue;
+			}
+			int cx = x0 + size / 2;
+			int cz = z0 + size / 2;
+			int ground = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, cx, cz) - 1;
+			BlockPos top = new BlockPos(cx, ground, cz);
+			if (!level.getFluidState(top).isEmpty() || !level.getBlockState(top).isFaceSturdy(level, top, Direction.UP)) {
+				continue;
+			}
+			BoundingBox built = com.itzbreadloaf.worldgen.HomePiece.buildNow(level, kind, x0, z0, ground, random);
+			com.itzbreadloaf.worldgen.RuntimeSites.add(level, kind, built);
+			return true;
+		}
+		return false;
+	}
+
+	/** Somewhere standable near the middle of the village. */
+	private static BlockPos findSpot(ServerLevel level, BoundingBox box, RandomSource random) {
+		BlockPos center = box.getCenter();
+		for (int attempt = 0; attempt < 20; attempt++) {
+			int x = center.getX() + random.nextInt(17) - 8;
+			int z = center.getZ() + random.nextInt(17) - 8;
+			if (!level.isLoaded(new BlockPos(x, 0, z))) {
+				continue;
+			}
+			int y = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
+			BlockPos feet = new BlockPos(x, y, z);
+			if (level.getBlockState(feet.below()).isFaceSturdy(level, feet.below(), Direction.UP) && level.getFluidState(feet).isEmpty()) {
+				return feet;
+			}
+		}
+		return null;
+	}
+
+	/** Villages already rolled. */
+	public static class Data extends SavedData {
+		public static final Codec<Data> CODEC = Codec.STRING.listOf().fieldOf("villages").codec()
+				.xmap(Data::new, data -> List.copyOf(data.villages));
+		public static final SavedDataType<Data> TYPE = new SavedDataType<>("itzbreadloaf_felix_villages", Data::new, CODEC, null);
+
+		final Set<String> villages;
+
+		public Data() {
+			this(List.of());
+		}
+
+		public Data(List<String> villages) {
+			this.villages = new HashSet<>(villages);
+		}
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/config/ModConfig.java
+
+```java
+package com.itzbreadloaf.config;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.itzbreadloaf.ItzBreadLoaf;
+import java.io.IOException;
+import java.io.Reader;
+import java.io.Writer;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import net.fabricmc.loader.api.FabricLoader;
+
+/**
+ * Settings in config/itzbreadloaf.json (created on first launch). Edit the file and restart the game.
+ */
+public final class ModConfig {
+	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+	private static ModConfig instance = new ModConfig();
+
+	/** Short action-bar lines like "get over here!" and "oh... hi". */
+	public boolean actionBarMessages = true;
+	/** ItzBreadLoaf's random natural spawn weight (zombies are 95). Most of them live in houses and tents instead. */
+	public int itzBreadLoafSpawnWeight = 5;
+	/** Master BreadLoaf preset: "easy", "normal" or "hard" (health, damage, how hard his mace smashes can hit). */
+	public String bossDifficulty = "normal";
+	/** Most characters (Carpet fake players) spawned at the same time. The closest ones to real players win. */
+	public int maxActiveCharacters = 20;
+	/** Characters exist only while a real player is this close (blocks, about 4 chunks). Farther away they are saved and despawned. */
+	public double activationRange = 64.0;
+
+	/** Harley preset: "easy", "normal" or "hard" (health, damage, speed, how often she crits, how fast she pearls). */
+	public String harleyDifficulty = "normal";
+	/** Chance (0-1) that a village gets FelixSyn (and Harley) the first time a player visits it. */
+	public double felixVillageChance = 0.4;
+	/** Harley's best friend: the one real player she adores and gives gifts to (matched by Minecraft name, any case). */
+	public String harleyBestFriend = "FelixSyn";
+	/** Share (0-1) of ItzBreadLoafs and FelixSyns wearing their main skin; the rest wear a random old skin (<name>_alt<N>.png). */
+	public double mainSkinChance = 0.5;
+	/** Seconds between Harley's gifts to her best friend (a random time between min and max). */
+	public int harleyGiftMinSeconds = 180;
+	public int harleyGiftMaxSeconds = 300;
+
+	// ---------------------------------------------------------------- taming and health
+	/** Taming chance: 1 in this many steaks for ItzBreadLoaf. */
+	public int breadTameChance = 3;
+	/** Taming chance: 1 in this many golden apples for Harley (her best friend always tames her on the first). */
+	public int harleyTameChance = 5;
+	/** Multiplies every ItzBreadLoaf type's health (Knight 30, Captain 40, normal 20...). */
+	public double breadHealthMultiplier = 1.0;
+	public double lilyHealth = 30.0;
+	public double madisonHealth = 26.0;
+	public double felixHealth = 30.0;
+
+	// ---------------------------------------------------------------- combat
+	/** Health fraction (0-1) where each character backs off to block, heal and eat. 0 = never. */
+	public double breadRetreatHealth = 0.3;
+	public double cousinsRetreatHealth = 0.4;
+	public double felixRetreatHealth = 0.3;
+	public double harleyRetreatHealth = 0.2;
+
+	// ---------------------------------------------------------------- personality
+	/** Random idle lines when a player is close, and characters talking to each other. */
+	public boolean idleChatter = true;
+	public int chatterMinSeconds = 60;
+	public int chatterMaxSeconds = 180;
+
+	// ---------------------------------------------------------------- performance
+	/** Most path searches all characters together may run in one tick (the rest wait a tick or two). */
+	public int maxPathSearchesPerTick = 6;
+
+	public enum HarleyPreset {
+		EASY(30.0, 0.8, 0.115, 0.5F, 200), NORMAL(40.0, 1.0, 0.125, 0.85F, 120), HARD(50.0, 1.25, 0.135, 1.0F, 80);
+
+		public final double health;
+		public final double damageMultiplier;
+		/** Movement speed attribute (players walk at 0.1). */
+		public final double speed;
+		/** How often she jumps for a crit when the timing allows. */
+		public final float critChance;
+		/** Ticks between ender pearls. */
+		public final int pearlCooldown;
+
+		HarleyPreset(double health, double damageMultiplier, double speed, float critChance, int pearlCooldown) {
+			this.health = health;
+			this.damageMultiplier = damageMultiplier;
+			this.speed = speed;
+			this.critChance = critChance;
+			this.pearlCooldown = pearlCooldown;
+		}
+	}
+
+	public HarleyPreset harleyPreset() {
+		return switch (this.harleyDifficulty == null ? "" : this.harleyDifficulty.toLowerCase(java.util.Locale.ROOT)) {
+			case "easy" -> HarleyPreset.EASY;
+			case "hard" -> HarleyPreset.HARD;
+			default -> HarleyPreset.NORMAL;
+		};
+	}
+
+	public enum BossPreset {
+		EASY(150, 0.7, 4.0F), NORMAL(200, 1.0, 6.0F), HARD(300, 1.3, 9.0F);
+
+		public final double health;
+		public final double damageMultiplier;
+		/** Largest fall distance a mace smash counts (mace damage grows with the fall). */
+		public final float maxSmashFall;
+
+		BossPreset(double health, double damageMultiplier, float maxSmashFall) {
+			this.health = health;
+			this.damageMultiplier = damageMultiplier;
+			this.maxSmashFall = maxSmashFall;
+		}
+	}
+
+	public BossPreset bossPreset() {
+		return switch (this.bossDifficulty == null ? "" : this.bossDifficulty.toLowerCase(java.util.Locale.ROOT)) {
+			case "easy" -> BossPreset.EASY;
+			case "hard" -> BossPreset.HARD;
+			default -> BossPreset.NORMAL;
+		};
+	}
+
+	public static ModConfig get() {
+		return instance;
+	}
+
+	public static void load() {
+		Path path = FabricLoader.getInstance().getConfigDir().resolve(ItzBreadLoaf.MOD_ID + ".json");
+		if (Files.exists(path)) {
+			try (Reader reader = Files.newBufferedReader(path)) {
+				ModConfig loaded = GSON.fromJson(reader, ModConfig.class);
+				if (loaded != null) {
+					instance = loaded;
+				}
+			} catch (IOException | RuntimeException e) {
+				ItzBreadLoaf.LOGGER.warn("Could not read {}, using defaults", path, e);
+			}
+		}
+		// Write it back so new options show up in old files.
+		try (Writer writer = Files.newBufferedWriter(path)) {
+			GSON.toJson(instance, writer);
+		} catch (IOException e) {
+			ItzBreadLoaf.LOGGER.warn("Could not write {}", path, e);
+		}
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/item/LoafSpawnEggItem.java
+
+```java
+package com.itzbreadloaf.item;
+
+import com.itzbreadloaf.boss.BossSpawner;
+import com.itzbreadloaf.character.CharacterKind;
+import com.itzbreadloaf.character.CharacterManager;
+import com.itzbreadloaf.character.LoafCharacter;
+import net.minecraft.core.BlockPos;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.context.UseOnContext;
+import net.minecraft.world.phys.Vec3;
+
+/**
+ * Spawn egg for a character: use it on a block to spawn a new Carpet fake player there
+ * (ItzBreadLoaf, ImLilyLol, Madison, or Master BreadLoaf with his boss entrance).
+ */
+public class LoafSpawnEggItem extends Item {
+	private final CharacterKind kind;
+
+	public LoafSpawnEggItem(CharacterKind kind, Properties properties) {
+		super(properties);
+		this.kind = kind;
+	}
+
+	public CharacterKind kind() {
+		return this.kind;
+	}
+
+	@Override
+	public InteractionResult useOn(UseOnContext context) {
+		if (!(context.getLevel() instanceof ServerLevel level)) {
+			return InteractionResult.SUCCESS;
+		}
+		BlockPos clicked = context.getClickedPos();
+		BlockPos pos = level.getBlockState(clicked).getCollisionShape(level, clicked).isEmpty()
+				? clicked : clicked.relative(context.getClickedFace());
+		Player player = context.getPlayer();
+		float yaw = player == null ? 0.0F : player.getYRot() + 180.0F;
+		LoafCharacter character;
+		if (this.kind == CharacterKind.MASTER) {
+			character = BossSpawner.spawnBoss(level, pos);
+		} else if (this.kind == CharacterKind.FELIXSYN) {
+			character = com.itzbreadloaf.brain.FelixBrain.spawnDuo(level, Vec3.atBottomCenterOf(pos), pos);
+		} else {
+			character = CharacterManager.create(level, this.kind, Vec3.atBottomCenterOf(pos), yaw, null);
+		}
+		if (character != null && player != null && !player.getAbilities().instabuild) {
+			context.getItemInHand().shrink(1);
+		}
+		return InteractionResult.SUCCESS;
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/item/ModItems.java
+
+```java
+package com.itzbreadloaf.item;
+
+import com.itzbreadloaf.ItzBreadLoaf;
+import com.itzbreadloaf.block.ModBlocks;
+import com.itzbreadloaf.character.CharacterKind;
+import java.util.List;
+import java.util.function.Function;
+import net.fabricmc.fabric.api.itemgroup.v1.FabricItemGroup;
+import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
+import net.minecraft.core.Registry;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffects;
+import net.minecraft.world.food.FoodProperties;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.CreativeModeTab;
+import net.minecraft.world.item.CreativeModeTabs;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Rarity;
+import net.minecraft.world.item.component.Consumables;
+import net.minecraft.world.item.consume_effects.ApplyStatusEffectsConsumeEffect;
+
+public final class ModItems {
+	// Spawn eggs create Carpet fake players (characters), not mobs.
+	public static final Item ITZBREADLOAF_SPAWN_EGG = registerEgg("itzbreadloaf_spawn_egg", CharacterKind.BREADLOAF);
+	public static final Item IMLILYLOL_SPAWN_EGG = registerEgg("imlilylol_spawn_egg", CharacterKind.LILY);
+	public static final Item MADISON_SPAWN_EGG = registerEgg("madison_spawn_egg", CharacterKind.MADISON);
+	public static final Item MASTER_BREADLOAF_SPAWN_EGG = registerEgg("master_breadloaf_spawn_egg", CharacterKind.MASTER);
+	/** Spawns FelixSyn together with his partner Harley. */
+	public static final Item FELIXSYN_SPAWN_EGG = registerEgg("felixsyn_spawn_egg", CharacterKind.FELIXSYN);
+	public static final Item HARLEY_SPAWN_EGG = registerEgg("harley_spawn_egg", CharacterKind.HARLEY);
+
+	/** Harley's netherite sword. Dropped (always) by a wild Harley, enchanted Sharpness V and Unbreaking III. */
+	public static final Item HARLEYS_BLADE = register("harleys_blade", properties -> new Item(properties
+			.sword(net.minecraft.world.item.ToolMaterial.NETHERITE, 3.0F, -2.4F).rarity(Rarity.EPIC).fireResistant()));
+
+	/** Food you can always eat (even full, like a golden apple): Saturation and Speed I for 10 seconds. Sold by Baker Madison. */
+	public static final Item LOAF_BREAD = register("loaf_bread", properties -> new Item(properties
+			.food(new FoodProperties.Builder().nutrition(6).saturationModifier(0.8F).alwaysEdible().build(),
+					Consumables.defaultFood().onConsume(new ApplyStatusEffectsConsumeEffect(List.of(
+							new MobEffectInstance(MobEffects.SATURATION, 200),
+							new MobEffectInstance(MobEffects.SPEED, 200)))).build())));
+	public static final Item MASTER_LOAF_TROPHY = register("master_loaf_trophy",
+			properties -> new BlockItem(ModBlocks.MASTER_LOAF_TROPHY, properties.useBlockDescriptionPrefix().rarity(Rarity.EPIC)));
+
+	public static final ResourceKey<CreativeModeTab> LOAFCRAFT_TAB_KEY =
+			ResourceKey.create(Registries.CREATIVE_MODE_TAB, ItzBreadLoaf.id("loafcraft"));
+	public static final CreativeModeTab LOAFCRAFT_TAB = Registry.register(BuiltInRegistries.CREATIVE_MODE_TAB, LOAFCRAFT_TAB_KEY,
+			FabricItemGroup.builder()
+					.title(Component.translatable("itemGroup.itzbreadloaf.loafcraft"))
+					.icon(() -> new ItemStack(ITZBREADLOAF_SPAWN_EGG))
+					.displayItems((parameters, output) -> {
+						output.accept(ITZBREADLOAF_SPAWN_EGG);
+						output.accept(IMLILYLOL_SPAWN_EGG);
+						output.accept(MADISON_SPAWN_EGG);
+						output.accept(MASTER_BREADLOAF_SPAWN_EGG);
+						output.accept(FELIXSYN_SPAWN_EGG);
+						output.accept(HARLEY_SPAWN_EGG);
+						output.accept(harleysBlade(parameters.holders()));
+						output.accept(LOAF_BREAD);
+						output.accept(MASTER_LOAF_TROPHY);
+					})
+					.build());
+
+	private ModItems() {
+	}
+
+	private static Item register(String name, Function<Item.Properties, Item> factory) {
+		ResourceKey<Item> key = ResourceKey.create(Registries.ITEM, ItzBreadLoaf.id(name));
+		return Registry.register(BuiltInRegistries.ITEM, key, factory.apply(new Item.Properties().setId(key)));
+	}
+
+	private static Item registerEgg(String name, CharacterKind kind) {
+		return register(name, properties -> new LoafSpawnEggItem(kind, properties));
+	}
+
+	/** Harley's Blade as she carries and drops it: Sharpness V, Unbreaking III. */
+	public static ItemStack harleysBlade(net.minecraft.core.HolderLookup.Provider registries) {
+		ItemStack blade = new ItemStack(HARLEYS_BLADE);
+		var enchantments = registries.lookupOrThrow(Registries.ENCHANTMENT);
+		blade.enchant(enchantments.getOrThrow(net.minecraft.world.item.enchantment.Enchantments.SHARPNESS), 5);
+		blade.enchant(enchantments.getOrThrow(net.minecraft.world.item.enchantment.Enchantments.UNBREAKING), 3);
+		return blade;
+	}
+
+	public static void register() {
+		// The eggs also stay in the vanilla Spawn Eggs tab.
+		ItemGroupEvents.modifyEntriesEvent(CreativeModeTabs.SPAWN_EGGS).register(entries -> {
+			entries.accept(ITZBREADLOAF_SPAWN_EGG);
+			entries.accept(IMLILYLOL_SPAWN_EGG);
+			entries.accept(MADISON_SPAWN_EGG);
+			entries.accept(MASTER_BREADLOAF_SPAWN_EGG);
+			entries.accept(FELIXSYN_SPAWN_EGG);
+			entries.accept(HARLEY_SPAWN_EGG);
+		});
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/mixin/AvatarAccessor.java
+
+```java
+package com.itzbreadloaf.mixin;
+
+import net.minecraft.network.syncher.EntityDataAccessor;
+import net.minecraft.world.entity.Avatar;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.gen.Accessor;
+
+/** The "which skin layers are shown" data, set to all layers for characters (like Carpet does). */
+@Mixin(Avatar.class)
+public interface AvatarAccessor {
+	@Accessor("DATA_PLAYER_MODE_CUSTOMISATION")
+	static EntityDataAccessor<Byte> loaf$getModeCustomisation() {
+		throw new AssertionError();
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/mixin/EntityAccessor.java
+
+```java
+package com.itzbreadloaf.mixin;
+
+import net.minecraft.world.entity.Entity;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.gen.Invoker;
+
+/** Carpet's fake player spawn calls Entity.unsetRemoved (protected); LoafCraft does the same steps. */
+@Mixin(Entity.class)
+public interface EntityAccessor {
+	@Invoker("unsetRemoved")
+	void loaf$unsetRemoved();
+}
+```
+
+## src/main/java/com/itzbreadloaf/mixin/EntityPlayerMPFakeMixin.java
+
+```java
+package com.itzbreadloaf.mixin;
+
+import carpet.patches.EntityPlayerMPFake;
+import com.itzbreadloaf.character.CharacterManager;
+import net.minecraft.server.level.ServerLevel;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+/** Carpet turns /kill on a fake player into a silent disconnect. For characters it is a real (permanent) death. */
+@Mixin(EntityPlayerMPFake.class)
+public abstract class EntityPlayerMPFakeMixin {
+	@Inject(method = "kill(Lnet/minecraft/server/level/ServerLevel;)V", at = @At("HEAD"), cancellable = true)
+	private void loaf$realDeath(ServerLevel level, CallbackInfo ci) {
+		if (CharacterManager.killByCommand((EntityPlayerMPFake) (Object) this)) {
+			ci.cancel();
+		}
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/mixin/ExperienceOrbMixin.java
+
+```java
+package com.itzbreadloaf.mixin;
+
+import com.itzbreadloaf.character.LoafIds;
+import net.minecraft.world.entity.ExperienceOrb;
+import net.minecraft.world.entity.player.Player;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+/** Experience is for real players: characters never collect orbs. */
+@Mixin(ExperienceOrb.class)
+public abstract class ExperienceOrbMixin {
+	@Inject(method = "playerTouch", at = @At("HEAD"), cancellable = true)
+	private void loaf$noCharacterXp(Player player, CallbackInfo ci) {
+		if (LoafIds.isCharacter(player)) {
+			ci.cancel();
+		}
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/mixin/FishingHookAccessor.java
+
+```java
+package com.itzbreadloaf.mixin;
+
+import net.minecraft.world.entity.projectile.FishingHook;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.gen.Accessor;
+
+/** Fisher Madison watches her bobber: true while a fish is on the hook (a real player sees the bobber dip). */
+@Mixin(FishingHook.class)
+public interface FishingHookAccessor {
+	@Accessor("biting")
+	boolean loaf$isBiting();
+}
+```
+
+## src/main/java/com/itzbreadloaf/mixin/ItemEntityMixin.java
+
+```java
+package com.itzbreadloaf.mixin;
+
+import com.itzbreadloaf.character.CharacterManager;
+import com.itzbreadloaf.character.LoafIds;
+import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.player.Player;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+/** Characters only pick up items their brain wants (ItzBreadLoaf: better weapons, armor, food, blocks, arrows). */
+@Mixin(ItemEntity.class)
+public abstract class ItemEntityMixin {
+	@Inject(method = "playerTouch", at = @At("HEAD"), cancellable = true)
+	private void loaf$characterPickup(Player player, CallbackInfo ci) {
+		if (LoafIds.isCharacter(player) && !CharacterManager.wantsToPickUp(player, ((ItemEntity) (Object) this).getItem())) {
+			ci.cancel();
+		}
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/mixin/LivingEntityMixin.java
+
+```java
+package com.itzbreadloaf.mixin;
+
+import com.itzbreadloaf.character.CharacterManager;
+import com.itzbreadloaf.character.LoafIds;
+import net.minecraft.world.entity.LivingEntity;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+
+/** Vanilla mobs ignore friendly characters (Lily, Madison, tamed ItzBreadLoafs) but still fight hostile ones. */
+@Mixin(LivingEntity.class)
+public abstract class LivingEntityMixin {
+	@Inject(method = "canBeSeenAsEnemy", at = @At("HEAD"), cancellable = true)
+	private void loaf$friendlyCharacters(CallbackInfoReturnable<Boolean> cir) {
+		LivingEntity self = (LivingEntity) (Object) this;
+		if (!self.level().isClientSide() && LoafIds.isCharacter(self) && CharacterManager.isFriendlyToMobs(self.getUUID())) {
+			cir.setReturnValue(false);
+		}
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/mixin/PlayerAdvancementsMixin.java
+
+```java
+package com.itzbreadloaf.mixin;
+
+import com.itzbreadloaf.character.LoafIds;
+import net.minecraft.advancements.AdvancementHolder;
+import net.minecraft.server.PlayerAdvancements;
+import net.minecraft.server.level.ServerPlayer;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+
+/** Characters never earn advancements (no toasts, no chat messages, no advancement files). */
+@Mixin(PlayerAdvancements.class)
+public abstract class PlayerAdvancementsMixin {
+	@Shadow
+	private ServerPlayer player;
+
+	@Inject(method = "award", at = @At("HEAD"), cancellable = true)
+	private void loaf$noAdvancements(AdvancementHolder advancement, String criterion, CallbackInfoReturnable<Boolean> cir) {
+		if (LoafIds.isCharacter(this.player)) {
+			cir.setReturnValue(false);
+		}
+	}
+
+	@Inject(method = "save", at = @At("HEAD"), cancellable = true)
+	private void loaf$noAdvancementFile(CallbackInfo ci) {
+		if (LoafIds.isCharacter(this.player)) {
+			ci.cancel();
+		}
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/mixin/PlayerListMixin.java
+
+```java
+package com.itzbreadloaf.mixin;
+
+import com.itzbreadloaf.character.LoafIds;
+import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
+import com.llamalad7.mixinextras.injector.ModifyReturnValue;
+import com.llamalad7.mixinextras.injector.v2.WrapWithCondition;
+import com.llamalad7.mixinextras.sugar.Local;
+import java.util.List;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.players.PlayerList;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+/**
+ * Characters are players to the game, but not to the player list:
+ * they don't count toward the player count or max players, get no "joined the game" message,
+ * and never write player data, stats or advancement files.
+ */
+@Mixin(PlayerList.class)
+public abstract class PlayerListMixin {
+	@Shadow
+	public abstract List<ServerPlayer> getPlayers();
+
+	@ModifyReturnValue(method = "getPlayerCount", at = @At("RETURN"))
+	private int loaf$excludeCharacters(int count) {
+		return count - loaf$countCharacters(this.getPlayers());
+	}
+
+	@ModifyExpressionValue(method = "canPlayerLogin", at = @At(value = "INVOKE", target = "Ljava/util/List;size()I"))
+	private int loaf$excludeCharactersFromMaxPlayers(int count) {
+		return count - loaf$countCharacters(this.getPlayers());
+	}
+
+	@WrapWithCondition(method = "placeNewPlayer", at = @At(value = "INVOKE",
+			target = "Lnet/minecraft/server/players/PlayerList;broadcastSystemMessage(Lnet/minecraft/network/chat/Component;Z)V"))
+	private boolean loaf$hideJoinMessage(PlayerList playerList, Component message, boolean overlay,
+			@Local(argsOnly = true) ServerPlayer player) {
+		return !LoafIds.isCharacter(player);
+	}
+
+	@Inject(method = "save", at = @At("HEAD"), cancellable = true)
+	private void loaf$noPlayerFiles(ServerPlayer player, CallbackInfo ci) {
+		if (LoafIds.isCharacter(player)) {
+			ci.cancel();
+		}
+	}
+
+	private static int loaf$countCharacters(List<ServerPlayer> players) {
+		int characters = 0;
+		for (ServerPlayer player : players) {
+			if (LoafIds.isCharacter(player)) {
+				characters++;
+			}
+		}
+		return characters;
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/mixin/PlayerMixin.java
+
+```java
+package com.itzbreadloaf.mixin;
+
+import com.itzbreadloaf.brain.LoafBrain;
+import com.itzbreadloaf.character.CharacterManager;
+import com.itzbreadloaf.character.CharacterNames;
+import com.itzbreadloaf.character.LoafIds;
+import net.minecraft.network.chat.Component;
+import net.minecraft.sounds.SoundEvent;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.entity.player.Player;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+
+/**
+ * Characters: clean display names ("Master BreadLoaf", gold for Best Friends) and their own hurt sound
+ * (ItzBreadLoaf's meow) instead of the player one.
+ */
+@Mixin(Player.class)
+public abstract class PlayerMixin {
+	@Inject(method = "getDisplayName", at = @At("HEAD"), cancellable = true)
+	private void loaf$characterName(CallbackInfoReturnable<Component> cir) {
+		Player self = (Player) (Object) this;
+		if (LoafIds.isCharacter(self.getUUID())) {
+			cir.setReturnValue(CharacterNames.displayName(self));
+		}
+	}
+
+	@Inject(method = "getHurtSound", at = @At("HEAD"), cancellable = true)
+	private void loaf$characterHurtSound(DamageSource source, CallbackInfoReturnable<SoundEvent> cir) {
+		Player self = (Player) (Object) this;
+		if (!self.level().isClientSide()) {
+			LoafBrain brain = CharacterManager.brain(self);
+			SoundEvent sound = brain == null ? null : brain.hurtSound();
+			if (sound != null) {
+				cir.setReturnValue(sound);
+			}
+		}
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/mixin/ServerGamePacketListenerImplAccessor.java
+
+```java
+package com.itzbreadloaf.mixin;
+
+import net.minecraft.server.network.ServerGamePacketListenerImpl;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.gen.Invoker;
+
+/** Marks a character's connection as "world loaded" right away (players can't be hurt until it is). */
+@Mixin(ServerGamePacketListenerImpl.class)
+public interface ServerGamePacketListenerImplAccessor {
+	@Invoker("markClientLoaded")
+	void loaf$markClientLoaded();
+}
+```
+
+## src/main/java/com/itzbreadloaf/mixin/ServerGamePacketListenerImplMixin.java
+
+```java
+package com.itzbreadloaf.mixin;
+
+import com.itzbreadloaf.character.LoafIds;
+import com.llamalad7.mixinextras.injector.v2.WrapWithCondition;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.network.ServerGamePacketListenerImpl;
+import net.minecraft.server.players.PlayerList;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.injection.At;
+
+/** No "ItzBreadLoaf left the game" when a character despawns. */
+@Mixin(ServerGamePacketListenerImpl.class)
+public abstract class ServerGamePacketListenerImplMixin {
+	@Shadow
+	public ServerPlayer player;
+
+	@WrapWithCondition(method = "removePlayerFromWorld", at = @At(value = "INVOKE",
+			target = "Lnet/minecraft/server/players/PlayerList;broadcastSystemMessage(Lnet/minecraft/network/chat/Component;Z)V"))
+	private boolean loaf$hideLeaveMessage(PlayerList playerList, Component message, boolean overlay) {
+		return !LoafIds.isCharacter(this.player);
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/mixin/SleepStatusMixin.java
+
+```java
+package com.itzbreadloaf.mixin;
+
+import com.itzbreadloaf.character.LoafIds;
+import java.util.List;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.players.SleepStatus;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.ModifyVariable;
+
+/** Characters don't count for playersSleepingPercentage: not as players who must sleep, not as sleepers. */
+@Mixin(SleepStatus.class)
+public abstract class SleepStatusMixin {
+	@ModifyVariable(method = "update", at = @At("HEAD"), argsOnly = true)
+	private List<ServerPlayer> loaf$realPlayersOnly(List<ServerPlayer> players) {
+		return loaf$filter(players);
+	}
+
+	@ModifyVariable(method = "areEnoughDeepSleeping", at = @At("HEAD"), argsOnly = true)
+	private List<ServerPlayer> loaf$realDeepSleepersOnly(List<ServerPlayer> players) {
+		return loaf$filter(players);
+	}
+
+	private static List<ServerPlayer> loaf$filter(List<ServerPlayer> players) {
+		for (ServerPlayer player : players) {
+			if (LoafIds.isCharacter(player)) {
+				return players.stream().filter(p -> !LoafIds.isCharacter(p)).toList();
+			}
+		}
+		return players;
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/sound/ModSounds.java
+
+```java
+package com.itzbreadloaf.sound;
+
+import com.itzbreadloaf.ItzBreadLoaf;
+import net.minecraft.core.Registry;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.sounds.SoundEvent;
+
+/**
+ * The mod's sounds. ItzBreadLoaf's events play his recorded voice lines (sounds/breadloaf/*.ogg, several per event,
+ * one picked at random);
+ * ImLilyLol's voice plays sounds/imlilylol_voice.ogg. To change what an event plays later,
+ * only change its "sounds" list in assets/itzbreadloaf/sounds.json. No code change needed.
+ */
+public final class ModSounds {
+	public static final SoundEvent MEOW = register("itzbreadloaf.meow");
+	public static final SoundEvent AMBIENT = register("itzbreadloaf.ambient");
+	public static final SoundEvent HURT = register("itzbreadloaf.hurt");
+	public static final SoundEvent DEATH = register("itzbreadloaf.death");
+	public static final SoundEvent TAUNT = register("itzbreadloaf.taunt");
+	public static final SoundEvent TAMED = register("itzbreadloaf.tamed");
+	/** A big (critical) hit. */
+	public static final SoundEvent CRIT = register("itzbreadloaf.crit");
+	/** Starting a fight with a rival (FelixSyn). */
+	public static final SoundEvent START_DUEL = register("itzbreadloaf.start_duel");
+	/** Winning a fight against a player or rival. */
+	public static final SoundEvent END_DUEL = register("itzbreadloaf.end_duel");
+	/** Giving someone a gift (not used yet: ready for a gift feature). */
+	public static final SoundEvent GIVES_GIFT = register("itzbreadloaf.gives_gift");
+	/** Being fed / given steak. */
+	public static final SoundEvent GIVEN_GIFT = register("itzbreadloaf.given_gift");
+	/** Handing out a daily mission (not used yet: ready for a mission feature). */
+	public static final SoundEvent DAILY_MISSION = register("itzbreadloaf.daily_mission");
+	/** ImLilyLol's own voice (assets/itzbreadloaf/sounds/imlilylol_voice.ogg). Played quieter and higher-pitched. */
+	public static final SoundEvent LILY_VOICE = register("imlilylol.voice");
+	/** Madison's own voice (assets/itzbreadloaf/sounds/madison_voice.ogg). */
+	public static final SoundEvent MADISON_VOICE = register("madison.voice");
+
+	private ModSounds() {
+	}
+
+	private static SoundEvent register(String name) {
+		Identifier id = ItzBreadLoaf.id(name);
+		return Registry.register(BuiltInRegistries.SOUND_EVENT, id, SoundEvent.createVariableRangeEvent(id));
+	}
+
+	public static void register() {
+		// Loads the class so the static fields above run.
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/worldgen/BreadHomes.java
+
+```java
+package com.itzbreadloaf.worldgen;
+
+import com.itzbreadloaf.character.CharacterVariant;
+import java.util.UUID;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.WorldGenLevel;
+import net.minecraft.world.level.block.AbstractFurnaceBlock;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.CampfireBlock;
+import net.minecraft.world.level.block.DispenserBlock;
+import net.minecraft.world.level.block.LadderBlock;
+import net.minecraft.world.level.block.LanternBlock;
+import net.minecraft.world.level.block.LeavesBlock;
+import net.minecraft.world.level.block.StairBlock;
+import net.minecraft.world.level.block.TrapDoorBlock;
+import net.minecraft.world.level.block.VineBlock;
+import net.minecraft.world.level.block.entity.DispenserBlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.block.state.properties.Half;
+import net.minecraft.world.level.block.state.properties.RailShape;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
+
+/** ItzBreadLoaf's new homes: bakery, lookout tower, mining camp, jungle treehouse, desert bunker, igloo, dock, castle. */
+final class BreadHomes {
+	private BreadHomes() {
+	}
+
+	private static BlockState air() {
+		return Blocks.AIR.defaultBlockState();
+	}
+
+	private static BlockState lantern(boolean hanging) {
+		return Blocks.LANTERN.defaultBlockState().setValue(LanternBlock.HANGING, hanging);
+	}
+
+	// ------------------------------------------------------------ Bread bakery
+
+	static void bakery(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		BlockState planks = Blocks.OAK_PLANKS.defaultBlockState();
+		p.fill(level, box, 0, 1, 0, 10, 7, 10, air());
+		p.fill(level, box, 0, 0, 0, 10, 0, 10, Blocks.GRASS_BLOCK.defaultBlockState());
+		p.foundation(level, box, 0, 0, 10, 10, Blocks.COBBLESTONE.defaultBlockState());
+		p.fill(level, box, 1, 0, 1, 9, 0, 9, Blocks.COBBLESTONE.defaultBlockState());
+		p.walls(level, box, 1, 1, 9, 9, 1, 4, planks);
+		for (int[] c : new int[][]{{1, 1}, {9, 1}, {1, 9}, {9, 9}}) {
+			p.fill(level, box, c[0], 1, c[1], c[0], 5, c[1], Blocks.STRIPPED_OAK_LOG.defaultBlockState());
+		}
+		p.fill(level, box, 1, 5, 1, 9, 5, 9, planks);
+		p.fill(level, box, 2, 6, 2, 8, 6, 8, Blocks.OAK_SLAB.defaultBlockState());
+		p.door(level, box, 5, 1, 1, Blocks.OAK_DOOR);
+		for (int[] w : new int[][]{{3, 1}, {7, 1}, {1, 5}, {9, 5}}) {
+			p.put(level, box, Blocks.GLASS_PANE.defaultBlockState(), w[0], 2, w[1]);
+		}
+		// Ovens along the right wall, with a chimney.
+		BlockState furnace = Blocks.FURNACE.defaultBlockState().setValue(AbstractFurnaceBlock.FACING, Direction.WEST);
+		BlockState smoker = Blocks.SMOKER.defaultBlockState().setValue(AbstractFurnaceBlock.FACING, Direction.WEST);
+		p.put(level, box, furnace, 8, 1, 8);
+		p.put(level, box, furnace, 8, 1, 7);
+		p.put(level, box, smoker, 8, 1, 6);
+		p.put(level, box, smoker, 8, 1, 5);
+		p.fill(level, box, 8, 6, 8, 8, 8, 8, Blocks.COBBLESTONE.defaultBlockState());
+		// Hay for flour, a work table, his bed, the bread chest and a supply barrel.
+		p.put(level, box, Blocks.HAY_BLOCK.defaultBlockState(), 2, 1, 2);
+		p.put(level, box, Blocks.HAY_BLOCK.defaultBlockState(), 3, 1, 2);
+		p.put(level, box, Blocks.HAY_BLOCK.defaultBlockState(), 2, 2, 2);
+		p.put(level, box, Blocks.CRAFTING_TABLE.defaultBlockState(), 8, 1, 3);
+		p.bed(level, box, 2, 1, 7, Blocks.ORANGE_BED);
+		p.chest(level, box, random, 6, 1, 8, ModStructures.lootTable("chests/bread_bakery"));
+		p.barrel(level, box, random, 2, 1, 4, ModStructures.BARREL_LOOT);
+		p.put(level, box, lantern(true), 5, 4, 5);
+		// Hay bales outside too.
+		p.put(level, box, Blocks.HAY_BLOCK.defaultBlockState(), 0, 1, 3);
+		p.put(level, box, Blocks.HAY_BLOCK.defaultBlockState(), 0, 1, 4);
+
+		BlockPos spawn = p.pos(5, 1, 4);
+		if (p.claimSpawn(spawn, box)) {
+			BlockPos bed = p.pos(2, 1, 8);
+			p.placeMarker(level, spawn, m -> m.addResident(CharacterVariant.BREADLOAF, spawn, spawn, 10, bed, null, null));
+		}
+	}
+
+	// ------------------------------------------------------------ Lookout tower
+
+	static void lookoutTower(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		BlockState stone = Blocks.STONE_BRICKS.defaultBlockState();
+		BlockState planks = Blocks.DARK_OAK_PLANKS.defaultBlockState();
+		BlockState log = Blocks.DARK_OAK_LOG.defaultBlockState();
+		p.fill(level, box, 0, 1, 0, 6, 21, 6, air());
+		p.fill(level, box, 0, 0, 0, 6, 0, 6, stone);
+		p.foundation(level, box, 0, 0, 6, 6, stone);
+		// Stone lower half, dark wood upper half.
+		p.walls(level, box, 1, 1, 5, 5, 1, 8, stone);
+		p.walls(level, box, 1, 1, 5, 5, 9, 16, planks);
+		for (int[] c : new int[][]{{1, 1}, {5, 1}, {1, 5}, {5, 5}}) {
+			p.fill(level, box, c[0], 9, c[1], c[0], 16, c[1], log);
+		}
+		p.fill(level, box, 3, 1, 1, 3, 2, 1, air());
+		for (int y = 1; y <= 17; y++) {
+			p.put(level, box, Blocks.LADDER.defaultBlockState().setValue(LadderBlock.FACING, Direction.NORTH), 3, y, 4);
+		}
+		for (int x = 0; x <= 6; x++) {
+			for (int z = 0; z <= 6; z++) {
+				if (x != 3 || z != 4) {
+					p.put(level, box, planks, x, 17, z);
+				}
+			}
+		}
+		for (int i = 1; i <= 5; i++) {
+			for (int[] c : new int[][]{{i, 0}, {i, 6}, {0, i}, {6, i}}) {
+				p.put(level, box, Blocks.DARK_OAK_FENCE.defaultBlockState(), c[0], 18, c[1]);
+			}
+		}
+		for (int[] c : new int[][]{{0, 0}, {6, 0}, {0, 6}, {6, 6}}) {
+			p.fill(level, box, c[0], 18, c[1], c[0], 20, c[1], log);
+		}
+		p.fill(level, box, 0, 21, 0, 6, 21, 6, Blocks.DARK_OAK_SLAB.defaultBlockState());
+		p.chest(level, box, random, 5, 18, 1, ModStructures.lootTable("chests/lookout_tower"));
+		p.put(level, box, lantern(true), 3, 20, 3);
+		p.put(level, box, Blocks.WALL_TORCH.defaultBlockState().setValue(BlockStateProperties.HORIZONTAL_FACING, Direction.SOUTH), 3, 6, 2);
+
+		BlockPos spawn = p.pos(2, 18, 2);
+		if (p.claimSpawn(spawn, box)) {
+			BlockPos post = p.pos(3, 18, 2);
+			p.placeMarker(level, spawn, m -> m.addResident(CharacterVariant.ARCHER, spawn, post, 2, null, null, null));
+		}
+	}
+
+	// ------------------------------------------------------------ Mining camp
+
+	static void miningCamp(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		p.fill(level, box, 0, 1, 0, 14, 6, 12, air());
+		p.fill(level, box, 0, 0, 0, 14, 0, 12, Blocks.COARSE_DIRT.defaultBlockState());
+		p.foundation(level, box, 0, 0, 14, 12, Blocks.STONE.defaultBlockState());
+		// A rocky hill with a tunnel cut into it.
+		for (int x = 9; x <= 14; x++) {
+			for (int z = 2; z <= 10; z++) {
+				int height = 5 - Math.max(0, Math.abs(z - 6) - 1) - (x == 9 ? 1 : 0);
+				for (int y = 1; y <= height; y++) {
+					BlockState rock = random.nextInt(12) == 0 ? Blocks.COAL_ORE.defaultBlockState()
+							: random.nextInt(20) == 0 ? Blocks.IRON_ORE.defaultBlockState()
+							: random.nextInt(4) == 0 ? Blocks.ANDESITE.defaultBlockState() : Blocks.STONE.defaultBlockState();
+					p.put(level, box, rock, x, y, z);
+				}
+			}
+		}
+		p.fill(level, box, 9, 1, 6, 14, 2, 6, air());
+		// Rails from the camp into the tunnel.
+		BlockState rail = Blocks.RAIL.defaultBlockState().setValue(BlockStateProperties.RAIL_SHAPE, RailShape.EAST_WEST);
+		for (int x = 6; x <= 13; x++) {
+			p.put(level, box, rail, x, 1, 6);
+		}
+		p.put(level, box, Blocks.OAK_FENCE.defaultBlockState(), 10, 1, 5);
+		p.put(level, box, Blocks.OAK_FENCE.defaultBlockState(), 10, 1, 7);
+		p.put(level, box, Blocks.OAK_PLANKS.defaultBlockState(), 10, 3, 6);
+		p.put(level, box, Blocks.WALL_TORCH.defaultBlockState().setValue(BlockStateProperties.HORIZONTAL_FACING, Direction.NORTH), 12, 2, 7);
+		p.chest(level, box, random, 14, 1, 6, ModStructures.lootTable("chests/mining_camp"));
+		// Camp: a tent, a campfire, a barrel of supplies.
+		p.smallTent(level, box, 1, 1, Blocks.BROWN_WOOL.defaultBlockState());
+		p.smallTent(level, box, 1, 7, Blocks.GRAY_WOOL.defaultBlockState());
+		p.put(level, box, Blocks.CAMPFIRE.defaultBlockState().setValue(CampfireBlock.LIT, true), 6, 1, 3);
+		p.barrel(level, box, random, 7, 1, 9, ModStructures.BARREL_LOOT);
+		p.put(level, box, Blocks.CRAFTING_TABLE.defaultBlockState(), 7, 1, 10);
+
+		BlockPos spawn = p.pos(6, 1, 5);
+		if (p.claimSpawn(spawn, box)) {
+			UUID group = p.group();
+			BlockPos[] beds = {p.pos(2, 1, 3), p.pos(2, 1, 9)};
+			p.placeMarker(level, spawn, m -> {
+				for (BlockPos bed : beds) {
+					m.addResident(CharacterVariant.MINER, spawn, spawn, 10, bed, group, null);
+				}
+			});
+		}
+	}
+
+	// ------------------------------------------------------------ Jungle treehouse
+
+	static void jungleTreehouse(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		BlockState log = Blocks.JUNGLE_LOG.defaultBlockState();
+		BlockState planks = Blocks.JUNGLE_PLANKS.defaultBlockState();
+		BlockState leaves = Blocks.JUNGLE_LEAVES.defaultBlockState().setValue(LeavesBlock.PERSISTENT, true);
+		p.fill(level, box, 0, 1, 0, 12, 17, 12, air());
+		p.fill(level, box, 0, 0, 0, 12, 0, 12, Blocks.GRASS_BLOCK.defaultBlockState());
+		p.foundation(level, box, 0, 0, 12, 12, Blocks.DIRT.defaultBlockState());
+		p.fill(level, box, 2, 10, 2, 10, 10, 10, planks);
+		p.fill(level, box, 5, 1, 5, 6, 15, 6, log);
+		// Hut on the platform.
+		p.walls(level, box, 3, 3, 9, 9, 11, 13, Blocks.BAMBOO_PLANKS.defaultBlockState());
+		p.fill(level, box, 3, 14, 3, 9, 14, 9, Blocks.JUNGLE_SLAB.defaultBlockState());
+		p.door(level, box, 7, 11, 3, Blocks.JUNGLE_DOOR);
+		p.put(level, box, Blocks.GLASS_PANE.defaultBlockState(), 3, 12, 6);
+		p.put(level, box, Blocks.GLASS_PANE.defaultBlockState(), 9, 12, 6);
+		p.bed(level, box, 8, 11, 6, Blocks.GREEN_BED);
+		p.chest(level, box, random, 4, 11, 8, ModStructures.lootTable("chests/jungle_treehouse"));
+		p.put(level, box, lantern(true), 6, 13, 7);
+		// Rope ladder: ladders up the front of the trunk, through the platform into the hut.
+		for (int y = 1; y <= 11; y++) {
+			p.put(level, box, Blocks.LADDER.defaultBlockState().setValue(LadderBlock.FACING, Direction.NORTH), 5, y, 4);
+		}
+		// Canopy and vines.
+		for (int x = 0; x <= 12; x++) {
+			for (int z = 0; z <= 12; z++) {
+				for (int y = 15; y <= 16; y++) {
+					if (random.nextInt(5) != 0 && !(y == 15 && x >= 3 && x <= 9 && z >= 3 && z <= 9 && x != 5 && x != 6)) {
+						p.put(level, box, leaves, x, y, z);
+					}
+				}
+				if ((x == 2 || x == 10 || z == 2 || z == 10) && random.nextInt(3) == 0) {
+					int length = 2 + random.nextInt(5);
+					for (int y = 9; y > 9 - length; y--) {
+						p.put(level, box, Blocks.VINE.defaultBlockState().setValue(VineBlock.UP, true), x, y, z);
+					}
+				}
+			}
+		}
+
+		BlockPos spawn = p.pos(5, 1, 2);
+		if (p.claimSpawn(spawn, box)) {
+			p.placeMarker(level, spawn, m -> m.addResident(CharacterVariant.BREADLOAF, spawn, spawn, 10, null, null, null));
+		}
+	}
+
+	// ------------------------------------------------------------ Desert bunker
+
+	static void desertBunker(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		BlockState wall = Blocks.CUT_SANDSTONE.defaultBlockState();
+		BlockState sand = Blocks.SAND.defaultBlockState();
+		// Dig it in: walls and floor three blocks down, the roof just above the sand.
+		p.fill(level, box, 0, -4, 2, 10, 1, 12, wall);
+		p.fill(level, box, 1, -3, 3, 9, 0, 11, air());
+		p.fill(level, box, 0, 1, 2, 10, 1, 12, Blocks.SMOOTH_SANDSTONE.defaultBlockState());
+		p.fill(level, box, 0, 2, 2, 10, 2, 12, air());
+		p.fill(level, box, 0, 0, 0, 10, 0, 1, sand);
+		// Entrance stairs going down from the front.
+		BlockState stairs = Blocks.SANDSTONE_STAIRS.defaultBlockState().setValue(StairBlock.FACING, Direction.NORTH);
+		for (int i = 0; i < 3; i++) {
+			int y = -i;
+			int z = 1 + i;
+			p.put(level, box, stairs, 5, y, z);
+			p.fill(level, box, 5, y + 1, z, 5, y + 3, z, air());
+		}
+		p.fill(level, box, 5, 1, 2, 5, 1, 3, air());
+		// Arrow trap: a narrow hall with a pressure plate and a dispenser in the wall beside it.
+		p.fill(level, box, 4, -3, 4, 4, 0, 6, wall);
+		p.fill(level, box, 6, -3, 4, 6, 0, 6, wall);
+		p.put(level, box, Blocks.DISPENSER.defaultBlockState().setValue(DispenserBlock.FACING, Direction.EAST), 4, -2, 5);
+		BlockPos dispenser = p.pos(4, -2, 5);
+		if (box.isInside(dispenser) && level.getBlockEntity(dispenser) instanceof DispenserBlockEntity trap) {
+			trap.setItem(0, new ItemStack(Items.ARROW, 16));
+		}
+		p.put(level, box, Blocks.STONE_PRESSURE_PLATE.defaultBlockState(), 5, -2, 5);
+		// Back rooms: loot, his bed, a lamp.
+		p.chest(level, box, random, 2, -2, 10, ModStructures.lootTable("chests/desert_bunker"));
+		p.chest(level, box, random, 8, -2, 10, ModStructures.lootTable("chests/desert_bunker"));
+		p.barrel(level, box, random, 8, -2, 8, ModStructures.BARREL_LOOT);
+		p.bed(level, box, 2, -2, 7, Blocks.YELLOW_BED);
+		p.put(level, box, lantern(true), 5, 0, 9);
+		// An air vent sticking out of the sand.
+		p.put(level, box, Blocks.CHISELED_SANDSTONE.defaultBlockState(), 8, 2, 5);
+
+		BlockPos spawn = p.pos(5, -2, 9);
+		if (p.claimSpawn(spawn, box)) {
+			BlockPos bed = p.pos(2, -2, 8);
+			p.placeMarker(level, spawn, m -> m.addResident(CharacterVariant.BREADLOAF, spawn, spawn, 10, bed, null, null));
+		}
+	}
+
+	// ------------------------------------------------------------ Igloo hideout
+
+	static void igloo(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		BlockState snow = Blocks.SNOW_BLOCK.defaultBlockState();
+		p.fill(level, box, 0, 1, 0, 8, 5, 8, air());
+		p.fill(level, box, 0, 0, 0, 8, 0, 8, snow);
+		p.foundation(level, box, 0, 0, 8, 8, Blocks.DIRT.defaultBlockState());
+		// Dome.
+		for (int x = 0; x <= 8; x++) {
+			for (int z = 0; z <= 8; z++) {
+				double d = Math.sqrt((x - 4) * (x - 4) + (z - 4) * (z - 4));
+				if (d <= 3.6 && d >= 2.6) {
+					p.fill(level, box, x, 1, z, x, 2, z, snow);
+				}
+				if (d <= 2.7 && d >= 1.6) {
+					p.put(level, box, snow, x, 3, z);
+				}
+				if (d < 1.7) {
+					p.put(level, box, snow, x, 4, z);
+				}
+			}
+		}
+		p.fill(level, box, 4, 1, 0, 4, 2, 1, air());
+		p.put(level, box, Blocks.ICE.defaultBlockState(), 1, 2, 4);
+		p.put(level, box, Blocks.ICE.defaultBlockState(), 7, 2, 4);
+		p.bed(level, box, 2, 1, 4, Blocks.WHITE_BED);
+		p.put(level, box, Blocks.FURNACE.defaultBlockState().setValue(AbstractFurnaceBlock.FACING, Direction.WEST), 6, 1, 5);
+		p.put(level, box, Blocks.REDSTONE_TORCH.defaultBlockState(), 6, 2, 3);
+		// The secret: a trapdoor under the carpet, a ladder down, a storage room.
+		p.put(level, box, Blocks.SPRUCE_TRAPDOOR.defaultBlockState().setValue(TrapDoorBlock.HALF, Half.TOP), 4, 0, 4);
+		p.put(level, box, Blocks.WHITE_CARPET.defaultBlockState(), 4, 1, 4);
+		p.fill(level, box, 1, -7, 1, 7, -1, 7, Blocks.STONE_BRICKS.defaultBlockState());
+		p.fill(level, box, 2, -6, 2, 6, -3, 6, air());
+		for (int y = -6; y <= -1; y++) {
+			p.put(level, box, air(), 4, y, 4);
+			p.put(level, box, Blocks.LADDER.defaultBlockState().setValue(LadderBlock.FACING, Direction.NORTH), 4, y, 4);
+		}
+		p.chest(level, box, random, 2, -6, 6, ModStructures.lootTable("chests/igloo_hideout"));
+		p.chest(level, box, random, 6, -6, 6, ModStructures.lootTable("chests/igloo_hideout"));
+		p.barrel(level, box, random, 2, -6, 2, ModStructures.BARREL_LOOT);
+		p.put(level, box, Blocks.BREWING_STAND.defaultBlockState(), 6, -6, 2);
+		p.put(level, box, lantern(true), 4, -3, 2);
+
+		BlockPos spawn = p.pos(4, 1, 2);
+		if (p.claimSpawn(spawn, box)) {
+			BlockPos bed = p.pos(2, 1, 5);
+			p.placeMarker(level, spawn, m -> m.addResident(CharacterVariant.BREADLOAF, spawn, spawn, 10, bed, null, null));
+		}
+	}
+
+	// ------------------------------------------------------------ Fishing dock
+
+	static void fishingDock(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		BlockState planks = Blocks.SPRUCE_PLANKS.defaultBlockState();
+		p.fill(level, box, 0, 1, 0, 6, 5, 14, air());
+		// Shed on the shore.
+		p.fill(level, box, 0, 0, 0, 6, 0, 4, planks);
+		p.foundation(level, box, 0, 0, 6, 4, Blocks.SAND.defaultBlockState());
+		p.walls(level, box, 1, 0, 5, 3, 1, 3, Blocks.SPRUCE_PLANKS.defaultBlockState());
+		p.fill(level, box, 1, 4, 0, 5, 4, 3, Blocks.SPRUCE_SLAB.defaultBlockState());
+		p.door(level, box, 3, 1, 3, Blocks.SPRUCE_DOOR);
+		p.chest(level, box, random, 2, 1, 1, ModStructures.lootTable("chests/fishing_dock"));
+		p.barrel(level, box, random, 4, 1, 1, ModStructures.FISH_BARREL);
+		// Pier out over the water, on log posts.
+		p.fill(level, box, 2, 0, 4, 4, 0, 14, planks);
+		for (int z = 5; z <= 14; z += 3) {
+			p.column(level, box, Blocks.SPRUCE_LOG.defaultBlockState(), 2, -1, z);
+			p.column(level, box, Blocks.SPRUCE_LOG.defaultBlockState(), 4, -1, z);
+			p.put(level, box, Blocks.SPRUCE_FENCE.defaultBlockState(), 2, 1, z);
+			p.put(level, box, Blocks.SPRUCE_FENCE.defaultBlockState(), 4, 1, z);
+		}
+		p.put(level, box, lantern(false), 2, 2, 14);
+		p.barrel(level, box, random, 4, 1, 13, ModStructures.FISH_BARREL);
+
+		BlockPos spawn = p.pos(3, 1, 8);
+		if (p.claimSpawn(spawn, box)) {
+			BlockPos end = p.pos(3, 1, 12);
+			p.placeMarker(level, spawn, m -> m.addResident(CharacterVariant.FISHERMAN, spawn, end, 5, null, null, null));
+		}
+	}
+
+	// ------------------------------------------------------------ Ruined Loaf Castle
+
+	static void ruinedCastle(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		p.fill(level, box, 0, 1, 0, 26, 13, 26, air());
+		p.fill(level, box, 0, 0, 0, 26, 0, 26, Blocks.GRASS_BLOCK.defaultBlockState());
+		p.foundation(level, box, 0, 0, 26, 26, Blocks.COBBLESTONE.defaultBlockState());
+		// Outer walls, crumbling: higher in places, gaps in others.
+		for (int i = 0; i <= 26; i++) {
+			for (int[] c : new int[][]{{i, 0}, {i, 26}, {0, i}, {26, i}}) {
+				int height = 3 + random.nextInt(4);
+				for (int y = 1; y <= height; y++) {
+					if (random.nextInt(8) != 0) {
+						p.put(level, box, ruinStone(random), c[0], y, c[1]);
+					}
+				}
+			}
+		}
+		// Gate.
+		p.fill(level, box, 12, 1, 0, 14, 4, 0, air());
+		// Corner towers, broken at different heights.
+		for (int[] c : new int[][]{{0, 0}, {22, 0}, {0, 22}, {22, 22}}) {
+			int top = 7 + random.nextInt(4);
+			for (int y = 1; y <= top; y++) {
+				for (int x = 0; x <= 4; x++) {
+					for (int z = 0; z <= 4; z++) {
+						boolean edge = x == 0 || x == 4 || z == 0 || z == 4;
+						if (edge && (y < top - 1 || random.nextBoolean())) {
+							p.put(level, box, ruinStone(random), c[0] + x, y, c[1] + z);
+						}
+					}
+				}
+			}
+		}
+		// The keep: half its roof fell in.
+		p.walls(level, box, 9, 13, 17, 21, 1, 7, Blocks.STONE_BRICKS.defaultBlockState());
+		for (int x = 9; x <= 17; x++) {
+			for (int z = 13; z <= 21; z++) {
+				if (random.nextInt(3) != 0) {
+					p.put(level, box, Blocks.STONE_BRICK_SLAB.defaultBlockState(), x, 8, z);
+				}
+				if (random.nextInt(10) == 0) {
+					p.put(level, box, random.nextBoolean() ? Blocks.COBBLESTONE.defaultBlockState() : Blocks.GRAVEL.defaultBlockState(), x, 1, z);
+				}
+			}
+		}
+		p.fill(level, box, 12, 1, 13, 14, 3, 13, air());
+		p.fill(level, box, 10, 0, 14, 16, 0, 20, Blocks.POLISHED_ANDESITE.defaultBlockState());
+		p.put(level, box, Blocks.RED_CARPET.defaultBlockState(), 13, 1, 17);
+		p.put(level, box, Blocks.RED_CARPET.defaultBlockState(), 13, 1, 18);
+		p.chest(level, box, random, 10, 1, 20, ModStructures.lootTable("chests/ruined_loaf_castle"));
+		p.chest(level, box, random, 16, 1, 20, ModStructures.lootTable("chests/ruined_loaf_castle"));
+		p.chest(level, box, random, 13, 1, 20, ModStructures.lootTable("chests/ruined_loaf_castle"));
+		p.barrel(level, box, random, 16, 1, 14, ModStructures.BARREL_LOOT);
+		p.put(level, box, Blocks.LANTERN.defaultBlockState(), 10, 1, 14);
+		// Rubble in the courtyard.
+		for (int i = 0; i < 25; i++) {
+			int x = 2 + random.nextInt(23);
+			int z = 2 + random.nextInt(10);
+			p.put(level, box, random.nextBoolean() ? Blocks.MOSSY_COBBLESTONE.defaultBlockState() : Blocks.COBBLESTONE.defaultBlockState(), x, 1, z);
+		}
+		p.put(level, box, Blocks.RED_BANNER.defaultBlockState(), 11, 5, 0);
+
+		BlockPos spawn = p.pos(13, 1, 8);
+		if (p.claimSpawn(spawn, box)) {
+			UUID group = p.group();
+			BlockPos home = p.pos(13, 1, 10);
+			int residents = 3 + random.nextInt(3);
+			p.placeMarker(level, spawn, m -> {
+				for (int i = 0; i < residents; i++) {
+					CharacterVariant type = i == 0 ? CharacterVariant.CAPTAIN : i % 2 == 0 ? CharacterVariant.BREADLOAF : CharacterVariant.KNIGHT;
+					m.addResident(type, spawn, home, 12, null, group, null);
+				}
+			});
+		}
+	}
+
+	private static BlockState ruinStone(RandomSource random) {
+		int roll = random.nextInt(10);
+		Block block = roll < 5 ? Blocks.STONE_BRICKS : roll < 7 ? Blocks.CRACKED_STONE_BRICKS : roll < 9 ? Blocks.MOSSY_STONE_BRICKS : Blocks.COBBLESTONE;
+		return block.defaultBlockState();
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/worldgen/ExtraHomes.java
+
+```java
+package com.itzbreadloaf.worldgen;
+
+import net.minecraft.core.Holder;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.level.WorldGenLevel;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
+
+/** Builds every structure that isn't one of the original twelve (those are in {@link HomePiece} itself). */
+final class ExtraHomes {
+	private ExtraHomes() {
+	}
+
+	static void build(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random, Holder<Biome> biome) {
+		switch (p.kind()) {
+			case LILY_MEADOW_COTTAGE -> LilyHomes.meadow(p, level, box, random);
+			case LILY_FLOWER_COTTAGE -> LilyHomes.flowerForest(p, level, box, random);
+			case LILY_READING_CABIN -> LilyHomes.readingCabin(p, level, box, random);
+			case LILY_SNOWY_CABIN -> LilyHomes.snowyCabin(p, level, box, random);
+			case LILY_MUSHROOM_HOUSE -> LilyHomes.mushroomHouse(p, level, box, random);
+			case BREAD_BAKERY -> BreadHomes.bakery(p, level, box, random);
+			case LOOKOUT_TOWER -> BreadHomes.lookoutTower(p, level, box, random);
+			case MINING_CAMP -> BreadHomes.miningCamp(p, level, box, random);
+			case JUNGLE_TREEHOUSE -> BreadHomes.jungleTreehouse(p, level, box, random);
+			case DESERT_BUNKER -> BreadHomes.desertBunker(p, level, box, random);
+			case IGLOO_HIDEOUT -> BreadHomes.igloo(p, level, box, random);
+			case FISHING_DOCK -> BreadHomes.fishingDock(p, level, box, random);
+			case RUINED_LOAF_CASTLE -> BreadHomes.ruinedCastle(p, level, box, random);
+			case GREENHOUSE -> SpecialHomes.greenhouse(p, level, box, random);
+			case LAKESIDE_GAZEBO -> SpecialHomes.gazebo(p, level, box, random);
+			case FARMSTEAD -> SpecialHomes.farmstead(p, level, box, random);
+			case ORCHARD -> SpecialHomes.orchard(p, level, box, random);
+			case MARKET_STALL -> SpecialHomes.marketStall(p, level, box, random);
+			case COUSINS_CAMP -> SpecialHomes.cousinsCamp(p, level, box, random);
+			case PVP_ARENA -> SpecialHomes.pvpArena(p, level, box, random);
+			case GIANT_LOAF -> SpecialHomes.giantLoaf(p, level, box, random);
+			case NETHER_TRAINING_GROUND -> SpecialHomes.netherTrainingGround(p, level, box, random);
+			case END_MACE_TOWER -> SpecialHomes.endMaceTower(p, level, box, random);
+			case WINDMILL -> SpecialHomes.windmill(p, level, box, random);
+			case SWEATY_DOJO -> SpecialHomes.sweatyDojo(p, level, box, random);
+			case FLOWER_SHRINE -> SpecialHomes.flowerShrine(p, level, box, random);
+			case SMUGGLERS_COVE -> SpecialHomes.smugglersCove(p, level, box, random);
+			case PUMPKIN_PATCH -> SpecialHomes.pumpkinPatch(p, level, box, random);
+			case SWAMP_HUT -> NewHomes.swampHut(p, level, box, random);
+			case MOUNTAIN_OUTPOST -> NewHomes.mountainOutpost(p, level, box, random);
+			case BADLANDS_SALOON -> NewHomes.badlandsSaloon(p, level, box, random);
+			case CLIFFSIDE_BASE -> NewHomes.cliffsideBase(p, level, box, random);
+			case FLOATING_ISLAND_COTTAGE -> NewHomes.floatingIsland(p, level, box, random);
+			case LANTERN_GARDEN -> NewHomes.lanternGarden(p, level, box, random);
+			case TREETOP_LIBRARY -> NewHomes.treetopLibrary(p, level, box, random);
+			case RIVERSIDE_MILL -> NewHomes.riversideMill(p, level, box, random);
+			case BEE_SANCTUARY -> NewHomes.beeSanctuary(p, level, box, random);
+			case RUINED_PORTAL_HIDEOUT -> NewHomes.ruinedPortalHideout(p, level, box, random);
+			case VILLAGE_CAMPSITE -> NewHomes.villageCampsite(p, level, box, random);
+			case BASTION_THRONE_ROOM -> NewHomes.bastionThroneRoom(p, level, box, random);
+			case NETHER_MACE_ARENA -> NewHomes.netherMaceArena(p, level, box, random);
+			case END_SKY_PLATFORM -> NewHomes.endSkyPlatform(p, level, box, random);
+			case FRIENDSHIP_FESTIVAL -> NewHomes.friendshipFestival(p, level, box, random);
+			case LOAF_LIGHTHOUSE -> NewHomes.lighthouse(p, level, box, random);
+			case STARWATCH_OBSERVATORY -> NewHomes.observatory(p, level, box, random);
+			case BERRY_CABIN -> NewHomes.berryCabin(p, level, box, random);
+			case SHIPWRECK_CAMP -> NewHomes.shipwreckCamp(p, level, box, random);
+			case SNOWBALL_FORT -> NewHomes.snowballFort(p, level, box, random);
+			default -> {
+			}
+		}
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/worldgen/HomeKind.java
+
+```java
+package com.itzbreadloaf.worldgen;
+
+import com.mojang.serialization.Codec;
+import net.minecraft.util.StringRepresentable;
+
+/** Every LoafCraft structure. Width x depth x height is the piece's bounding box (local coordinates). */
+public enum HomeKind implements StringRepresentable {
+	/** ItzBreadLoaf's 7x7 cabin, one resident. */
+	HOUSE("house", 7, 7, 7),
+	/** ItzBreadLoaf group tent (9 wide) with a campfire in front, 2-4 residents. */
+	TENT("tent", 9, 10, 6),
+	/** ImLilyLol's 7x9 cherry house with a petal-covered yard around it (Lily, Gardener or Witchy Lily). */
+	LILY_HOUSE("lily_house", 9, 11, 7),
+	/** Madison's 9x9 birch and white concrete cottage with a crop garden and beehives (Madison, Farmer or Beekeeper). */
+	MADISON_HOUSE("madison_house", 11, 14, 7),
+	/** LoafCraft Village: three cabins, a well, a farm and a fishing pond. Village ItzBreadLoafs, Archer Lily, Farmer and Fisher Madison. */
+	VILLAGE("village", 31, 31, 10),
+	/** Bread Fort: stone walls, corner towers, barracks and a treasure room. Three Knights and a Captain. */
+	FORT("fort", 19, 19, 9),
+	/** Watchtower: a tall wooden tower with a ladder and a lookout platform. One Archer ItzBreadLoaf on top. */
+	WATCHTOWER("watchtower", 7, 7, 20),
+	/** Bandit Camp: dark tents around a campfire and a loot chest. 3-4 Bandits who raid villages at night. */
+	BANDIT_CAMP("bandit_camp", 15, 15, 6),
+	/** Lily's Treehouse: a library on a platform up a big tree, with stairs. Bookworm Lily. */
+	TREEHOUSE("treehouse", 13, 13, 16),
+	/** Madison's Bakery: counter, ovens and a bread chest. Baker Madison. */
+	BAKERY("bakery", 11, 12, 8),
+	/** Master's Sky Arena: a round platform on a tall pillar (ladder up). Master BreadLoaf is waiting. */
+	SKY_ARENA("sky_arena", 21, 21, 38),
+	/** Pirate Ship: floating on the ocean, with a mast, sails and a captain's cabin. 2-3 Pirate ItzBreadLoafs. */
+	PIRATE_SHIP("pirate_ship", 9, 21, 12),
+
+	// ---- Lily in more biomes (same personality everywhere)
+	/** Meadow: small stone-and-birch cottage with a flower garden. */
+	LILY_MEADOW_COTTAGE("lily_meadow_cottage", 9, 11, 7),
+	/** Flower Forest: mossy cottage covered in flowers and vines. */
+	LILY_FLOWER_COTTAGE("lily_flower_cottage", 9, 11, 7),
+	/** Birch Forest: cozy birch reading cabin full of bookshelves. */
+	LILY_READING_CABIN("lily_reading_cabin", 9, 11, 7),
+	/** Snowy Taiga: spruce cabin with a fireplace and lanterns. */
+	LILY_SNOWY_CABIN("lily_snowy_cabin", 9, 11, 8),
+	/** Mushroom Fields (rare): a mushroom-shaped house. */
+	LILY_MUSHROOM_HOUSE("lily_mushroom_house", 11, 11, 9),
+
+	// ---- ItzBreadLoaf structures
+	/** Bread bakery: his bread-themed home with furnaces, smokers, hay and a chest of bread. */
+	BREAD_BAKERY("bread_bakery", 11, 11, 8),
+	/** Lookout tower: tall stone-and-wood tower with an Archer ItzBreadLoaf on top. */
+	LOOKOUT_TOWER("lookout_tower", 7, 7, 22),
+	/** Mining camp: tent, campfire, and rails running into a small tunnel with ore. Miners. */
+	MINING_CAMP("mining_camp", 15, 13, 7),
+	/** Jungle treehouse: a hut in a big jungle tree with a ladder up the trunk. */
+	JUNGLE_TREEHOUSE("jungle_treehouse", 13, 13, 18),
+	/** Desert bunker: half-buried sandstone bunker with an arrow trap and loot. */
+	DESERT_BUNKER("desert_bunker", 11, 13, 6),
+	/** Igloo hideout: a snow igloo with a hidden basement storage room under a carpet. */
+	IGLOO_HIDEOUT("igloo_hideout", 9, 9, 6),
+	/** Fishing dock: a pier and a shed. A fisherman ItzBreadLoaf. */
+	FISHING_DOCK("fishing_dock", 7, 15, 6),
+	/** Ruined Loaf Castle (rare): crumbling walls, towers and a keep. 3-5 ItzBreadLoafs and great loot. */
+	RUINED_LOAF_CASTLE("ruined_loaf_castle", 27, 27, 14),
+
+	// ---- Lily, Madison, shared and special
+	/** Glass greenhouse full of flowers and saplings. Gardener Lily. */
+	GREENHOUSE("greenhouse", 9, 11, 7),
+	/** Lakeside gazebo by a little pond, where Lily sits and reads. */
+	LAKESIDE_GAZEBO("lakeside_gazebo", 13, 13, 7),
+	/** Farmstead: barn, animal pens, crop fields and a big pantry. Farmer Madison. */
+	FARMSTEAD("farmstead", 25, 21, 11),
+	/** Orchard and beehive farm: blossoming trees and hives over campfires. Beekeeper Madison. */
+	ORCHARD("orchard", 19, 19, 9),
+	/** Market stall: Merchant Madison trades food for emeralds. */
+	MARKET_STALL("market_stall", 9, 7, 6),
+	/** Cousins' Camp (rare): Lily and Madison camping together. */
+	COUSINS_CAMP("cousins_camp", 13, 11, 5),
+	/** PvP Arena (rare): a fenced arena where ItzBreadLoaf and FelixSyn fight. */
+	PVP_ARENA("pvp_arena", 23, 23, 6),
+	/** Giant Loaf (very rare): a huge bread-shaped building with a treasure room. */
+	GIANT_LOAF("giant_loaf", 27, 15, 12),
+	/** Nether Mace Training Ground: tall pillars for mace drops. Master BreadLoaf. */
+	NETHER_TRAINING_GROUND("nether_training_ground", 21, 21, 22),
+	/** End Mace Tower: a tall purpur tower on the outer islands. Master BreadLoaf. */
+	END_MACE_TOWER("end_mace_tower", 9, 9, 32),
+	/** Bread Mill (id "windmill"): ItzBreadLoaf's windmill with a big wheat farm, Farmer Madison helps. */
+	WINDMILL("windmill", 15, 15, 17),
+	/** Sweaty Dojo (rare): where a Sweaty ItzBreadLoaf trains. */
+	SWEATY_DOJO("sweaty_dojo", 13, 13, 7),
+	/** Flower Shrine: a little shrine of lanterns and flower beds that Gardener Lily tends. */
+	FLOWER_SHRINE("flower_shrine", 9, 9, 7),
+	/** Smugglers' Cove: a beach shack and a dock. A Pirate and a Bandit. */
+	SMUGGLERS_COVE("smugglers_cove", 13, 15, 7),
+	/** Pumpkin Patch Farm: a pumpkin field with a scarecrow and a farm shed. Farmer Madison. */
+	PUMPKIN_PATCH("pumpkin_patch", 15, 13, 7),
+
+	// ---- the remake's new structures
+	/** Swamp Hut on stilts over the water. ItzBreadLoaf. */
+	SWAMP_HUT("swamp_hut", 11, 11, 10),
+	/** Mountain Outpost on the peaks: a stone lookout tower. Archer and Knight ItzBreadLoaf. */
+	MOUNTAIN_OUTPOST("mountain_outpost", 9, 9, 12),
+	/** Badlands Mineshaft Saloon: a saloon with a mine shaft under the back room. Miner and ItzBreadLoaf. */
+	BADLANDS_SALOON("badlands_saloon", 15, 13, 9),
+	/** Cliffside Cave Base: an underground room behind a hidden trapdoor. ItzBreadLoaf. */
+	CLIFFSIDE_BASE("cliffside_base", 13, 13, 8),
+	/** Floating Island Cottage: a sky island over a Cherry Grove. ImLilyLol. */
+	FLOATING_ISLAND_COTTAGE("floating_island_cottage", 15, 15, 30),
+	/** Lantern Garden: a night-lit garden with benches and a pond. Gardener Lily. */
+	LANTERN_GARDEN("lantern_garden", 13, 13, 6),
+	/** Treetop Library: a bookshelf room high in tall birch trees. Bookworm Lily. */
+	TREETOP_LIBRARY("treetop_library", 13, 13, 22),
+	/** Riverside Mill with a water wheel. Madison. */
+	RIVERSIDE_MILL("riverside_mill", 13, 11, 10),
+	/** Bee Sanctuary: lots of beehives, flowers and honey. Beekeeper Madison. */
+	BEE_SANCTUARY("bee_sanctuary", 17, 17, 8),
+	/** Ruined Portal Hideout: FelixSyn and Harley's camp behind a broken portal. */
+	RUINED_PORTAL_HIDEOUT("ruined_portal_hideout", 13, 11, 10),
+	/** Village Campsite: built at a village's edge when FelixSyn and Harley show up (not world generation). */
+	VILLAGE_CAMPSITE("village_campsite", 11, 9, 5),
+	/** Bastion Throne Room: built inside a bastion the first time a player gets there (not world generation). Master. */
+	BASTION_THRONE_ROOM("bastion_throne_room", 11, 11, 8),
+	/** Nether Mace Arena: a lava-ringed arena with tall pillars. Master BreadLoaf. */
+	NETHER_MACE_ARENA("nether_mace_arena", 25, 25, 26),
+	/** End Sky Platform: a purpur deck high over an outer End island. Master BreadLoaf. */
+	END_SKY_PLATFORM("end_sky_platform", 15, 15, 20),
+	/** Friendship Festival grounds: tables, food, banners and a stage. ItzBreadLoaf, Lily and Madison. */
+	FRIENDSHIP_FESTIVAL("friendship_festival", 21, 17, 7),
+	/** Loaf Lighthouse (my idea): a striped lighthouse on the shore. Fisherman ItzBreadLoaf. */
+	LOAF_LIGHTHOUSE("loaf_lighthouse", 9, 9, 22),
+	/** Starwatch Observatory (my idea): a glass-domed stargazing room. Bookworm Lily. */
+	STARWATCH_OBSERVATORY("starwatch_observatory", 11, 11, 12),
+	/** Sweet Berry Cabin (my idea): a spruce cabin with berry bushes. Madison. */
+	BERRY_CABIN("berry_cabin", 11, 13, 8),
+	/** Shipwreck Camp (my idea): Pirates camping by half a ship. */
+	SHIPWRECK_CAMP("shipwreck_camp", 17, 11, 8),
+	/** Snowball Fort (my idea): two snow forts and a snowman. Two ItzBreadLoafs. */
+	SNOWBALL_FORT("snowball_fort", 19, 13, 4);
+
+	public static final Codec<HomeKind> CODEC = StringRepresentable.fromEnum(HomeKind::values);
+
+	private final String name;
+	public final int width;
+	public final int depth;
+	public final int height;
+
+	HomeKind(String name, int width, int depth, int height) {
+		this.name = name;
+		this.width = width;
+		this.depth = depth;
+		this.height = height;
+	}
+
+	/** Built on land or water, wherever it lands (docks, stilts, mills and lighthouses on shores). */
+	public boolean anySurface() {
+		return this == FISHING_DOCK || this == SMUGGLERS_COVE || this == SWAMP_HUT || this == RIVERSIDE_MILL
+				|| this == LOAF_LIGHTHOUSE || this == SHIPWRECK_CAMP;
+	}
+
+	/** Built by the mod while the game runs (not by world generation), so /locate can't find it. */
+	public boolean runtimeOnly() {
+		return this == VILLAGE_CAMPSITE || this == BASTION_THRONE_ROOM;
+	}
+
+	/** Built on the Nether floor (found by searching down, not from the top of the world). */
+	public boolean inNether() {
+		return this == NETHER_TRAINING_GROUND || this == NETHER_MACE_ARENA;
+	}
+
+	/** Needs land under it (the End has void between islands). */
+	public boolean needsSolidGround() {
+		return this == END_MACE_TOWER || this == END_SKY_PLATFORM;
+	}
+
+	/** Built on the water surface instead of on land. */
+	public boolean onWater() {
+		return this == PIRATE_SHIP;
+	}
+
+	@Override
+	public String getSerializedName() {
+		return this.name;
+	}
+
+	public static HomeKind byName(String name) {
+		for (HomeKind kind : values()) {
+			if (kind.name.equals(name)) {
+				return kind;
+			}
+		}
+		return HOUSE;
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/worldgen/HomePiece.java
+
+```java
+package com.itzbreadloaf.worldgen;
+
+import com.itzbreadloaf.block.ModBlocks;
+import com.itzbreadloaf.block.ResidentMarkerBlockEntity;
+import com.itzbreadloaf.brain.LilyBrain;
+import com.itzbreadloaf.brain.MadisonBrain;
+import com.itzbreadloaf.character.CharacterVariant;
+import java.util.UUID;
+import net.fabricmc.fabric.api.tag.convention.v2.ConventionalBiomeTags;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.core.Holder;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.tags.BiomeTags;
+import net.minecraft.util.Mth;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.StructureManager;
+import net.minecraft.world.level.WorldGenLevel;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.block.BedBlock;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.CampfireBlock;
+import net.minecraft.world.level.block.DoorBlock;
+import net.minecraft.world.level.block.FlowerBedBlock;
+import net.minecraft.world.level.block.LanternBlock;
+import net.minecraft.world.level.block.WallTorchBlock;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BedPart;
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
+import net.minecraft.world.level.chunk.ChunkGenerator;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
+import net.minecraft.world.level.levelgen.structure.ScatteredFeaturePiece;
+import net.minecraft.world.level.levelgen.structure.pieces.StructurePieceSerializationContext;
+
+/**
+ * Builds a house, tent, Lily's house or Madison's house block by block (no .nbt files). Residents are not spawned
+ * here: an invisible resident marker block remembers who lives here (home, bed, tent group, pantry), and creates
+ * them as Carpet fake players the first time a real player comes near.
+ * Local coordinates: x across, z from the front (z = 0) to the back, y = 0 is the ground/floor layer.
+ * placeBlock() turns and mirrors everything to match the piece's random orientation.
+ */
+public class HomePiece extends ScatteredFeaturePiece {
+	private static final Block[] WOOL = {
+			Blocks.WHITE_WOOL, Blocks.ORANGE_WOOL, Blocks.MAGENTA_WOOL, Blocks.LIGHT_BLUE_WOOL, Blocks.YELLOW_WOOL,
+			Blocks.LIME_WOOL, Blocks.PINK_WOOL, Blocks.GRAY_WOOL, Blocks.LIGHT_GRAY_WOOL, Blocks.CYAN_WOOL,
+			Blocks.PURPLE_WOOL, Blocks.BLUE_WOOL, Blocks.BROWN_WOOL, Blocks.GREEN_WOOL, Blocks.RED_WOOL, Blocks.BLACK_WOOL
+	};
+	private static final Block[] BEDS = {Blocks.RED_BED, Blocks.BLUE_BED, Blocks.GREEN_BED, Blocks.YELLOW_BED};
+
+	private final HomeKind kind;
+	private final int woolColor;
+	private final int members;
+	private final long groupSeed;
+	private boolean spawned;
+
+	public HomePiece(HomeKind kind, RandomSource random, int x, int z) {
+		super(ModStructures.HOME_PIECE, x, 64, z, kind.width, kind.height, kind.depth, Direction.Plane.HORIZONTAL.getRandomDirection(random));
+		this.kind = kind;
+		this.woolColor = random.nextInt(WOOL.length);
+		this.members = 2 + random.nextInt(3);
+		this.groupSeed = random.nextLong();
+	}
+
+	public HomePiece(CompoundTag tag) {
+		super(ModStructures.HOME_PIECE, tag);
+		this.kind = HomeKind.byName(tag.getStringOr("Kind", "house"));
+		this.woolColor = tag.getIntOr("Wool", 0);
+		this.members = tag.getIntOr("Members", 2);
+		this.groupSeed = tag.getLongOr("GroupSeed", 0L);
+		this.spawned = tag.getBooleanOr("Spawned", false);
+	}
+
+	@Override
+	protected void addAdditionalSaveData(StructurePieceSerializationContext context, CompoundTag tag) {
+		super.addAdditionalSaveData(context, tag);
+		tag.putString("Kind", this.kind.getSerializedName());
+		tag.putInt("Wool", this.woolColor);
+		tag.putInt("Members", this.members);
+		tag.putLong("GroupSeed", this.groupSeed);
+		tag.putBoolean("Spawned", this.spawned);
+	}
+
+	// ------------------------------------------------------------ materials
+
+	/** Wood type (or sandstone) matching the biome. */
+	record Palette(BlockState planks, BlockState corner, BlockState slab, Block door, BlockState foundation, BlockState ground) {
+		static Palette forBiome(Holder<Biome> biome) {
+			if (biome.is(ConventionalBiomeTags.IS_DESERT) || biome.is(BiomeTags.IS_BADLANDS)) {
+				return new Palette(Blocks.SANDSTONE.defaultBlockState(), Blocks.SMOOTH_SANDSTONE.defaultBlockState(),
+						Blocks.SANDSTONE_SLAB.defaultBlockState(), Blocks.BIRCH_DOOR, Blocks.SANDSTONE.defaultBlockState(),
+						Blocks.SAND.defaultBlockState());
+			}
+			if (biome.is(BiomeTags.IS_TAIGA) || biome.is(ConventionalBiomeTags.IS_SNOWY)) {
+				return new Palette(Blocks.SPRUCE_PLANKS.defaultBlockState(), Blocks.SPRUCE_LOG.defaultBlockState(),
+						Blocks.SPRUCE_SLAB.defaultBlockState(), Blocks.SPRUCE_DOOR, Blocks.COBBLESTONE.defaultBlockState(),
+						biome.is(ConventionalBiomeTags.IS_SNOWY) ? Blocks.SNOW_BLOCK.defaultBlockState() : Blocks.PODZOL.defaultBlockState());
+			}
+			if (biome.is(BiomeTags.IS_SAVANNA)) {
+				return new Palette(Blocks.ACACIA_PLANKS.defaultBlockState(), Blocks.ACACIA_LOG.defaultBlockState(),
+						Blocks.ACACIA_SLAB.defaultBlockState(), Blocks.ACACIA_DOOR, Blocks.COBBLESTONE.defaultBlockState(),
+						Blocks.GRASS_BLOCK.defaultBlockState());
+			}
+			return new Palette(Blocks.OAK_PLANKS.defaultBlockState(), Blocks.OAK_LOG.defaultBlockState(),
+					Blocks.OAK_SLAB.defaultBlockState(), Blocks.OAK_DOOR, Blocks.COBBLESTONE.defaultBlockState(),
+					Blocks.GRASS_BLOCK.defaultBlockState());
+		}
+
+		static Palette cherry() {
+			return new Palette(Blocks.CHERRY_PLANKS.defaultBlockState(), Blocks.CHERRY_LOG.defaultBlockState(),
+					Blocks.CHERRY_SLAB.defaultBlockState(), Blocks.CHERRY_DOOR, Blocks.COBBLESTONE.defaultBlockState(),
+					Blocks.GRASS_BLOCK.defaultBlockState());
+		}
+	}
+
+	// ------------------------------------------------------------ building
+
+	@Override
+	public void postProcess(WorldGenLevel level, StructureManager structureManager, ChunkGenerator generator, RandomSource random,
+			BoundingBox chunkBox, ChunkPos chunkPos, BlockPos pivot) {
+		// Sink the piece one block so y = 0 replaces the top ground layer.
+		if (this.kind.inNether()) {
+			this.settleOnNetherFloor(level);
+		} else if (!this.updateAverageGroundHeight(level, chunkBox, -1)) {
+			return;
+		}
+		Holder<Biome> biome = level.getBiome(this.getWorldPos(this.kind.width / 2, 1, this.kind.depth / 2));
+		switch (this.kind) {
+			case HOUSE -> this.buildHouse(level, chunkBox, random, Palette.forBiome(biome));
+			case TENT -> this.buildTent(level, chunkBox, random, Palette.forBiome(biome));
+			case LILY_HOUSE -> this.buildLilyHouse(level, chunkBox, random, Palette.cherry());
+			case MADISON_HOUSE -> this.buildMadisonHouse(level, chunkBox, random);
+			case VILLAGE -> this.buildVillage(level, chunkBox, random, Palette.forBiome(biome));
+			case FORT -> this.buildFort(level, chunkBox, random);
+			case WATCHTOWER -> this.buildWatchtower(level, chunkBox, random);
+			case BANDIT_CAMP -> this.buildBanditCamp(level, chunkBox, random);
+			case TREEHOUSE -> this.buildTreehouse(level, chunkBox, random);
+			case BAKERY -> this.buildBakery(level, chunkBox, random);
+			case SKY_ARENA -> this.buildSkyArena(level, chunkBox, random);
+			case PIRATE_SHIP -> this.buildPirateShip(level, chunkBox, random);
+			default -> ExtraHomes.build(this, level, chunkBox, random, biome);
+		}
+	}
+
+	// ------------------------------------------------------------ LoafCraft Village
+
+	private void buildVillage(WorldGenLevel level, BoundingBox box, RandomSource random, Palette p) {
+		this.fill(level, box, 0, 1, 0, 30, 9, 30, Blocks.AIR.defaultBlockState());
+		this.fill(level, box, 0, 0, 0, 30, 0, 30, p.ground());
+		this.foundation(level, box, 0, 0, 30, 30, Blocks.DIRT.defaultBlockState());
+		// Main paths crossing at the well.
+		this.fill(level, box, 14, 0, 0, 16, 0, 30, Blocks.DIRT_PATH.defaultBlockState());
+		this.fill(level, box, 0, 0, 14, 30, 0, 16, Blocks.DIRT_PATH.defaultBlockState());
+		// Well.
+		this.fill(level, box, 13, 0, 13, 17, 0, 17, Blocks.COBBLESTONE.defaultBlockState());
+		this.fill(level, box, 14, -1, 14, 16, -1, 16, Blocks.COBBLESTONE.defaultBlockState());
+		this.fill(level, box, 14, 0, 14, 16, 0, 16, Blocks.WATER.defaultBlockState());
+		this.walls(level, box, 13, 13, 17, 17, 1, 1, Blocks.COBBLESTONE.defaultBlockState());
+		for (int[] c : new int[][]{{13, 13}, {17, 13}, {13, 17}, {17, 17}}) {
+			this.fill(level, box, c[0], 2, c[1], c[0], 3, c[1], Blocks.OAK_FENCE.defaultBlockState());
+		}
+		this.fill(level, box, 13, 4, 13, 17, 4, 17, Blocks.OAK_SLAB.defaultBlockState());
+		this.placeBlock(level, Blocks.BELL.defaultBlockState(), 18, 1, 13, box);
+		// Lamp posts.
+		for (int[] c : new int[][]{{12, 12}, {18, 12}, {12, 18}, {18, 18}}) {
+			this.placeBlock(level, Blocks.OAK_FENCE.defaultBlockState(), c[0], 1, c[1], box);
+			this.placeBlock(level, Blocks.LANTERN.defaultBlockState(), c[0], 2, c[1], box);
+		}
+		// Three cabins.
+		this.cabin(level, box, 1, 1, p, Blocks.RED_BED);
+		this.cabin(level, box, 23, 1, p, Blocks.BLUE_BED);
+		this.cabin(level, box, 1, 23, p, Blocks.PINK_BED);
+		// Farm: crop rows around a water channel, fenced.
+		BlockState farmland = Blocks.FARMLAND.defaultBlockState().setValue(net.minecraft.world.level.block.FarmBlock.MOISTURE, 7);
+		Block[] crops = {Blocks.WHEAT, Blocks.CARROTS, Blocks.POTATOES, Blocks.BEETROOTS};
+		for (int x = 20; x <= 29; x++) {
+			for (int z = 20; z <= 29; z++) {
+				if (z == 24) {
+					this.placeBlock(level, Blocks.WATER.defaultBlockState(), x, 0, z, box);
+					continue;
+				}
+				this.placeBlock(level, farmland, x, 0, z, box);
+				net.minecraft.world.level.block.CropBlock crop = (net.minecraft.world.level.block.CropBlock) crops[(x / 3) % crops.length];
+				this.placeBlock(level, crop.getStateForAge(random.nextInt(crop.getMaxAge() + 1)), x, 1, z, box);
+			}
+		}
+		this.walls(level, box, 19, 19, 30, 30, 1, 1, Blocks.OAK_FENCE.defaultBlockState());
+		this.placeBlock(level, Blocks.OAK_FENCE_GATE.defaultBlockState(), 24, 1, 19, box);
+		// Fishing pond with a little dock.
+		this.fill(level, box, 3, -1, 9, 10, -1, 12, Blocks.DIRT.defaultBlockState());
+		this.fill(level, box, 3, 0, 9, 10, 0, 12, Blocks.WATER.defaultBlockState());
+		this.fill(level, box, 6, 0, 10, 7, 0, 13, Blocks.SPRUCE_PLANKS.defaultBlockState());
+		this.barrel(level, box, random, 8, 1, 13, ModStructures.FISH_BARREL);
+		// Market corner: hay, a crafting table and the village chest.
+		this.placeBlock(level, Blocks.HAY_BLOCK.defaultBlockState(), 10, 1, 20, box);
+		this.placeBlock(level, Blocks.HAY_BLOCK.defaultBlockState(), 10, 1, 21, box);
+		this.placeBlock(level, Blocks.CRAFTING_TABLE.defaultBlockState(), 11, 1, 22, box);
+		this.createChest(level, box, random, 12, 1, 20, ModStructures.VILLAGE_CHEST);
+
+		// Bakery booth (Baker Madison): a counter, smoker and bread barrels under a striped awning.
+		this.fill(level, box, 1, 0, 17, 7, 0, 21, p.planks());
+		for (int[] c : new int[][]{{1, 17}, {7, 17}, {1, 21}, {7, 21}}) {
+			this.fill(level, box, c[0], 1, c[1], c[0], 3, c[1], Blocks.OAK_FENCE.defaultBlockState());
+		}
+		for (int x = 1; x <= 7; x++) {
+			Block wool = x % 2 == 0 ? Blocks.WHITE_WOOL : Blocks.ORANGE_WOOL;
+			this.fill(level, box, x, 4, 17, x, 4, 21, wool.defaultBlockState());
+		}
+		this.fill(level, box, 2, 1, 18, 6, 1, 18, Blocks.SPRUCE_SLAB.defaultBlockState()
+				.setValue(net.minecraft.world.level.block.SlabBlock.TYPE, net.minecraft.world.level.block.state.properties.SlabType.TOP));
+		this.placeBlock(level, Blocks.SMOKER.defaultBlockState(), 2, 1, 20, box);
+		this.placeBlock(level, Blocks.HAY_BLOCK.defaultBlockState(), 3, 1, 20, box);
+		this.barrel(level, box, random, 5, 1, 20, ModStructures.BAKERY_CHEST);
+		this.barrel(level, box, random, 6, 1, 20, ModStructures.BARREL_LOOT);
+		this.placeBlock(level, Blocks.LANTERN.defaultBlockState().setValue(net.minecraft.world.level.block.LanternBlock.HANGING, true), 4, 3, 19, box);
+
+		BlockPos spawn = this.getWorldPos(15, 1, 20);
+		if (!this.spawned && box.isInside(spawn)) {
+			this.spawned = true;
+			UUID group = Mth.createInsecureUUID(RandomSource.create(this.groupSeed));
+			BlockPos center = this.getWorldPos(15, 1, 15);
+			BlockPos[] beds = {this.getWorldPos(2, 1, 6), this.getWorldPos(24, 1, 6), null};
+			BlockPos lilyHome = this.getWorldPos(4, 1, 26);
+			BlockPos lilyBed = this.getWorldPos(2, 1, 28);
+			BlockPos farm = this.getWorldPos(25, 1, 22);
+			BlockPos dock = this.getWorldPos(7, 1, 13);
+			BlockPos bakery = this.getWorldPos(4, 1, 19);
+			boolean felixHere = random.nextDouble() < com.itzbreadloaf.config.ModConfig.get().felixVillageChance;
+			this.placeMarker(level, spawn, marker -> {
+				for (BlockPos bed : beds) {
+					marker.addResident(CharacterVariant.VILLAGER, spawn, center, 14, bed, group, null);
+				}
+				marker.addResident(CharacterVariant.ARCHER_LILY, spawn, lilyHome, 8, lilyBed, null, null);
+				marker.addResident(CharacterVariant.FARMER, spawn, farm, 6, null, null, null);
+				marker.addResident(CharacterVariant.FISHER, spawn, dock, 4, null, null, null);
+				marker.addResident(CharacterVariant.BAKER, spawn, bakery, 4, null, null, null);
+				if (felixHere) {
+					// FelixSyn drifts into LoafCraft villages too (Harley comes with him).
+					marker.addResident(CharacterVariant.FELIXSYN, spawn, center, 24, null, null, null);
+				}
+			});
+		}
+	}
+
+	/** A 7x7 cabin (like ItzBreadLoaf's house) with its corner at (ox, oz): door at the front, bed at the back. */
+	void cabin(WorldGenLevel level, BoundingBox box, int ox, int oz, Palette p, Block bed) {
+		this.fill(level, box, ox, 0, oz, ox + 6, 0, oz + 6, p.planks());
+		this.walls(level, box, ox, oz, ox + 6, oz + 6, 1, 3, p.planks());
+		for (int[] c : new int[][]{{0, 0}, {6, 0}, {0, 6}, {6, 6}}) {
+			this.fill(level, box, ox + c[0], 1, oz + c[1], ox + c[0], 4, oz + c[1], p.corner());
+		}
+		this.fill(level, box, ox, 4, oz, ox + 6, 4, oz + 6, p.planks());
+		this.fill(level, box, ox + 1, 5, oz + 1, ox + 5, 5, oz + 5, p.slab());
+		this.door(level, box, ox + 3, 1, oz, p.door());
+		BlockState glass = Blocks.GLASS_PANE.defaultBlockState();
+		this.placeBlock(level, glass, ox + 1, 2, oz, box);
+		this.placeBlock(level, glass, ox + 5, 2, oz, box);
+		this.bed(level, box, ox + 1, 1, oz + 4, bed);
+		this.placeBlock(level, Blocks.CRAFTING_TABLE.defaultBlockState(), ox + 5, 1, oz + 5, box);
+		this.placeBlock(level, Blocks.WALL_TORCH.defaultBlockState().setValue(WallTorchBlock.FACING, Direction.NORTH), ox + 3, 3, oz + 5, box);
+	}
+
+	// ------------------------------------------------------------ Bread Fort
+
+	private void buildFort(WorldGenLevel level, BoundingBox box, RandomSource random) {
+		BlockState bricks = Blocks.STONE_BRICKS.defaultBlockState();
+		this.fill(level, box, 0, 1, 0, 18, 8, 18, Blocks.AIR.defaultBlockState());
+		this.fill(level, box, 0, 0, 0, 18, 0, 18, Blocks.COBBLESTONE.defaultBlockState());
+		this.foundation(level, box, 0, 0, 18, 18, Blocks.COBBLESTONE.defaultBlockState());
+		// Walls, some mossy, with battlements on top.
+		for (int y = 1; y <= 4; y++) {
+			for (int i = 0; i <= 18; i++) {
+				for (int[] c : new int[][]{{i, 0}, {i, 18}, {0, i}, {18, i}}) {
+					this.placeBlock(level, random.nextInt(5) == 0 ? Blocks.MOSSY_STONE_BRICKS.defaultBlockState() : bricks, c[0], y, c[1], box);
+				}
+			}
+		}
+		for (int i = 0; i <= 18; i += 2) {
+			for (int[] c : new int[][]{{i, 0}, {i, 18}, {0, i}, {18, i}}) {
+				this.placeBlock(level, bricks, c[0], 5, c[1], box);
+			}
+		}
+		// Corner towers.
+		for (int[] c : new int[][]{{0, 0}, {16, 0}, {0, 16}, {16, 16}}) {
+			this.fill(level, box, c[0], 1, c[1], c[0] + 2, 6, c[1] + 2, bricks);
+			this.placeBlock(level, Blocks.LANTERN.defaultBlockState(), c[0] + 1, 7, c[1] + 1, box);
+		}
+		// Gate.
+		this.fill(level, box, 8, 1, 0, 10, 3, 0, Blocks.AIR.defaultBlockState());
+		this.placeBlock(level, Blocks.RED_BANNER.defaultBlockState(), 7, 5, 0, box);
+		this.placeBlock(level, Blocks.RED_BANNER.defaultBlockState(), 11, 5, 0, box);
+		// Training yard: hay dummies and a target.
+		this.placeBlock(level, Blocks.HAY_BLOCK.defaultBlockState(), 4, 1, 4, box);
+		this.placeBlock(level, Blocks.CARVED_PUMPKIN.defaultBlockState(), 4, 2, 4, box);
+		this.placeBlock(level, Blocks.HAY_BLOCK.defaultBlockState(), 14, 1, 4, box);
+		this.placeBlock(level, Blocks.TARGET.defaultBlockState(), 14, 2, 4, box);
+		// Barracks along the back wall, the captain's corner and the treasure chest.
+		Block[] beds = {Blocks.RED_BED, Blocks.RED_BED, Blocks.RED_BED};
+		for (int i = 0; i < 3; i++) {
+			this.bed(level, box, 4 + i * 2, 1, 15, beds[i]);
+		}
+		this.bed(level, box, 13, 1, 15, Blocks.BLACK_BED);
+		this.createChest(level, box, random, 15, 1, 16, ModStructures.FORT_CHEST);
+		this.placeBlock(level, Blocks.ANVIL.defaultBlockState(), 15, 1, 13, box);
+		for (int x : new int[]{3, 9, 15}) {
+			this.placeBlock(level, Blocks.WALL_TORCH.defaultBlockState().setValue(WallTorchBlock.FACING, Direction.NORTH), x, 3, 17, box);
+		}
+
+		BlockPos spawn = this.getWorldPos(9, 1, 9);
+		if (!this.spawned && box.isInside(spawn)) {
+			this.spawned = true;
+			UUID group = Mth.createInsecureUUID(RandomSource.create(this.groupSeed));
+			BlockPos yard = this.getWorldPos(9, 1, 8);
+			BlockPos captainHome = this.getWorldPos(12, 1, 12);
+			BlockPos[] knightBeds = {this.getWorldPos(4, 1, 16), this.getWorldPos(6, 1, 16), this.getWorldPos(8, 1, 16)};
+			BlockPos captainBed = this.getWorldPos(13, 1, 16);
+			this.placeMarker(level, spawn, marker -> {
+				for (BlockPos bed : knightBeds) {
+					marker.addResident(CharacterVariant.KNIGHT, spawn, yard, 6, bed, group, null);
+				}
+				marker.addResident(CharacterVariant.CAPTAIN, spawn, captainHome, 4, captainBed, group, null);
+			});
+		}
+	}
+
+	// ------------------------------------------------------------ Watchtower
+
+	private void buildWatchtower(WorldGenLevel level, BoundingBox box, RandomSource random) {
+		BlockState planks = Blocks.SPRUCE_PLANKS.defaultBlockState();
+		BlockState log = Blocks.SPRUCE_LOG.defaultBlockState();
+		this.fill(level, box, 0, 1, 0, 6, 19, 6, Blocks.AIR.defaultBlockState());
+		this.fill(level, box, 0, 0, 0, 6, 0, 6, Blocks.COBBLESTONE.defaultBlockState());
+		this.foundation(level, box, 0, 0, 6, 6, Blocks.COBBLESTONE.defaultBlockState());
+		this.walls(level, box, 1, 1, 5, 5, 1, 14, planks);
+		for (int[] c : new int[][]{{1, 1}, {5, 1}, {1, 5}, {5, 5}}) {
+			this.fill(level, box, c[0], 1, c[1], c[0], 14, c[1], log);
+		}
+		// Doorway, and a ladder up the inside of the back wall.
+		this.fill(level, box, 3, 1, 1, 3, 2, 1, Blocks.AIR.defaultBlockState());
+		for (int y = 1; y <= 15; y++) {
+			this.placeBlock(level, Blocks.LADDER.defaultBlockState().setValue(net.minecraft.world.level.block.LadderBlock.FACING, Direction.NORTH), 3, y, 4, box);
+		}
+		// Lookout platform with a railing and a roof on posts.
+		for (int x = 0; x <= 6; x++) {
+			for (int z = 0; z <= 6; z++) {
+				if (x != 3 || z != 4) {
+					this.placeBlock(level, planks, x, 15, z, box);
+				}
+			}
+		}
+		for (int i = 1; i <= 5; i++) {
+			for (int[] c : new int[][]{{i, 0}, {i, 6}, {0, i}, {6, i}}) {
+				this.placeBlock(level, Blocks.SPRUCE_FENCE.defaultBlockState(), c[0], 16, c[1], box);
+			}
+		}
+		for (int[] c : new int[][]{{0, 0}, {6, 0}, {0, 6}, {6, 6}}) {
+			this.fill(level, box, c[0], 16, c[1], c[0], 18, c[1], log);
+		}
+		this.fill(level, box, 0, 19, 0, 6, 19, 6, Blocks.SPRUCE_SLAB.defaultBlockState());
+		this.createChest(level, box, random, 5, 16, 1, ModStructures.WATCHTOWER_CHEST);
+		this.placeBlock(level, Blocks.LANTERN.defaultBlockState().setValue(LanternBlock.HANGING, true), 3, 18, 3, box);
+
+		BlockPos spawn = this.getWorldPos(2, 16, 2);
+		if (!this.spawned && box.isInside(spawn)) {
+			this.spawned = true;
+			BlockPos post = this.getWorldPos(3, 16, 2);
+			this.placeMarker(level, spawn, marker -> marker.addResident(CharacterVariant.ARCHER, spawn, post, 2, null, null, null));
+		}
+	}
+
+	// ------------------------------------------------------------ Bandit Camp
+
+	private void buildBanditCamp(WorldGenLevel level, BoundingBox box, RandomSource random) {
+		this.fill(level, box, 0, 1, 0, 14, 5, 14, Blocks.AIR.defaultBlockState());
+		for (int x = 0; x <= 14; x++) {
+			for (int z = 0; z <= 14; z++) {
+				this.placeBlock(level, random.nextInt(3) == 0 ? Blocks.COARSE_DIRT.defaultBlockState() : Blocks.PODZOL.defaultBlockState(), x, 0, z, box);
+			}
+		}
+		this.foundation(level, box, 0, 0, 14, 14, Blocks.DIRT.defaultBlockState());
+		this.placeBlock(level, Blocks.CAMPFIRE.defaultBlockState().setValue(CampfireBlock.LIT, true), 7, 1, 7, box);
+		BlockState bench = Blocks.DARK_OAK_LOG.defaultBlockState().setValue(net.minecraft.world.level.block.RotatedPillarBlock.AXIS, Direction.Axis.Z);
+		this.placeBlock(level, bench, 5, 1, 7, box);
+		this.placeBlock(level, bench, 9, 1, 7, box);
+		Block[] wool = {Blocks.BLACK_WOOL, Blocks.GRAY_WOOL, Blocks.BROWN_WOOL, Blocks.BLACK_WOOL};
+		int[][] tents = {{1, 1}, {11, 1}, {1, 10}, {11, 10}};
+		int bandits = Math.min(4, this.members + 1);
+		for (int i = 0; i < bandits; i++) {
+			this.smallTent(level, box, tents[i][0], tents[i][1], wool[i].defaultBlockState());
+		}
+		this.createChest(level, box, random, 7, 1, 12, ModStructures.BANDIT_CHEST);
+		this.placeBlock(level, Blocks.BLACK_BANNER.defaultBlockState(), 7, 1, 13, box);
+		this.placeBlock(level, Blocks.HAY_BLOCK.defaultBlockState(), 12, 1, 7, box);
+		this.barrel(level, box, random, 2, 1, 7, ModStructures.BARREL_LOOT);
+
+		BlockPos spawn = this.getWorldPos(7, 1, 9);
+		if (!this.spawned && box.isInside(spawn)) {
+			this.spawned = true;
+			UUID group = Mth.createInsecureUUID(RandomSource.create(this.groupSeed));
+			BlockPos campfire = this.getWorldPos(7, 1, 8);
+			BlockPos[] beds = new BlockPos[bandits];
+			for (int i = 0; i < bandits; i++) {
+				beds[i] = this.getWorldPos(tents[i][0] + 1, 1, tents[i][1] + 2);
+			}
+			this.placeMarker(level, spawn, marker -> {
+				for (BlockPos bed : beds) {
+					marker.addResident(CharacterVariant.BANDIT, spawn, campfire, 8, bed, group, null);
+				}
+			});
+		}
+	}
+
+	/** A 3x4 A-frame tent with its corner at (ox, oz), entrance at the front, one bed inside. */
+	void smallTent(WorldGenLevel level, BoundingBox box, int ox, int oz, BlockState wool) {
+		for (int z = oz; z <= oz + 3; z++) {
+			this.placeBlock(level, wool, ox, 1, z, box);
+			this.placeBlock(level, wool, ox + 2, 1, z, box);
+			this.placeBlock(level, wool, ox + 1, 2, z, box);
+		}
+		this.placeBlock(level, wool, ox + 1, 1, oz + 3, box);
+		this.bed(level, box, ox + 1, 1, oz + 1, Blocks.BROWN_BED);
+	}
+
+	// ------------------------------------------------------------ Lily's Treehouse
+
+	private void buildTreehouse(WorldGenLevel level, BoundingBox box, RandomSource random) {
+		BlockState log = Blocks.OAK_LOG.defaultBlockState();
+		BlockState planks = Blocks.OAK_PLANKS.defaultBlockState();
+		BlockState leaves = Blocks.CHERRY_LEAVES.defaultBlockState().setValue(net.minecraft.world.level.block.LeavesBlock.PERSISTENT, true);
+		this.fill(level, box, 0, 1, 0, 12, 15, 12, Blocks.AIR.defaultBlockState());
+		this.fill(level, box, 0, 0, 0, 12, 0, 12, Blocks.GRASS_BLOCK.defaultBlockState());
+		this.foundation(level, box, 0, 0, 12, 12, Blocks.DIRT.defaultBlockState());
+		// Platform, then the trunk through it.
+		this.fill(level, box, 2, 8, 2, 10, 8, 10, planks);
+		this.fill(level, box, 5, 1, 5, 6, 13, 6, log);
+		// Little house on the platform.
+		this.walls(level, box, 3, 3, 9, 9, 9, 11, Blocks.BIRCH_PLANKS.defaultBlockState());
+		this.fill(level, box, 3, 12, 3, 9, 12, 9, Blocks.CHERRY_SLAB.defaultBlockState());
+		this.door(level, box, 8, 9, 3, Blocks.CHERRY_DOOR);
+		BlockState glass = Blocks.GLASS_PANE.defaultBlockState();
+		this.placeBlock(level, glass, 3, 10, 6, box);
+		this.placeBlock(level, glass, 9, 10, 6, box);
+		this.placeBlock(level, glass, 5, 10, 9, box);
+		// Library inside.
+		for (int x = 4; x <= 8; x++) {
+			this.fill(level, box, x, 9, 8, x, 10, 8, Blocks.BOOKSHELF.defaultBlockState());
+		}
+		this.bed(level, box, 4, 9, 6, Blocks.PINK_BED);
+		this.placeBlock(level, Blocks.LECTERN.defaultBlockState(), 8, 9, 7, box);
+		this.createChest(level, box, random, 8, 9, 5, ModStructures.TREEHOUSE_CHEST);
+		this.placeBlock(level, Blocks.LANTERN.defaultBlockState().setValue(LanternBlock.HANGING, true), 6, 11, 7, box);
+		// Railing around the platform, open at the top of the stairs.
+		for (int i = 2; i <= 10; i++) {
+			for (int[] c : new int[][]{{i, 2}, {i, 10}, {2, i}, {10, i}}) {
+				if (!(c[0] == 10 && (c[1] == 4 || c[1] == 5))) {
+					this.placeBlock(level, Blocks.OAK_FENCE.defaultBlockState(), c[0], 9, c[1], box);
+				}
+			}
+		}
+		// Canopy of cherry leaves.
+		for (int x = 1; x <= 11; x++) {
+			for (int z = 1; z <= 11; z++) {
+				for (int y = 13; y <= 14; y++) {
+					boolean edge = x == 1 || x == 11 || z == 1 || z == 11;
+					if (y == 13 && !edge && x >= 3 && x <= 9 && z >= 3 && z <= 9) {
+						continue;
+					}
+					if (random.nextInt(6) != 0) {
+						this.placeBlock(level, leaves, x, y, z, box);
+					}
+				}
+			}
+		}
+		// Stairs up the east side (walking north), on fence posts.
+		for (int y = 1; y <= 7; y++) {
+			int z = 13 - y;
+			this.placeBlock(level, Blocks.OAK_STAIRS.defaultBlockState().setValue(net.minecraft.world.level.block.StairBlock.FACING, Direction.NORTH), 11, y, z, box);
+			for (int below = 1; below < y; below++) {
+				this.placeBlock(level, Blocks.OAK_FENCE.defaultBlockState(), 11, below, z, box);
+			}
+		}
+		this.fill(level, box, 11, 8, 4, 11, 8, 5, planks);
+
+		BlockPos spawn = this.getWorldPos(7, 9, 4);
+		if (!this.spawned && box.isInside(spawn)) {
+			this.spawned = true;
+			BlockPos home = this.getWorldPos(7, 9, 6);
+			BlockPos bed = this.getWorldPos(4, 9, 7);
+			this.placeMarker(level, spawn, marker -> marker.addResident(CharacterVariant.BOOKWORM, spawn, home, 6, bed, null, null));
+		}
+	}
+
+	// ------------------------------------------------------------ Madison's Bakery
+
+	private void buildBakery(WorldGenLevel level, BoundingBox box, RandomSource random) {
+		BlockState planks = Blocks.SPRUCE_PLANKS.defaultBlockState();
+		BlockState log = Blocks.STRIPPED_SPRUCE_LOG.defaultBlockState();
+		this.fill(level, box, 0, 1, 0, 10, 7, 11, Blocks.AIR.defaultBlockState());
+		this.fill(level, box, 0, 0, 0, 10, 0, 11, Blocks.STONE_BRICKS.defaultBlockState());
+		this.foundation(level, box, 0, 0, 10, 11, Blocks.COBBLESTONE.defaultBlockState());
+		this.walls(level, box, 0, 0, 10, 11, 1, 4, planks);
+		for (int[] c : new int[][]{{0, 0}, {10, 0}, {0, 11}, {10, 11}}) {
+			this.fill(level, box, c[0], 1, c[1], c[0], 5, c[1], log);
+		}
+		this.fill(level, box, 0, 5, 0, 10, 5, 11, planks);
+		this.fill(level, box, 1, 6, 1, 9, 6, 10, Blocks.SPRUCE_SLAB.defaultBlockState());
+		this.door(level, box, 5, 1, 0, Blocks.SPRUCE_DOOR);
+		BlockState glass = Blocks.GLASS_PANE.defaultBlockState();
+		for (int x : new int[]{2, 3, 7, 8}) {
+			this.placeBlock(level, glass, x, 2, 0, box);
+		}
+		this.placeBlock(level, Blocks.POTTED_RED_TULIP.defaultBlockState(), 2, 1, 1, box);
+		this.placeBlock(level, Blocks.POTTED_DANDELION.defaultBlockState(), 8, 1, 1, box);
+		// Counter with cakes on it (gap on the right to walk behind).
+		this.fill(level, box, 2, 1, 5, 7, 1, 5, Blocks.SMOOTH_STONE.defaultBlockState());
+		this.placeBlock(level, Blocks.CAKE.defaultBlockState(), 3, 2, 5, box);
+		this.placeBlock(level, Blocks.CAKE.defaultBlockState(), 6, 2, 5, box);
+		// Ovens and the bread chest at the back, her bed in the corner.
+		this.placeBlock(level, Blocks.SMOKER.defaultBlockState().setValue(net.minecraft.world.level.block.AbstractFurnaceBlock.FACING, Direction.NORTH), 3, 1, 10, box);
+		this.placeBlock(level, Blocks.FURNACE.defaultBlockState().setValue(net.minecraft.world.level.block.FurnaceBlock.FACING, Direction.NORTH), 4, 1, 10, box);
+		this.placeBlock(level, Blocks.CRAFTING_TABLE.defaultBlockState(), 5, 1, 10, box);
+		this.placeBlock(level, Blocks.HAY_BLOCK.defaultBlockState(), 6, 1, 10, box);
+		this.createChest(level, box, random, 8, 1, 10, ModStructures.BAKERY_CHEST);
+		this.bed(level, box, 1, 1, 8, Blocks.YELLOW_BED);
+		this.placeBlock(level, Blocks.LANTERN.defaultBlockState().setValue(LanternBlock.HANGING, true), 5, 4, 6, box);
+
+		BlockPos spawn = this.getWorldPos(5, 1, 7);
+		if (!this.spawned && box.isInside(spawn)) {
+			this.spawned = true;
+			BlockPos bed = this.getWorldPos(1, 1, 9);
+			// She keeps an eye on her bread chest like Madison watches her pantry.
+			BlockPos chest = this.getWorldPos(8, 1, 10);
+			this.placeMarker(level, spawn, marker -> marker.addResident(CharacterVariant.BAKER, spawn, spawn, 3, bed, null, chest));
+		}
+	}
+
+	// ------------------------------------------------------------ Master's Sky Arena
+
+	private void buildSkyArena(WorldGenLevel level, BoundingBox box, RandomSource random) {
+		BlockState bricks = Blocks.STONE_BRICKS.defaultBlockState();
+		int top = 30;
+		this.fill(level, box, 7, 0, 7, 13, 0, 13, bricks);
+		this.foundation(level, box, 7, 7, 13, 13, bricks);
+		// The pillar, with a ladder up its south face.
+		this.fill(level, box, 9, 1, 9, 11, top - 1, 11, bricks);
+		for (int y = 1; y <= top; y++) {
+			this.placeBlock(level, Blocks.LADDER.defaultBlockState().setValue(net.minecraft.world.level.block.LadderBlock.FACING, Direction.SOUTH), 10, y, 12, box);
+		}
+		// Round platform: polished blackstone with an obsidian rim, open sky above.
+		for (int x = 0; x <= 20; x++) {
+			for (int z = 0; z <= 20; z++) {
+				int dx = x - 10;
+				int dz = z - 10;
+				int d2 = dx * dx + dz * dz;
+				if (d2 > 100 || x == 10 && z == 12) {
+					continue;
+				}
+				this.fill(level, box, x, top + 1, z, x, top + 7, z, Blocks.AIR.defaultBlockState());
+				this.placeBlock(level, d2 >= 81 ? Blocks.OBSIDIAN.defaultBlockState() : Blocks.POLISHED_BLACKSTONE.defaultBlockState(), x, top, z, box);
+			}
+		}
+		for (int[] c : new int[][]{{2, 10}, {18, 10}, {10, 2}, {10, 18}}) {
+			this.fill(level, box, c[0], top + 1, c[1], c[0], top + 2, c[1], Blocks.CRYING_OBSIDIAN.defaultBlockState());
+			this.placeBlock(level, Blocks.SOUL_LANTERN.defaultBlockState(), c[0], top + 3, c[1], box);
+		}
+		this.createChest(level, box, random, 10, top + 1, 17, ModStructures.ARENA_CHEST);
+
+		BlockPos spawn = this.getWorldPos(10, top + 1, 10);
+		if (!this.spawned && box.isInside(spawn)) {
+			this.spawned = true;
+			this.placeMarker(level, spawn, marker -> marker.addResident(CharacterVariant.MASTER, spawn, spawn, 8, null, null, null));
+		}
+	}
+
+	// ------------------------------------------------------------ Pirate Ship
+
+	private void buildPirateShip(WorldGenLevel level, BoundingBox box, RandomSource random) {
+		BlockState hull = Blocks.DARK_OAK_PLANKS.defaultBlockState();
+		BlockState deck = Blocks.SPRUCE_PLANKS.defaultBlockState();
+		// Hull (solid, so the sea stays out) and deck; pointed at the bow (z = 20), narrower at the stern.
+		for (int z = 0; z <= 20; z++) {
+			int half = z <= 2 ? z + 1 : z >= 17 ? Math.max(0, 20 - z) : 3;
+			for (int x = 4 - half; x <= 4 + half; x++) {
+				for (int y = -2; y <= 0; y++) {
+					if (y == -2 && (x == 4 - half || x == 4 + half) && half > 0) {
+						continue;
+					}
+					this.placeBlock(level, hull, x, y, z, box);
+				}
+				this.placeBlock(level, deck, x, 1, z, box);
+				this.fill(level, box, x, 2, z, x, 11, z, Blocks.AIR.defaultBlockState());
+			}
+			this.placeBlock(level, Blocks.DARK_OAK_FENCE.defaultBlockState(), 4 - half, 2, z, box);
+			this.placeBlock(level, Blocks.DARK_OAK_FENCE.defaultBlockState(), 4 + half, 2, z, box);
+		}
+		// Masts with sails and the black flag.
+		this.fill(level, box, 4, 2, 10, 4, 10, 10, Blocks.DARK_OAK_LOG.defaultBlockState());
+		this.fill(level, box, 2, 5, 11, 6, 9, 11, Blocks.WHITE_WOOL.defaultBlockState());
+		this.placeBlock(level, Blocks.BLACK_BANNER.defaultBlockState(), 4, 11, 10, box);
+		this.fill(level, box, 4, 2, 15, 4, 7, 15, Blocks.DARK_OAK_LOG.defaultBlockState());
+		this.fill(level, box, 3, 4, 16, 5, 6, 16, Blocks.WHITE_WOOL.defaultBlockState());
+		// Captain's cabin at the stern.
+		this.walls(level, box, 2, 2, 6, 6, 2, 4, hull);
+		this.fill(level, box, 2, 5, 2, 6, 5, 6, Blocks.DARK_OAK_SLAB.defaultBlockState());
+		this.fill(level, box, 4, 2, 6, 4, 3, 6, Blocks.AIR.defaultBlockState());
+		this.createChest(level, box, random, 3, 2, 3, ModStructures.PIRATE_CHEST);
+		this.bed(level, box, 5, 2, 3, Blocks.RED_BED);
+		this.placeBlock(level, Blocks.LANTERN.defaultBlockState().setValue(LanternBlock.HANGING, true), 4, 4, 4, box);
+		// Cargo.
+		this.barrel(level, box, random, 2, 2, 13, ModStructures.BARREL_LOOT);
+		this.barrel(level, box, random, 6, 2, 13, ModStructures.BARREL_LOOT);
+		this.barrel(level, box, random, 6, 2, 12, ModStructures.BARREL_LOOT);
+
+		BlockPos spawn = this.getWorldPos(4, 2, 12);
+		if (!this.spawned && box.isInside(spawn)) {
+			this.spawned = true;
+			UUID group = Mth.createInsecureUUID(RandomSource.create(this.groupSeed));
+			int pirates = 2 + (this.members > 2 ? 1 : 0);
+			BlockPos captainBed = this.getWorldPos(5, 2, 4);
+			this.placeMarker(level, spawn, marker -> {
+				for (int i = 0; i < pirates; i++) {
+					marker.addResident(CharacterVariant.PIRATE, spawn, spawn, 6, i == 0 ? captainBed : null, group, null);
+				}
+			});
+		}
+	}
+
+	/** A beehive full of honey (with two bees inside) on top of a lit campfire. */
+	void beehive(WorldGenLevel level, BoundingBox box, RandomSource random, int x, int y, int z) {
+		this.placeBlock(level, Blocks.CAMPFIRE.defaultBlockState().setValue(CampfireBlock.LIT, true), x, y, z, box);
+		this.placeBlock(level, Blocks.BEEHIVE.defaultBlockState()
+				.setValue(net.minecraft.world.level.block.BeehiveBlock.FACING, Direction.SOUTH)
+				.setValue(net.minecraft.world.level.block.BeehiveBlock.HONEY_LEVEL, net.minecraft.world.level.block.BeehiveBlock.MAX_HONEY_LEVELS), x, y + 1, z, box);
+		BlockPos pos = this.getWorldPos(x, y + 1, z);
+		if (box.isInside(pos) && level.getBlockEntity(pos) instanceof net.minecraft.world.level.block.entity.BeehiveBlockEntity hive) {
+			for (int i = 0; i < 2; i++) {
+				hive.storeBee(net.minecraft.world.level.block.entity.BeehiveBlockEntity.Occupant.create(random.nextInt(599)));
+			}
+		}
+	}
+
+	private void buildHouse(WorldGenLevel level, BoundingBox box, RandomSource random, Palette p) {
+		this.fill(level, box, 0, 1, 0, 6, 6, 6, Blocks.AIR.defaultBlockState());
+		this.fill(level, box, 0, 0, 0, 6, 0, 6, p.planks());
+		this.foundation(level, box, 0, 0, 6, 6, p.foundation());
+		// Walls with log corners.
+		this.walls(level, box, 0, 0, 6, 6, 1, 3, p.planks());
+		for (int[] c : new int[][]{{0, 0}, {6, 0}, {0, 6}, {6, 6}}) {
+			this.fill(level, box, c[0], 1, c[1], c[0], 4, c[1], p.corner());
+		}
+		// Roof: a plank layer and a slab layer on top.
+		this.fill(level, box, 0, 4, 0, 6, 4, 6, p.planks());
+		this.fill(level, box, 1, 5, 1, 5, 5, 5, p.slab());
+		// Door and windows.
+		this.door(level, box, 3, 1, 0, p.door());
+		BlockState glass = Blocks.GLASS_PANE.defaultBlockState();
+		this.placeBlock(level, glass, 1, 2, 0, box);
+		this.placeBlock(level, glass, 5, 2, 0, box);
+		this.placeBlock(level, glass, 0, 2, 3, box);
+		this.placeBlock(level, glass, 6, 2, 3, box);
+		// Furniture.
+		this.bed(level, box, 1, 1, 4, Blocks.RED_BED);
+		this.placeBlock(level, Blocks.CRAFTING_TABLE.defaultBlockState(), 5, 1, 5, box);
+		this.placeBlock(level, Blocks.FURNACE.defaultBlockState().setValue(net.minecraft.world.level.block.FurnaceBlock.FACING, Direction.NORTH), 4, 1, 5, box);
+		this.createChest(level, box, random, 5, 1, 3, ModStructures.HOUSE_CHEST);
+		this.placeBlock(level, Blocks.WALL_TORCH.defaultBlockState().setValue(WallTorchBlock.FACING, Direction.NORTH), 3, 3, 5, box);
+
+		BlockPos spawn = this.getWorldPos(3, 1, 3);
+		if (!this.spawned && box.isInside(spawn)) {
+			this.spawned = true;
+			BlockPos bed = this.getWorldPos(1, 1, 5);
+			this.placeMarker(level, spawn, marker -> marker.addResident(CharacterVariant.BREADLOAF, spawn, spawn, 10, bed, null, null));
+		}
+	}
+
+	private void buildTent(WorldGenLevel level, BoundingBox box, RandomSource random, Palette p) {
+		BlockState wool = WOOL[this.woolColor].defaultBlockState();
+		this.fill(level, box, 0, 1, 0, 8, 5, 9, Blocks.AIR.defaultBlockState());
+		this.fill(level, box, 0, 0, 0, 8, 0, 9, p.ground());
+		this.foundation(level, box, 0, 0, 8, 9, Blocks.DIRT.defaultBlockState());
+		// A-frame from z = 3 (front) to z = 9 (back).
+		for (int z = 3; z <= 9; z++) {
+			this.placeBlock(level, wool, 1, 1, z, box);
+			this.placeBlock(level, wool, 7, 1, z, box);
+			this.placeBlock(level, wool, 2, 2, z, box);
+			this.placeBlock(level, wool, 6, 2, z, box);
+			this.placeBlock(level, wool, 3, 3, z, box);
+			this.placeBlock(level, wool, 5, 3, z, box);
+			this.placeBlock(level, wool, 4, 4, z, box);
+		}
+		// Closed back, front with a 1x2 entrance in the middle.
+		this.fill(level, box, 2, 1, 9, 6, 1, 9, wool);
+		this.fill(level, box, 3, 2, 9, 5, 2, 9, wool);
+		this.placeBlock(level, wool, 4, 3, 9, box);
+		for (int[] w : new int[][]{{2, 1}, {3, 1}, {5, 1}, {6, 1}, {3, 2}, {5, 2}, {4, 3}}) {
+			this.placeBlock(level, wool, w[0], w[1], 3, box);
+		}
+		// One bed per member, a chest at the back, and a lantern hanging from the ridge.
+		int[][] beds = {{2, 7}, {6, 7}, {2, 4}, {6, 4}};
+		for (int i = 0; i < this.members; i++) {
+			this.bed(level, box, beds[i][0], 1, beds[i][1], BEDS[i]);
+		}
+		this.createChest(level, box, random, 4, 1, 8, ModStructures.TENT_CHEST);
+		this.placeBlock(level, Blocks.LANTERN.defaultBlockState().setValue(LanternBlock.HANGING, true), 4, 3, 6, box);
+		// Campfire with two log benches in front of the tent.
+		this.placeBlock(level, Blocks.CAMPFIRE.defaultBlockState().setValue(CampfireBlock.LIT, true), 4, 1, 1, box);
+		this.placeBlock(level, Blocks.OAK_LOG.defaultBlockState().setValue(net.minecraft.world.level.block.RotatedPillarBlock.AXIS, Direction.Axis.Z), 2, 1, 1, box);
+		this.placeBlock(level, Blocks.OAK_LOG.defaultBlockState().setValue(net.minecraft.world.level.block.RotatedPillarBlock.AXIS, Direction.Axis.Z), 6, 1, 1, box);
+
+		BlockPos spawn = this.getWorldPos(4, 1, 6);
+		if (!this.spawned && box.isInside(spawn)) {
+			this.spawned = true;
+			UUID group = Mth.createInsecureUUID(RandomSource.create(this.groupSeed));
+			BlockPos campfire = this.getWorldPos(4, 1, 1);
+			this.placeMarker(level, spawn, marker -> {
+				for (int i = 0; i < this.members; i++) {
+					BlockPos bedHead = this.getWorldPos(beds[i][0], 1, beds[i][1] + 1);
+					marker.addResident(CharacterVariant.BREADLOAF, spawn, campfire, 6, bedHead, group, null);
+				}
+			});
+		}
+	}
+
+	private void buildLilyHouse(WorldGenLevel level, BoundingBox box, RandomSource random, Palette p) {
+		this.fill(level, box, 0, 1, 0, 8, 6, 10, Blocks.AIR.defaultBlockState());
+		// Grassy yard around the house, cherry floor inside.
+		this.fill(level, box, 0, 0, 0, 8, 0, 10, Blocks.GRASS_BLOCK.defaultBlockState());
+		this.foundation(level, box, 0, 0, 8, 10, Blocks.DIRT.defaultBlockState());
+		this.fill(level, box, 1, 0, 1, 7, 0, 9, p.planks());
+		// 7x9 cherry walls with log corners.
+		this.walls(level, box, 1, 1, 7, 9, 1, 3, p.planks());
+		for (int[] c : new int[][]{{1, 1}, {7, 1}, {1, 9}, {7, 9}}) {
+			this.fill(level, box, c[0], 1, c[1], c[0], 4, c[1], p.corner());
+		}
+		this.fill(level, box, 1, 4, 1, 7, 4, 9, p.planks());
+		this.fill(level, box, 2, 5, 2, 6, 5, 8, p.slab());
+		this.door(level, box, 4, 1, 1, p.door());
+		BlockState pinkGlass = Blocks.PINK_STAINED_GLASS_PANE.defaultBlockState();
+		this.placeBlock(level, pinkGlass, 2, 2, 1, box);
+		this.placeBlock(level, pinkGlass, 6, 2, 1, box);
+		this.placeBlock(level, pinkGlass, 1, 2, 5, box);
+		this.placeBlock(level, pinkGlass, 7, 2, 5, box);
+		// Cozy inside: pink bed, bookshelves with a lantern, a potted flower, a rug and a chest.
+		this.bed(level, box, 2, 1, 7, Blocks.PINK_BED);
+		this.fill(level, box, 4, 1, 8, 6, 2, 8, Blocks.BOOKSHELF.defaultBlockState());
+		this.placeBlock(level, Blocks.LANTERN.defaultBlockState(), 5, 3, 8, box);
+		this.placeBlock(level, Blocks.POTTED_PINK_TULIP.defaultBlockState(), 6, 1, 2, box);
+		this.fill(level, box, 3, 1, 4, 4, 1, 5, Blocks.PINK_CARPET.defaultBlockState());
+		this.createChest(level, box, random, 6, 1, 5, ModStructures.LILY_HOUSE_CHEST);
+		// Pink petals scattered around the yard.
+		for (int x = 0; x <= 8; x++) {
+			for (int z = 0; z <= 10; z++) {
+				boolean yard = x == 0 || x == 8 || z == 0 || z == 10;
+				if (yard && random.nextFloat() < 0.6F) {
+					BlockState petals = Blocks.PINK_PETALS.defaultBlockState()
+							.setValue(FlowerBedBlock.AMOUNT, 1 + random.nextInt(4))
+							.setValue(FlowerBedBlock.FACING, Direction.Plane.HORIZONTAL.getRandomDirection(random));
+					this.placeBlock(level, petals, x, 1, z, box);
+				}
+			}
+		}
+
+		BlockPos spawn = this.getWorldPos(4, 1, 4);
+		if (!this.spawned && box.isInside(spawn)) {
+			this.spawned = true;
+			BlockPos home = this.getWorldPos(4, 1, 5);
+			BlockPos bed = this.getWorldPos(2, 1, 8);
+			CharacterVariant lilyType = new CharacterVariant[]{CharacterVariant.LILY, CharacterVariant.GARDENER, CharacterVariant.WITCHY}[random.nextInt(3)];
+			this.placeMarker(level, spawn, marker -> marker.addResident(lilyType, spawn, home, LilyBrain.HOME_RADIUS, bed, null, null));
+		}
+	}
+
+	private void buildMadisonHouse(WorldGenLevel level, BoundingBox box, RandomSource random) {
+		BlockState planks = Blocks.BIRCH_PLANKS.defaultBlockState();
+		BlockState wall = Blocks.WHITE_CONCRETE.defaultBlockState();
+		BlockState log = Blocks.BIRCH_LOG.defaultBlockState();
+		this.fill(level, box, 0, 1, 0, 10, 6, 13, Blocks.AIR.defaultBlockState());
+		this.fill(level, box, 0, 0, 0, 10, 0, 13, Blocks.GRASS_BLOCK.defaultBlockState());
+		this.foundation(level, box, 0, 0, 10, 13, Blocks.DIRT.defaultBlockState());
+		// Garden out front: three rows of crops on farmland, two water blocks, and a path to the door.
+		BlockState farmland = Blocks.FARMLAND.defaultBlockState().setValue(net.minecraft.world.level.block.FarmBlock.MOISTURE, 7);
+		Block[] crops = {Blocks.WHEAT, Blocks.CARROTS, Blocks.POTATOES};
+		for (int z = 1; z <= 3; z++) {
+			for (int x = 1; x <= 9; x++) {
+				if (x == 5) {
+					this.placeBlock(level, Blocks.DIRT_PATH.defaultBlockState(), x, 0, z, box);
+				} else if (z == 2 && (x == 3 || x == 7)) {
+					this.placeBlock(level, Blocks.WATER.defaultBlockState(), x, 0, z, box);
+				} else {
+					this.placeBlock(level, farmland, x, 0, z, box);
+					net.minecraft.world.level.block.CropBlock crop = (net.minecraft.world.level.block.CropBlock) crops[z - 1];
+					this.placeBlock(level, crop.getStateForAge(3 + random.nextInt(crop.getMaxAge() - 2)), x, 1, z, box);
+				}
+			}
+		}
+		this.placeBlock(level, Blocks.DIRT_PATH.defaultBlockState(), 5, 0, 0, box);
+		// 9x9 cottage: birch floor, white concrete walls, birch log corners.
+		this.fill(level, box, 1, 0, 4, 9, 0, 12, planks);
+		this.walls(level, box, 1, 4, 9, 12, 1, 3, wall);
+		for (int[] c : new int[][]{{1, 4}, {9, 4}, {1, 12}, {9, 12}}) {
+			this.fill(level, box, c[0], 1, c[1], c[0], 4, c[1], log);
+		}
+		this.fill(level, box, 1, 4, 4, 9, 4, 12, planks);
+		this.fill(level, box, 2, 5, 5, 8, 5, 11, Blocks.BIRCH_SLAB.defaultBlockState());
+		this.door(level, box, 5, 1, 4, Blocks.BIRCH_DOOR);
+		BlockState glass = Blocks.GLASS_PANE.defaultBlockState();
+		this.placeBlock(level, glass, 3, 2, 4, box);
+		this.placeBlock(level, glass, 7, 2, 4, box);
+		this.placeBlock(level, glass, 1, 2, 8, box);
+		this.placeBlock(level, glass, 9, 2, 8, box);
+		this.placeBlock(level, glass, 5, 2, 12, box);
+		// Inside: bed, barrel, flower pots, a torch and the pantry chest.
+		this.bed(level, box, 2, 1, 10, Blocks.YELLOW_BED);
+		this.barrel(level, box, random, 8, 1, 11, ModStructures.BARREL_LOOT);
+		this.placeBlock(level, Blocks.POTTED_DANDELION.defaultBlockState(), 2, 1, 6, box);
+		this.placeBlock(level, Blocks.POTTED_OXEYE_DAISY.defaultBlockState(), 8, 1, 6, box);
+		this.placeBlock(level, Blocks.WALL_TORCH.defaultBlockState().setValue(WallTorchBlock.FACING, Direction.NORTH), 5, 3, 11, box);
+		this.createChest(level, box, random, 8, 1, 9, ModStructures.MADISON_PANTRY);
+		// Two beehives over lit campfires (the smoke keeps the bees calm when honey is collected).
+		this.beehive(level, box, random, 0, 1, 2);
+		this.beehive(level, box, random, 10, 1, 2);
+
+		BlockPos spawn = this.getWorldPos(5, 1, 8);
+		if (!this.spawned && box.isInside(spawn)) {
+			this.spawned = true;
+			BlockPos bed = this.getWorldPos(2, 1, 11);
+			// She watches this exact chest.
+			BlockPos pantry = this.getWorldPos(8, 1, 9);
+			CharacterVariant madisonType = new CharacterVariant[]{CharacterVariant.MADISON, CharacterVariant.FARMER, CharacterVariant.BEEKEEPER}[random.nextInt(3)];
+			this.placeMarker(level, spawn, marker -> marker.addResident(madisonType, spawn, spawn, MadisonBrain.HOME_RADIUS, bed, null, pantry));
+		}
+	}
+
+	/** An invisible marker where the residents will appear; it holds their details until a player comes near. */
+	/** Nether pieces: drop the piece onto the floor under its center (the heightmap there is the ceiling). */
+	/**
+	 * Builds a structure right now in a loaded world (Village Campsites and Bastion Throne Rooms, which the mod adds while
+	 * the game runs). {@code floorY} is the height of the ground layer (local y = 0). Returns the area it covers.
+	 */
+	public static BoundingBox buildNow(net.minecraft.server.level.ServerLevel level, HomeKind kind, int x, int z, int floorY, RandomSource random) {
+		HomePiece piece = new HomePiece(kind, random, x, z);
+		// A fixed height: postProcess then skips the ground averaging that world generation uses.
+		piece.heightPosition = floorY;
+		piece.boundingBox.move(0, floorY - piece.boundingBox.minY(), 0);
+		BoundingBox area = piece.getBoundingBox();
+		piece.postProcess(level, level.structureManager(), level.getChunkSource().getGenerator(), random, area,
+				new ChunkPos(area.getCenter()), area.getCenter());
+		return area;
+	}
+
+	private void settleOnNetherFloor(WorldGenLevel level) {
+		if (this.heightPosition >= 0) {
+			return;
+		}
+		BlockPos center = this.getWorldPos(this.kind.width / 2, 0, this.kind.depth / 2);
+		int floor = 64;
+		for (int y = 100; y > 32; y--) {
+			BlockPos at = new BlockPos(center.getX(), y, center.getZ());
+			if (level.getBlockState(at).isAir() && level.getBlockState(at.above()).isAir()
+					&& !level.getBlockState(at.below()).isAir() && level.getFluidState(at.below()).isEmpty()) {
+				floor = y - 1;
+				break;
+			}
+		}
+		this.heightPosition = floor;
+		this.boundingBox.move(0, floor - this.boundingBox.minY(), 0);
+	}
+
+	// ------------------------------------------------------------ helpers for the builder classes (LilyHomes, BreadHomes, ...)
+
+	/** One block at local coordinates (rotated and mirrored with the piece). */
+	void put(WorldGenLevel level, BoundingBox box, BlockState state, int x, int y, int z) {
+		this.placeBlock(level, state, x, y, z, box);
+	}
+
+	/** World position of local coordinates. */
+	BlockPos pos(int x, int y, int z) {
+		return this.getWorldPos(x, y, z);
+	}
+
+	/** A loot chest at local coordinates. */
+	void chest(WorldGenLevel level, BoundingBox box, RandomSource random, int x, int y, int z,
+			net.minecraft.resources.ResourceKey<net.minecraft.world.level.storage.loot.LootTable> loot) {
+		this.createChest(level, box, random, x, y, z, loot);
+	}
+
+	/** A barrel filled from a loot table (barrels everywhere have loot now, not just chests). */
+	void barrel(WorldGenLevel level, BoundingBox box, RandomSource random, int x, int y, int z,
+			net.minecraft.resources.ResourceKey<net.minecraft.world.level.storage.loot.LootTable> loot) {
+		BlockPos at = this.getWorldPos(x, y, z);
+		if (!box.isInside(at)) {
+			return;
+		}
+		level.setBlock(at, Blocks.BARREL.defaultBlockState(), 2);
+		net.minecraft.world.RandomizableContainer.setBlockEntityLootTable(level, random, at, loot);
+	}
+
+	/** Fills downward from local y to the ground (pillars under raised floors). */
+	void column(WorldGenLevel level, BoundingBox box, BlockState state, int x, int y, int z) {
+		this.fillColumnDown(level, state, x, y, z, box);
+	}
+
+	/** True once, for the chunk that holds the residents' spawn spot. */
+	boolean claimSpawn(BlockPos spawn, BoundingBox box) {
+		if (this.spawned || !box.isInside(spawn)) {
+			return false;
+		}
+		this.spawned = true;
+		return true;
+	}
+
+	/** Shared group id for everyone living in this structure (they defend each other). */
+	UUID group() {
+		return Mth.createInsecureUUID(RandomSource.create(this.groupSeed));
+	}
+
+	/** 2-4, rolled once per structure. */
+	int members() {
+		return this.members;
+	}
+
+	HomeKind kind() {
+		return this.kind;
+	}
+
+	void placeMarker(WorldGenLevel level, BlockPos pos, java.util.function.Consumer<ResidentMarkerBlockEntity> residents) {
+		level.setBlock(pos, ModBlocks.RESIDENT_MARKER.defaultBlockState(), 2);
+		if (level.getBlockEntity(pos) instanceof ResidentMarkerBlockEntity marker) {
+			residents.accept(marker);
+			marker.setChanged();
+		}
+	}
+
+	// ------------------------------------------------------------ helpers (local coordinates)
+
+	void fill(WorldGenLevel level, BoundingBox box, int x0, int y0, int z0, int x1, int y1, int z1, BlockState state) {
+		for (int y = y0; y <= y1; y++) {
+			for (int x = x0; x <= x1; x++) {
+				for (int z = z0; z <= z1; z++) {
+					this.placeBlock(level, state, x, y, z, box);
+				}
+			}
+		}
+	}
+
+	/** Only the outer ring of the rectangle, from y0 to y1. */
+	void walls(WorldGenLevel level, BoundingBox box, int x0, int z0, int x1, int z1, int y0, int y1, BlockState state) {
+		for (int y = y0; y <= y1; y++) {
+			for (int x = x0; x <= x1; x++) {
+				this.placeBlock(level, state, x, y, z0, box);
+				this.placeBlock(level, state, x, y, z1, box);
+			}
+			for (int z = z0; z <= z1; z++) {
+				this.placeBlock(level, state, x0, y, z, box);
+				this.placeBlock(level, state, x1, y, z, box);
+			}
+		}
+	}
+
+	/** Fills any gap under the floor down to the ground, so nothing floats on slopes. */
+	void foundation(WorldGenLevel level, BoundingBox box, int x0, int z0, int x1, int z1, BlockState state) {
+		for (int x = x0; x <= x1; x++) {
+			for (int z = z0; z <= z1; z++) {
+				this.fillColumnDown(level, state, x, -1, z, box);
+			}
+		}
+	}
+
+	void door(WorldGenLevel level, BoundingBox box, int x, int y, int z, Block door) {
+		BlockState lower = door.defaultBlockState().setValue(DoorBlock.FACING, Direction.SOUTH).setValue(DoorBlock.HALF, DoubleBlockHalf.LOWER);
+		this.placeBlock(level, lower, x, y, z, box);
+		this.placeBlock(level, lower.setValue(DoorBlock.HALF, DoubleBlockHalf.UPPER), x, y + 1, z, box);
+	}
+
+	/** A bed with its foot at z and its head at z + 1 (toward the back). */
+	void bed(WorldGenLevel level, BoundingBox box, int x, int y, int z, Block bed) {
+		// Work out the real world positions first and point the bed from foot to head, so both halves always match
+		// no matter how the structure is rotated or mirrored (a mismatched half breaks itself).
+		BlockPos footPos = this.getWorldPos(x, y, z);
+		BlockPos headPos = this.getWorldPos(x, y, z + 1);
+		if (!box.isInside(footPos) || !box.isInside(headPos)) {
+			return;
+		}
+		Direction facing = Direction.getApproximateNearest(headPos.getX() - footPos.getX(), 0, headPos.getZ() - footPos.getZ());
+		BlockState foot = bed.defaultBlockState().setValue(BedBlock.FACING, facing).setValue(BedBlock.PART, BedPart.FOOT);
+		level.setBlock(footPos, foot, 2);
+		level.setBlock(headPos, foot.setValue(BedBlock.PART, BedPart.HEAD), 2);
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/worldgen/HomeStructure.java
+
+```java
+package com.itzbreadloaf.worldgen;
+
+import com.mojang.serialization.MapCodec;
+import com.mojang.serialization.codecs.RecordCodecBuilder;
+import java.util.Optional;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
+import net.minecraft.core.QuartPos;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.levelgen.structure.StructureSet;
+import net.minecraft.world.level.levelgen.structure.placement.RandomSpreadStructurePlacement;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.NoiseColumn;
+import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.level.levelgen.structure.Structure;
+import net.minecraft.world.level.levelgen.structure.StructureType;
+
+/**
+ * One structure type for all three homes. The worldgen JSON picks which one with "kind":
+ * "house", "tent" or "lily_house". Biomes, spacing and rarity are set in the JSON files.
+ */
+public class HomeStructure extends Structure {
+	public static final MapCodec<HomeStructure> CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
+			settingsCodec(instance),
+			HomeKind.CODEC.fieldOf("kind").forGetter(structure -> structure.kind)
+	).apply(instance, HomeStructure::new));
+
+	private final HomeKind kind;
+
+	public HomeStructure(StructureSettings settings, HomeKind kind) {
+		super(settings);
+		this.kind = kind;
+	}
+
+	@Override
+	protected Optional<GenerationStub> findGenerationPoint(GenerationContext context) {
+		ChunkPos chunk = context.chunkPos();
+		if (this.yieldsToNeighbor(context)) {
+			return Optional.empty();
+		}
+		int x = chunk.getMiddleBlockX();
+		int z = chunk.getMiddleBlockZ();
+		// Homes never on water (lakes, rivers, ocean edges); the pirate ship only on water.
+		NoiseColumn column = context.chunkGenerator().getBaseColumn(x, z, context.heightAccessor(), context.randomState());
+		if (this.kind.inNether()) {
+			// The Nether: search down for an open floor (not lava) under the ceiling.
+			for (int y = 100; y > 32; y--) {
+				if (column.getBlock(y).isAir() && column.getBlock(y + 1).isAir() && !column.getBlock(y - 1).isAir()
+						&& column.getBlock(y - 1).getFluidState().isEmpty()) {
+					return Optional.of(new GenerationStub(new BlockPos(x, y, z), builder ->
+							builder.addPiece(new HomePiece(this.kind, context.random(), chunk.getMinBlockX(), chunk.getMinBlockZ()))));
+				}
+			}
+			return Optional.empty();
+		}
+		int surface = context.chunkGenerator().getBaseHeight(x, z, Heightmap.Types.WORLD_SURFACE_WG,
+				context.heightAccessor(), context.randomState());
+		if (this.kind.needsSolidGround() && surface <= context.heightAccessor().getMinY() + 8) {
+			return Optional.empty();
+		}
+		boolean water = !column.getBlock(surface - 1).getFluidState().isEmpty();
+		if (water != this.kind.onWater() && !this.kind.anySurface()) {
+			return Optional.empty();
+		}
+		return onTopOfChunkCenter(context, Heightmap.Types.WORLD_SURFACE_WG, builder ->
+				builder.addPiece(new HomePiece(this.kind, context.random(), chunk.getMinBlockX(), chunk.getMinBlockZ())));
+	}
+
+	/**
+	 * Keeps LoafCraft structures off each other: if a bigger LoafCraft structure (from any of our structure sets) would
+	 * start close enough to overlap this one, this one doesn't generate. Bigger wins; equal sizes go to the earlier kind.
+	 * It works out where the other sets place their structures from the world seed, the same way the game does, and
+	 * checks the biome there. (Vanilla villages are kept away with "exclusion_zone" in each structure_set file.)
+	 */
+	private boolean yieldsToNeighbor(GenerationContext context) {
+		ChunkPos here = context.chunkPos();
+		int mySize = Math.max(this.kind.width, this.kind.depth);
+		for (StructureSet set : context.registryAccess().lookupOrThrow(Registries.STRUCTURE_SET)) {
+			if (!(set.placement() instanceof RandomSpreadStructurePlacement spread)) {
+				continue;
+			}
+			for (StructureSet.StructureSelectionEntry entry : set.structures()) {
+				if (!(entry.structure().value() instanceof HomeStructure other) || other.kind == this.kind || !other.outranks(this)) {
+					continue;
+				}
+				int reach = (mySize + Math.max(other.kind.width, other.kind.depth)) / 2 + 6;
+				int reachChunks = reach / 16 + 1;
+				int spacing = spread.spacing();
+				for (int cx = Math.floorDiv(here.x - reachChunks, spacing); cx <= Math.floorDiv(here.x + reachChunks, spacing); cx++) {
+					for (int cz = Math.floorDiv(here.z - reachChunks, spacing); cz <= Math.floorDiv(here.z + reachChunks, spacing); cz++) {
+						ChunkPos start = spread.getPotentialStructureChunk(context.seed(), cx * spacing, cz * spacing);
+						if (Math.abs(start.x - here.x) * 16 > reach || Math.abs(start.z - here.z) * 16 > reach) {
+							continue;
+						}
+						Holder<Biome> biome = context.biomeSource().getNoiseBiome(QuartPos.fromBlock(start.getMiddleBlockX()),
+								QuartPos.fromBlock(64), QuartPos.fromBlock(start.getMiddleBlockZ()), context.randomState().sampler());
+						if (other.biomes().contains(biome)) {
+							return true;
+						}
+					}
+				}
+			}
+		}
+		return false;
+	}
+
+	private boolean outranks(HomeStructure other) {
+		int mine = Math.max(this.kind.width, this.kind.depth);
+		int theirs = Math.max(other.kind.width, other.kind.depth);
+		return mine != theirs ? mine > theirs : this.kind.ordinal() < other.kind.ordinal();
+	}
+
+	@Override
+	public StructureType<?> type() {
+		return ModStructures.HOME;
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/worldgen/LilyHomes.java
+
+```java
+package com.itzbreadloaf.worldgen;
+
+import com.itzbreadloaf.brain.LilyBrain;
+import com.itzbreadloaf.character.CharacterVariant;
+import net.minecraft.core.BlockPos;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.level.WorldGenLevel;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.CampfireBlock;
+import net.minecraft.world.level.block.LanternBlock;
+import net.minecraft.world.level.block.LeavesBlock;
+import net.minecraft.world.level.block.SnowLayerBlock;
+import net.minecraft.world.level.block.VineBlock;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
+import net.minecraft.world.level.storage.loot.LootTable;
+
+/**
+ * ImLilyLol's homes outside the Cherry Grove. Same shy Lily everywhere (sometimes a Gardener, Witchy or Bookworm Lily),
+ * each house built from its biome's materials, with a chest of cozy loot that fits the biome.
+ */
+final class LilyHomes {
+	private static final Block[] FLOWERS = {Blocks.POPPY, Blocks.CORNFLOWER, Blocks.ALLIUM, Blocks.OXEYE_DAISY,
+			Blocks.AZURE_BLUET, Blocks.LILY_OF_THE_VALLEY, Blocks.PINK_TULIP, Blocks.DANDELION, Blocks.BLUE_ORCHID};
+
+	private LilyHomes() {
+	}
+
+	/** Meadow: birch walls on stone-brick corners, and a flower garden out front. */
+	static void meadow(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		cottage(p, level, box, random, Blocks.GRASS_BLOCK.defaultBlockState(), Blocks.BIRCH_PLANKS.defaultBlockState(),
+				Blocks.BIRCH_PLANKS.defaultBlockState(), Blocks.STONE_BRICKS.defaultBlockState(), Blocks.STONE_BRICKS.defaultBlockState(),
+				Blocks.BIRCH_SLAB.defaultBlockState(), Blocks.BIRCH_DOOR, Blocks.LIGHT_BLUE_BED, ModStructures.lootTable("chests/lily_meadow_cottage"));
+		garden(p, level, box, random, 0.8F);
+		p.put(level, box, Blocks.POTTED_CORNFLOWER.defaultBlockState(), 6, 1, 3);
+		resident(p, level, box, random, CharacterVariant.LILY, CharacterVariant.GARDENER, CharacterVariant.GARDENER);
+	}
+
+	/** Flower Forest: mossy walls, a moss roof with flowering azalea, vines climbing the sides, flowers everywhere. */
+	static void flowerForest(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		cottage(p, level, box, random, Blocks.MOSS_BLOCK.defaultBlockState(), Blocks.OAK_PLANKS.defaultBlockState(),
+				Blocks.MOSSY_COBBLESTONE.defaultBlockState(), Blocks.OAK_LOG.defaultBlockState(), Blocks.MOSS_BLOCK.defaultBlockState(),
+				Blocks.FLOWERING_AZALEA_LEAVES.defaultBlockState().setValue(LeavesBlock.PERSISTENT, true), Blocks.OAK_DOOR,
+				Blocks.LIME_BED, ModStructures.lootTable("chests/lily_flower_cottage"));
+		garden(p, level, box, random, 1.0F);
+		for (int z = 3; z <= 8; z++) {
+			for (int y = 1; y <= 3; y++) {
+				if (random.nextInt(3) != 0) {
+					p.put(level, box, Blocks.VINE.defaultBlockState().setValue(VineBlock.EAST, true), 0, y, z);
+				}
+				if (random.nextInt(3) != 0) {
+					p.put(level, box, Blocks.VINE.defaultBlockState().setValue(VineBlock.WEST, true), 8, y, z);
+				}
+			}
+		}
+		p.put(level, box, Blocks.FLOWERING_AZALEA.defaultBlockState(), 0, 1, 1);
+		p.put(level, box, Blocks.FLOWERING_AZALEA.defaultBlockState(), 8, 1, 1);
+		p.put(level, box, Blocks.POTTED_FLOWERING_AZALEA.defaultBlockState(), 6, 1, 3);
+		resident(p, level, box, random, CharacterVariant.LILY, CharacterVariant.GARDENER, CharacterVariant.WITCHY);
+	}
+
+	/** Birch Forest: a cozy reading cabin with bookshelves along the walls and a lectern. */
+	static void readingCabin(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		cottage(p, level, box, random, Blocks.GRASS_BLOCK.defaultBlockState(), Blocks.BIRCH_PLANKS.defaultBlockState(),
+				Blocks.BIRCH_PLANKS.defaultBlockState(), Blocks.BIRCH_LOG.defaultBlockState(), Blocks.BIRCH_PLANKS.defaultBlockState(),
+				Blocks.BIRCH_SLAB.defaultBlockState(), Blocks.BIRCH_DOOR, Blocks.YELLOW_BED, ModStructures.lootTable("chests/lily_reading_cabin"));
+		for (int z = 3; z <= 6; z++) {
+			p.fill(level, box, 6, 1, z, 6, 2, z, Blocks.BOOKSHELF.defaultBlockState());
+		}
+		for (int z = 3; z <= 5; z++) {
+			p.fill(level, box, 2, 1, z, 2, 2, z, Blocks.BOOKSHELF.defaultBlockState());
+		}
+		p.put(level, box, Blocks.LECTERN.defaultBlockState(), 4, 1, 8);
+		p.put(level, box, Blocks.CANDLE.defaultBlockState().setValue(net.minecraft.world.level.block.CandleBlock.LIT, false), 6, 3, 3);
+		resident(p, level, box, random, CharacterVariant.BOOKWORM, CharacterVariant.BOOKWORM, CharacterVariant.LILY);
+	}
+
+	/** Snowy Taiga: a spruce cabin with a stone fireplace (and chimney), lanterns, snow all around. */
+	static void snowyCabin(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		cottage(p, level, box, random, Blocks.SNOW_BLOCK.defaultBlockState(), Blocks.SPRUCE_PLANKS.defaultBlockState(),
+				Blocks.SPRUCE_PLANKS.defaultBlockState(), Blocks.SPRUCE_LOG.defaultBlockState(), Blocks.SPRUCE_PLANKS.defaultBlockState(),
+				Blocks.SPRUCE_SLAB.defaultBlockState(), Blocks.SPRUCE_DOOR, Blocks.WHITE_BED, ModStructures.lootTable("chests/lily_snowy_cabin"));
+		// Fireplace in the back wall, with a chimney through the roof.
+		BlockState stone = Blocks.COBBLESTONE.defaultBlockState();
+		p.fill(level, box, 3, 1, 9, 3, 3, 9, stone);
+		p.fill(level, box, 5, 1, 9, 5, 3, 9, stone);
+		p.fill(level, box, 4, 2, 9, 4, 3, 9, Blocks.BRICKS.defaultBlockState());
+		p.put(level, box, Blocks.CAMPFIRE.defaultBlockState().setValue(CampfireBlock.LIT, true), 4, 1, 9);
+		p.put(level, box, stone, 4, 1, 10);
+		p.fill(level, box, 4, 4, 10, 4, 7, 10, stone);
+		BlockState lantern = Blocks.LANTERN.defaultBlockState().setValue(LanternBlock.HANGING, true);
+		p.put(level, box, lantern, 2, 3, 4);
+		p.put(level, box, lantern, 6, 3, 4);
+		p.put(level, box, Blocks.LANTERN.defaultBlockState(), 0, 1, 1);
+		p.put(level, box, Blocks.LANTERN.defaultBlockState(), 8, 1, 1);
+		p.put(level, box, Blocks.WHITE_CARPET.defaultBlockState(), 4, 1, 6);
+		for (int x = 0; x <= 8; x++) {
+			for (int z = 0; z <= 10; z++) {
+				boolean outside = x == 0 || x == 8 || z <= 1 || z == 10;
+				if (outside && random.nextInt(3) != 0 && level.getBlockState(p.pos(x, 1, z)).isAir()) {
+					p.put(level, box, Blocks.SNOW.defaultBlockState().setValue(SnowLayerBlock.LAYERS, 1 + random.nextInt(2)), x, 1, z);
+				}
+			}
+		}
+		p.fill(level, box, 2, 6, 3, 6, 6, 8, Blocks.SNOW.defaultBlockState());
+		resident(p, level, box, random, CharacterVariant.LILY, CharacterVariant.WITCHY, CharacterVariant.BOOKWORM);
+	}
+
+	/** Mushroom Fields (rare): mushroom-stem walls under a big red mushroom cap. */
+	static void mushroomHouse(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		BlockState stem = Blocks.MUSHROOM_STEM.defaultBlockState();
+		BlockState cap = Blocks.RED_MUSHROOM_BLOCK.defaultBlockState();
+		p.fill(level, box, 0, 1, 0, 10, 8, 10, Blocks.AIR.defaultBlockState());
+		p.fill(level, box, 0, 0, 0, 10, 0, 10, Blocks.MYCELIUM.defaultBlockState());
+		p.foundation(level, box, 0, 0, 10, 10, Blocks.DIRT.defaultBlockState());
+		p.fill(level, box, 3, 0, 3, 7, 0, 7, Blocks.SPRUCE_PLANKS.defaultBlockState());
+		p.walls(level, box, 2, 2, 8, 8, 1, 4, stem);
+		p.door(level, box, 5, 1, 2, Blocks.SPRUCE_DOOR);
+		p.put(level, box, Blocks.GLASS_PANE.defaultBlockState(), 2, 2, 5);
+		p.put(level, box, Blocks.GLASS_PANE.defaultBlockState(), 8, 2, 5);
+		p.fill(level, box, 1, 5, 1, 9, 5, 9, cap);
+		p.fill(level, box, 2, 6, 2, 8, 6, 8, cap);
+		p.fill(level, box, 3, 7, 3, 7, 7, 7, cap);
+		p.fill(level, box, 3, 5, 3, 7, 5, 7, stem);
+		p.bed(level, box, 3, 1, 6, Blocks.RED_BED);
+		p.chest(level, box, random, 7, 1, 7, ModStructures.lootTable("chests/lily_mushroom_house"));
+		p.put(level, box, Blocks.LANTERN.defaultBlockState().setValue(LanternBlock.HANGING, true), 5, 4, 5);
+		for (int i = 0; i < 8; i++) {
+			int x = random.nextInt(11);
+			int z = random.nextInt(11);
+			if (x < 1 || x > 9 || z < 1 || z > 9) {
+				p.put(level, box, (random.nextBoolean() ? Blocks.RED_MUSHROOM : Blocks.BROWN_MUSHROOM).defaultBlockState(), x, 1, z);
+			}
+		}
+		BlockPos spawn = p.pos(5, 1, 4);
+		if (p.claimSpawn(spawn, box)) {
+			BlockPos home = p.pos(5, 1, 5);
+			BlockPos bed = p.pos(3, 1, 7);
+			CharacterVariant type = new CharacterVariant[]{CharacterVariant.LILY, CharacterVariant.WITCHY}[random.nextInt(2)];
+			p.placeMarker(level, spawn, marker -> marker.addResident(type, spawn, home, LilyBrain.HOME_RADIUS, bed, null, null));
+		}
+	}
+
+	// ------------------------------------------------------------ shared
+
+	/**
+	 * Lily's cottage shape (9x11, the same layout as her cherry house): door at the front, bed in the back left,
+	 * chest in the back right, a lantern in the middle. Materials vary by biome.
+	 */
+	static void cottage(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random, BlockState ground, BlockState floor,
+			BlockState wall, BlockState corner, BlockState roof, BlockState roofTop, Block door, Block bed, ResourceKey<LootTable> loot) {
+		p.fill(level, box, 0, 1, 0, 8, 7, 10, Blocks.AIR.defaultBlockState());
+		p.fill(level, box, 0, 0, 0, 8, 0, 10, ground);
+		p.foundation(level, box, 0, 0, 8, 10, Blocks.DIRT.defaultBlockState());
+		p.fill(level, box, 1, 0, 2, 7, 0, 9, floor);
+		p.walls(level, box, 1, 2, 7, 9, 1, 3, wall);
+		for (int[] c : new int[][]{{1, 2}, {7, 2}, {1, 9}, {7, 9}}) {
+			p.fill(level, box, c[0], 1, c[1], c[0], 4, c[1], corner);
+		}
+		p.fill(level, box, 1, 4, 2, 7, 4, 9, roof);
+		p.fill(level, box, 2, 5, 3, 6, 5, 8, roofTop);
+		p.door(level, box, 4, 1, 2, door);
+		BlockState glass = Blocks.GLASS_PANE.defaultBlockState();
+		for (int[] w : new int[][]{{2, 2}, {6, 2}, {1, 5}, {7, 5}, {1, 7}, {7, 7}}) {
+			p.put(level, box, glass, w[0], 2, w[1]);
+		}
+		p.bed(level, box, 2, 1, 7, bed);
+		p.chest(level, box, random, 6, 1, 8, loot);
+		p.put(level, box, Blocks.LANTERN.defaultBlockState().setValue(LanternBlock.HANGING, true), 4, 3, 5);
+	}
+
+	/** Flowers in the front yard (keeping the path to the door clear). */
+	static void garden(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random, float density) {
+		for (int x = 0; x <= 8; x++) {
+			for (int z = 0; z <= 1; z++) {
+				if (x != 4 && random.nextFloat() < density) {
+					p.put(level, box, FLOWERS[random.nextInt(FLOWERS.length)].defaultBlockState(), x, 1, z);
+				}
+			}
+		}
+		p.put(level, box, Blocks.DIRT_PATH.defaultBlockState(), 4, 0, 0);
+		p.put(level, box, Blocks.DIRT_PATH.defaultBlockState(), 4, 0, 1);
+	}
+
+	/** One Lily (of one of the given types) who lives here: spawn by the door, bed in the back. */
+	static void resident(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random, CharacterVariant... types) {
+		BlockPos spawn = p.pos(4, 1, 4);
+		if (!p.claimSpawn(spawn, box)) {
+			return;
+		}
+		CharacterVariant type = types[random.nextInt(types.length)];
+		BlockPos home = p.pos(4, 1, 5);
+		BlockPos bed = p.pos(2, 1, 8);
+		p.placeMarker(level, spawn, marker -> marker.addResident(type, spawn, home, LilyBrain.HOME_RADIUS, bed, null, null));
+	}
+
+}
+```
+
+## src/main/java/com/itzbreadloaf/worldgen/ModStructures.java
+
+```java
+package com.itzbreadloaf.worldgen;
+
+import com.itzbreadloaf.ItzBreadLoaf;
+import net.minecraft.core.Registry;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.level.levelgen.structure.StructureType;
+import net.minecraft.world.level.levelgen.structure.pieces.StructurePieceType;
+import net.minecraft.world.level.storage.loot.LootTable;
+
+/**
+ * Registers the home structure type and its piece. The actual structures (house, tent, lily_house),
+ * their biomes and spacing are data files in data/itzbreadloaf/worldgen/.
+ */
+public final class ModStructures {
+	public static StructureType<HomeStructure> HOME;
+	public static StructurePieceType HOME_PIECE;
+
+	public static final ResourceKey<LootTable> HOUSE_CHEST = lootTable("chests/house");
+	public static final ResourceKey<LootTable> TENT_CHEST = lootTable("chests/tent");
+	public static final ResourceKey<LootTable> LILY_HOUSE_CHEST = lootTable("chests/lily_house");
+	public static final ResourceKey<LootTable> MADISON_PANTRY = lootTable("chests/madison_pantry");
+	public static final ResourceKey<LootTable> VILLAGE_CHEST = lootTable("chests/village");
+	public static final ResourceKey<LootTable> FORT_CHEST = lootTable("chests/fort");
+	public static final ResourceKey<LootTable> WATCHTOWER_CHEST = lootTable("chests/watchtower");
+	public static final ResourceKey<LootTable> BANDIT_CHEST = lootTable("chests/bandit_camp");
+	public static final ResourceKey<LootTable> TREEHOUSE_CHEST = lootTable("chests/treehouse");
+	public static final ResourceKey<LootTable> BAKERY_CHEST = lootTable("chests/bakery");
+	public static final ResourceKey<LootTable> ARENA_CHEST = lootTable("chests/sky_arena");
+	public static final ResourceKey<LootTable> PIRATE_CHEST = lootTable("chests/pirate_ship");
+	/** Barrels: general supplies, or fish for barrels by the water. */
+	public static final ResourceKey<LootTable> BARREL_LOOT = lootTable("chests/barrel_supplies");
+	public static final ResourceKey<LootTable> FISH_BARREL = lootTable("chests/fishing_barrel");
+
+	private ModStructures() {
+	}
+
+	public static ResourceKey<LootTable> lootTable(String path) {
+		return ResourceKey.create(Registries.LOOT_TABLE, ItzBreadLoaf.id(path));
+	}
+
+	public static void register() {
+		HOME = Registry.register(BuiltInRegistries.STRUCTURE_TYPE, ItzBreadLoaf.id("home"), () -> HomeStructure.CODEC);
+		HOME_PIECE = Registry.register(BuiltInRegistries.STRUCTURE_PIECE, ItzBreadLoaf.id("home_piece"),
+				(StructurePieceType.ContextlessType) HomePiece::new);
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/worldgen/NewHomes.java
+
+```java
+package com.itzbreadloaf.worldgen;
+
+import static com.itzbreadloaf.worldgen.SpecialHomes.FLOWERS;
+import static com.itzbreadloaf.worldgen.SpecialHomes.air;
+import static com.itzbreadloaf.worldgen.SpecialHomes.hanging;
+import static com.itzbreadloaf.worldgen.SpecialHomes.one;
+import static com.itzbreadloaf.worldgen.SpecialHomes.site;
+
+import com.itzbreadloaf.character.CharacterVariant;
+import java.util.UUID;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.entity.EntitySpawnReason;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.decoration.ArmorStand;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.WorldGenLevel;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.LadderBlock;
+import net.minecraft.world.level.block.LeavesBlock;
+import net.minecraft.world.level.block.RotatedPillarBlock;
+import net.minecraft.world.level.block.SlabBlock;
+import net.minecraft.world.level.block.StairBlock;
+import net.minecraft.world.level.block.SweetBerryBushBlock;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.Half;
+import net.minecraft.world.level.block.state.properties.SlabType;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
+
+/**
+ * The remake's new structures. Local coordinates: y = 0 is the ground layer, +z is "back" (doors face -z).
+ * A ladder FACING NORTH at z hangs on the block at z + 1.
+ */
+final class NewHomes {
+	private NewHomes() {
+	}
+
+	// ------------------------------------------------------------ small helpers
+
+	private static BlockState ladder() {
+		return Blocks.LADDER.defaultBlockState().setValue(LadderBlock.FACING, Direction.NORTH);
+	}
+
+	private static BlockState stair(Block block, Direction facing) {
+		return block.defaultBlockState().setValue(StairBlock.FACING, facing);
+	}
+
+	private static BlockState topSlab(Block block) {
+		return block.defaultBlockState().setValue(SlabBlock.TYPE, SlabType.TOP);
+	}
+
+	private static BlockState leaves(Block block) {
+		return block.defaultBlockState().setValue(LeavesBlock.PERSISTENT, true);
+	}
+
+	/** A gable-free roof: a slab layer over the walls and a smaller one on top. */
+	private static void roof(HomePiece p, WorldGenLevel level, BoundingBox box, int x0, int z0, int x1, int z1, int y, Block slab) {
+		p.fill(level, box, x0 - 1, y, z0 - 1, x1 + 1, y, z1 + 1, slab.defaultBlockState());
+		if (x1 - x0 > 2 && z1 - z0 > 2) {
+			p.fill(level, box, x0 + 1, y + 1, z0 + 1, x1 - 1, y + 1, z1 - 1, slab.defaultBlockState());
+		}
+	}
+
+	/** Two residents (or more) sharing one marker, all in one group so they defend each other. */
+	private static void group(HomePiece p, WorldGenLevel level, BoundingBox box, int x, int y, int z, int homeX, int homeZ,
+			int radius, CharacterVariant... types) {
+		BlockPos spawn = p.pos(x, y, z);
+		if (!p.claimSpawn(spawn, box)) {
+			return;
+		}
+		UUID id = p.group();
+		BlockPos home = p.pos(homeX, y, homeZ);
+		p.placeMarker(level, spawn, m -> {
+			for (CharacterVariant type : types) {
+				m.addResident(type, spawn, home, radius, null, id, null);
+			}
+		});
+	}
+
+	// ============================================================ ItzBreadLoaf
+
+	/** Swamp Hut on stilts: a mangrove shack over the water with a porch and a ladder. */
+	static void swampHut(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		p.fill(level, box, 0, 3, 0, 10, 9, 10, air());
+		BlockState log = Blocks.MANGROVE_LOG.defaultBlockState();
+		for (int[] c : new int[][]{{2, 2}, {8, 2}, {2, 8}, {8, 8}, {5, 2}}) {
+			p.column(level, box, log, c[0], 3, c[1]);
+		}
+		p.fill(level, box, 2, 3, 1, 8, 3, 8, Blocks.MANGROVE_PLANKS.defaultBlockState());
+		p.walls(level, box, 2, 2, 8, 8, 4, 6, Blocks.MANGROVE_PLANKS.defaultBlockState());
+		for (int[] c : new int[][]{{2, 2}, {8, 2}, {2, 8}, {8, 8}}) {
+			p.fill(level, box, c[0], 4, c[1], c[0], 6, c[1], log);
+		}
+		roof(p, level, box, 2, 2, 8, 8, 7, Blocks.MANGROVE_SLAB);
+		p.door(level, box, 5, 4, 2, Blocks.MANGROVE_DOOR);
+		p.put(level, box, Blocks.GLASS_PANE.defaultBlockState(), 2, 5, 5);
+		p.put(level, box, Blocks.GLASS_PANE.defaultBlockState(), 8, 5, 5);
+		// Porch rail and the ladder down to the water.
+		p.fill(level, box, 2, 4, 1, 4, 4, 1, Blocks.MANGROVE_FENCE.defaultBlockState());
+		p.fill(level, box, 6, 4, 1, 8, 4, 1, Blocks.MANGROVE_FENCE.defaultBlockState());
+		p.column(level, box, log, 5, 2, 2);
+		for (int y = 0; y <= 3; y++) {
+			p.put(level, box, ladder(), 5, y, 1);
+		}
+		p.put(level, box, air(), 5, 4, 1);
+		// Inside: bed, cauldron, crafting, loot.
+		p.bed(level, box, 3, 4, 6, Blocks.GREEN_BED);
+		p.put(level, box, Blocks.WATER_CAULDRON.defaultBlockState(), 7, 4, 7);
+		p.put(level, box, Blocks.CRAFTING_TABLE.defaultBlockState(), 7, 4, 3);
+		p.chest(level, box, random, 7, 4, 5, ModStructures.lootTable("chests/swamp_hut"));
+		p.barrel(level, box, random, 3, 4, 3, ModStructures.BARREL_LOOT);
+		p.put(level, box, hanging(), 5, 6, 5);
+		p.put(level, box, Blocks.LILY_PAD.defaultBlockState(), 1, 1, 4);
+		one(p, level, box, CharacterVariant.BREADLOAF, 5, 4, 4, 5, 5, 10, p.pos(3, 4, 6), null);
+	}
+
+	/** Mountain Outpost on the peaks: a stone tower with a lookout and a campfire on top. Archer and Knight. */
+	static void mountainOutpost(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		p.fill(level, box, 0, 1, 0, 8, 11, 8, air());
+		p.fill(level, box, 0, 0, 0, 8, 0, 8, Blocks.STONE_BRICKS.defaultBlockState());
+		p.foundation(level, box, 0, 0, 8, 8, Blocks.STONE.defaultBlockState());
+		p.walls(level, box, 1, 1, 7, 7, 1, 8, Blocks.STONE_BRICKS.defaultBlockState());
+		for (int[] c : new int[][]{{1, 1}, {7, 1}, {1, 7}, {7, 7}}) {
+			p.fill(level, box, c[0], 1, c[1], c[0], 8, c[1], Blocks.POLISHED_ANDESITE.defaultBlockState());
+		}
+		p.fill(level, box, 1, 4, 1, 7, 4, 7, Blocks.SPRUCE_PLANKS.defaultBlockState());
+		p.fill(level, box, 1, 9, 1, 7, 9, 7, Blocks.STONE_BRICKS.defaultBlockState());
+		p.door(level, box, 4, 1, 1, Blocks.SPRUCE_DOOR);
+		for (int y : new int[]{2, 6}) {
+			p.put(level, box, Blocks.GLASS_PANE.defaultBlockState(), 1, y, 4);
+			p.put(level, box, Blocks.GLASS_PANE.defaultBlockState(), 7, y, 4);
+		}
+		// Ladder up through both floors.
+		p.fill(level, box, 4, 1, 7, 4, 9, 7, Blocks.STONE_BRICKS.defaultBlockState());
+		for (int y = 1; y <= 9; y++) {
+			p.put(level, box, ladder(), 4, y, 6);
+		}
+		// Crenellations and a campfire on the roof.
+		for (int i = 1; i <= 7; i += 2) {
+			for (int[] c : new int[][]{{i, 1}, {i, 7}, {1, i}, {7, i}}) {
+				p.put(level, box, Blocks.STONE_BRICK_WALL.defaultBlockState(), c[0], 10, c[1]);
+			}
+		}
+		p.put(level, box, Blocks.CAMPFIRE.defaultBlockState(), 3, 10, 3);
+		p.bed(level, box, 2, 5, 5, Blocks.GRAY_BED);
+		p.bed(level, box, 6, 1, 5, Blocks.GRAY_BED);
+		p.put(level, box, Blocks.FURNACE.defaultBlockState(), 2, 1, 6);
+		p.chest(level, box, random, 2, 1, 2, ModStructures.lootTable("chests/mountain_outpost"));
+		p.barrel(level, box, random, 6, 5, 2, ModStructures.BARREL_LOOT);
+		p.put(level, box, Blocks.LANTERN.defaultBlockState(), 6, 1, 2);
+		p.put(level, box, Blocks.LANTERN.defaultBlockState(), 2, 5, 2);
+		group(p, level, box, 3, 1, 4, 4, 4, 10, CharacterVariant.ARCHER, CharacterVariant.KNIGHT);
+	}
+
+	/** Badlands Mineshaft Saloon: a terracotta saloon with a bar, tables, and a mine shaft going down in the back. */
+	static void badlandsSaloon(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		site(p, level, box, 14, 8, 12, Blocks.RED_SAND.defaultBlockState());
+		p.fill(level, box, 1, 0, 1, 13, 0, 11, Blocks.DARK_OAK_PLANKS.defaultBlockState());
+		p.walls(level, box, 1, 1, 13, 11, 1, 5, Blocks.ORANGE_TERRACOTTA.defaultBlockState());
+		for (int[] c : new int[][]{{1, 1}, {13, 1}, {1, 11}, {13, 11}}) {
+			p.fill(level, box, c[0], 1, c[1], c[0], 5, c[1], Blocks.DARK_OAK_LOG.defaultBlockState());
+		}
+		p.fill(level, box, 1, 6, 1, 13, 6, 11, Blocks.DARK_OAK_SLAB.defaultBlockState());
+		// The tall false front with a "sign" stripe.
+		p.fill(level, box, 1, 6, 1, 13, 8, 1, Blocks.DARK_OAK_PLANKS.defaultBlockState());
+		p.fill(level, box, 4, 7, 1, 10, 7, 1, Blocks.YELLOW_TERRACOTTA.defaultBlockState());
+		// Swinging-door gap and windows.
+		p.fill(level, box, 6, 1, 1, 8, 2, 1, air());
+		p.put(level, box, Blocks.OAK_FENCE_GATE.defaultBlockState(), 6, 1, 1);
+		p.put(level, box, Blocks.OAK_FENCE_GATE.defaultBlockState(), 8, 1, 1);
+		for (int x : new int[]{3, 11}) {
+			p.put(level, box, Blocks.GLASS_PANE.defaultBlockState(), x, 2, 1);
+		}
+		// Bar along the back: upside-down stairs as the counter, stools in front.
+		for (int x = 2; x <= 8; x++) {
+			p.put(level, box, stair(Blocks.DARK_OAK_STAIRS, Direction.NORTH).setValue(StairBlock.HALF, Half.TOP), x, 1, 9);
+			p.put(level, box, Blocks.BARREL.defaultBlockState(), x, 1, 10);
+		}
+		for (int x = 3; x <= 7; x += 2) {
+			p.put(level, box, Blocks.OAK_FENCE.defaultBlockState(), x, 1, 7);
+			p.put(level, box, Blocks.BROWN_CARPET.defaultBlockState(), x, 2, 7);
+		}
+		// Tables.
+		for (int[] t : new int[][]{{3, 4}, {10, 4}}) {
+			p.put(level, box, topSlab(Blocks.DARK_OAK_SLAB), t[0], 1, t[1]);
+			p.put(level, box, stair(Blocks.DARK_OAK_STAIRS, Direction.EAST), t[0] - 1, 1, t[1]);
+			p.put(level, box, stair(Blocks.DARK_OAK_STAIRS, Direction.WEST), t[0] + 1, 1, t[1]);
+		}
+		p.chest(level, box, random, 2, 1, 6, ModStructures.lootTable("chests/badlands_saloon"));
+		p.barrel(level, box, random, 9, 1, 10, ModStructures.BARREL_LOOT);
+		p.put(level, box, hanging(), 5, 5, 5);
+		p.put(level, box, hanging(), 10, 5, 7);
+		// Mine shaft in the back corner: a ladder down to a little rail room with the real loot.
+		p.fill(level, box, 11, -8, 8, 12, 0, 10, Blocks.OAK_PLANKS.defaultBlockState());
+		p.fill(level, box, 11, -7, 9, 11, 0, 9, air());
+		for (int y = -7; y <= 0; y++) {
+			p.put(level, box, ladder(), 11, y, 9);
+		}
+		p.fill(level, box, 4, -8, 6, 12, -8, 10, Blocks.OAK_PLANKS.defaultBlockState());
+		p.fill(level, box, 5, -7, 7, 10, -5, 9, air());
+		p.fill(level, box, 5, -7, 8, 10, -7, 8, Blocks.RAIL.defaultBlockState());
+		p.fill(level, box, 5, -4, 7, 10, -4, 9, Blocks.OAK_PLANKS.defaultBlockState());
+		p.chest(level, box, random, 5, -7, 9, ModStructures.lootTable("chests/badlands_saloon"));
+		p.put(level, box, Blocks.LANTERN.defaultBlockState(), 7, -7, 7);
+		group(p, level, box, 7, 1, 5, 7, 6, 10, CharacterVariant.MINER, CharacterVariant.BREADLOAF);
+	}
+
+	/** Cliffside Cave Base: a trapdoor hidden among bushes leads down a ladder to a lit stone room. */
+	static void cliffsideBase(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		BlockState wall = Blocks.STONE_BRICKS.defaultBlockState();
+		p.fill(level, box, 1, -8, 1, 11, -2, 11, wall);
+		p.fill(level, box, 2, -7, 2, 10, -3, 10, air());
+		p.fill(level, box, 2, -8, 2, 10, -8, 10, Blocks.POLISHED_ANDESITE.defaultBlockState());
+		// The hidden entrance: a closed trapdoor in the grass, a ladder down, bushes all around it.
+		p.fill(level, box, 6, -7, 7, 6, -1, 7, wall);
+		for (int y = -7; y <= -1; y++) {
+			p.put(level, box, ladder(), 6, y, 6);
+		}
+		p.put(level, box, Blocks.SPRUCE_TRAPDOOR.defaultBlockState(), 6, 0, 6);
+		for (int[] b : new int[][]{{5, 5}, {6, 5}, {7, 5}, {5, 6}, {7, 6}, {5, 7}, {7, 7}}) {
+			p.put(level, box, leaves(Blocks.OAK_LEAVES), b[0], 1, b[1]);
+		}
+		p.put(level, box, leaves(Blocks.AZALEA_LEAVES), 6, 2, 5);
+		// Inside: bed, crafting, furnace, armor stand, lots of light.
+		p.bed(level, box, 3, -7, 8, Blocks.CYAN_BED);
+		p.put(level, box, Blocks.CRAFTING_TABLE.defaultBlockState(), 9, -7, 9);
+		p.put(level, box, Blocks.FURNACE.defaultBlockState(), 9, -7, 8);
+		p.put(level, box, Blocks.SMITHING_TABLE.defaultBlockState(), 9, -7, 3);
+		p.chest(level, box, random, 3, -7, 3, ModStructures.lootTable("chests/cliffside_base"));
+		p.chest(level, box, random, 4, -7, 3, ModStructures.lootTable("chests/cliffside_base"));
+		p.barrel(level, box, random, 9, -7, 5, ModStructures.BARREL_LOOT);
+		for (int[] l : new int[][]{{4, 6}, {8, 4}, {8, 9}}) {
+			p.put(level, box, hanging(), l[0], -3, l[1]);
+		}
+		p.put(level, box, Blocks.RED_CARPET.defaultBlockState(), 5, -7, 5);
+		p.put(level, box, Blocks.RED_CARPET.defaultBlockState(), 6, -7, 5);
+		BlockPos bed = p.pos(3, -7, 8);
+		one(p, level, box, CharacterVariant.BREADLOAF, 6, -7, 4, 6, 6, 4, bed, null);
+	}
+
+	// ============================================================ ImLilyLol
+
+	/** Floating Island Cottage: a little sky island with a cherry cottage, held up by a rope-ladder pillar. */
+	static void floatingIsland(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		int top = 22;
+		for (int y = 14; y <= top; y++) {
+			double radius = Math.min(7.0, (y - 13) * 0.85);
+			for (int x = 0; x <= 14; x++) {
+				for (int z = 0; z <= 14; z++) {
+					double d = Math.sqrt((x - 7) * (x - 7) + (z - 7) * (z - 7));
+					if (d > radius + random.nextFloat() * 0.6) {
+						continue;
+					}
+					BlockState state = y == top ? Blocks.GRASS_BLOCK.defaultBlockState()
+							: y >= top - 2 ? Blocks.DIRT.defaultBlockState()
+							: random.nextInt(5) == 0 ? Blocks.ANDESITE.defaultBlockState() : Blocks.STONE.defaultBlockState();
+					p.put(level, box, state, x, y, z);
+				}
+			}
+		}
+		p.fill(level, box, 0, top + 1, 0, 14, top + 7, 14, air());
+		// Cottage.
+		p.fill(level, box, 4, top, 5, 10, top, 10, Blocks.CHERRY_PLANKS.defaultBlockState());
+		p.walls(level, box, 4, 5, 10, 10, top + 1, top + 3, Blocks.CHERRY_PLANKS.defaultBlockState());
+		for (int[] c : new int[][]{{4, 5}, {10, 5}, {4, 10}, {10, 10}}) {
+			p.fill(level, box, c[0], top + 1, c[1], c[0], top + 3, c[1], Blocks.CHERRY_LOG.defaultBlockState());
+		}
+		roof(p, level, box, 4, 5, 10, 10, top + 4, Blocks.CHERRY_SLAB);
+		p.door(level, box, 7, top + 1, 5, Blocks.CHERRY_DOOR);
+		p.put(level, box, Blocks.GLASS_PANE.defaultBlockState(), 4, top + 2, 7);
+		p.put(level, box, Blocks.GLASS_PANE.defaultBlockState(), 10, top + 2, 8);
+		p.bed(level, box, 5, top + 1, 8, Blocks.PINK_BED);
+		p.chest(level, box, random, 9, top + 1, 9, ModStructures.lootTable("chests/floating_island_cottage"));
+		p.put(level, box, Blocks.BOOKSHELF.defaultBlockState(), 9, top + 1, 6);
+		p.put(level, box, hanging(), 7, top + 3, 8);
+		p.put(level, box, Blocks.POTTED_CHERRY_SAPLING.defaultBlockState(), 5, top + 1, 6);
+		// A small cherry tree and petals.
+		p.fill(level, box, 11, top + 1, 3, 11, top + 4, 3, Blocks.CHERRY_LOG.defaultBlockState());
+		for (int dx = -2; dx <= 2; dx++) {
+			for (int dz = -2; dz <= 2; dz++) {
+				if (Math.abs(dx) + Math.abs(dz) <= 3) {
+					p.put(level, box, leaves(Blocks.CHERRY_LEAVES), 11 + dx, top + 5, 3 + dz);
+				}
+			}
+		}
+		for (int i = 0; i < 8; i++) {
+			p.put(level, box, Blocks.PINK_PETALS.defaultBlockState(), 2 + random.nextInt(11), top + 1, 1 + random.nextInt(4));
+		}
+		// The way up: a log pillar from the ground with a ladder all the way through the island.
+		for (int y = 1; y <= top; y++) {
+			p.put(level, box, Blocks.SPRUCE_LOG.defaultBlockState(), 7, y, 3);
+			p.put(level, box, ladder(), 7, y, 2);
+		}
+		p.column(level, box, Blocks.SPRUCE_LOG.defaultBlockState(), 7, 0, 3);
+		p.put(level, box, air(), 7, top + 1, 2);
+		BlockPos bed = p.pos(5, top + 1, 8);
+		one(p, level, box, CharacterVariant.LILY, 7, top + 1, 7, 7, 7, 6, bed, null);
+	}
+
+	/** Lantern Garden: lantern posts, benches and a lily pond, lovely at night. Gardener Lily. */
+	static void lanternGarden(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		site(p, level, box, 12, 5, 12, Blocks.GRASS_BLOCK.defaultBlockState());
+		p.fill(level, box, 6, 0, 0, 6, 0, 12, Blocks.MOSS_BLOCK.defaultBlockState());
+		p.fill(level, box, 0, 0, 6, 12, 0, 6, Blocks.MOSS_BLOCK.defaultBlockState());
+		p.fill(level, box, 5, -1, 5, 7, -1, 7, Blocks.CLAY.defaultBlockState());
+		p.fill(level, box, 5, 0, 5, 7, 0, 7, Blocks.WATER.defaultBlockState());
+		p.put(level, box, Blocks.LILY_PAD.defaultBlockState(), 5, 1, 7);
+		p.put(level, box, Blocks.LILY_PAD.defaultBlockState(), 7, 1, 5);
+		for (int[] c : new int[][]{{2, 2}, {10, 2}, {2, 10}, {10, 10}, {6, 1}, {6, 11}, {1, 6}, {11, 6}}) {
+			p.fill(level, box, c[0], 1, c[1], c[0], 2, c[1], Blocks.DARK_OAK_FENCE.defaultBlockState());
+			p.put(level, box, Blocks.LANTERN.defaultBlockState(), c[0], 3, c[1]);
+		}
+		// Benches facing the pond.
+		p.fill(level, box, 4, 1, 3, 8, 1, 3, stair(Blocks.SPRUCE_STAIRS, Direction.NORTH));
+		p.fill(level, box, 4, 1, 9, 8, 1, 9, stair(Blocks.SPRUCE_STAIRS, Direction.SOUTH));
+		p.put(level, box, air(), 6, 1, 3);
+		p.put(level, box, air(), 6, 1, 9);
+		for (int x = 0; x <= 12; x++) {
+			for (int z = 0; z <= 12; z++) {
+				boolean free = x != 6 && z != 6 && (x < 4 || x > 8 || z < 3 || z > 9);
+				if (free && random.nextInt(3) == 0) {
+					p.put(level, box, FLOWERS[random.nextInt(FLOWERS.length)].defaultBlockState(), x, 1, z);
+				}
+			}
+		}
+		p.put(level, box, Blocks.FLOWERING_AZALEA.defaultBlockState(), 0, 1, 0);
+		p.put(level, box, Blocks.FLOWERING_AZALEA.defaultBlockState(), 12, 1, 12);
+		p.chest(level, box, random, 0, 1, 12, ModStructures.lootTable("chests/lantern_garden"));
+		one(p, level, box, CharacterVariant.GARDENER, 6, 1, 2, 6, 6, 8, null, null);
+	}
+
+	/** Treetop Library: a bookshelf room on a platform between four tall birch trunks. Bookworm Lily. */
+	static void treetopLibrary(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		site(p, level, box, 12, 21, 12, Blocks.GRASS_BLOCK.defaultBlockState());
+		BlockState birch = Blocks.BIRCH_LOG.defaultBlockState();
+		int floor = 12;
+		for (int[] t : new int[][]{{1, 1}, {11, 1}, {1, 11}, {11, 11}}) {
+			p.fill(level, box, t[0], 1, t[1], t[0], 18, t[1], birch);
+			for (int dx = -2; dx <= 2; dx++) {
+				for (int dz = -2; dz <= 2; dz++) {
+					for (int y = 17; y <= 20; y++) {
+						if (Math.abs(dx) + Math.abs(dz) + Math.abs(y - 18) <= 3) {
+							p.put(level, box, leaves(Blocks.BIRCH_LEAVES), t[0] + dx, y, t[1] + dz);
+						}
+					}
+				}
+			}
+		}
+		p.fill(level, box, 1, floor, 1, 11, floor, 11, Blocks.BIRCH_PLANKS.defaultBlockState());
+		p.walls(level, box, 2, 2, 10, 10, floor + 1, floor + 3, Blocks.BOOKSHELF.defaultBlockState());
+		p.fill(level, box, 2, floor + 4, 2, 10, floor + 4, 10, Blocks.BIRCH_SLAB.defaultBlockState());
+		for (int[] w : new int[][]{{2, 6}, {10, 6}, {6, 10}}) {
+			p.put(level, box, Blocks.GLASS_PANE.defaultBlockState(), w[0], floor + 2, w[1]);
+		}
+		p.door(level, box, 6, floor + 1, 2, Blocks.BIRCH_DOOR);
+		p.fill(level, box, 1, floor + 1, 1, 11, floor + 1, 1, Blocks.BIRCH_FENCE.defaultBlockState());
+		p.put(level, box, air(), 6, floor + 1, 1);
+		// The ladder: a birch post in the middle of the porch, ladder on its front.
+		p.fill(level, box, 6, 1, 0, 6, floor, 0, Blocks.BIRCH_LOG.defaultBlockState());
+		p.fill(level, box, 6, 1, 1, 6, floor + 1, 1, air());
+		for (int y = 1; y <= floor; y++) {
+			p.put(level, box, Blocks.LADDER.defaultBlockState().setValue(LadderBlock.FACING, Direction.SOUTH), 6, y, 1);
+		}
+		// Reading room.
+		p.put(level, box, Blocks.LECTERN.defaultBlockState(), 6, floor + 1, 8);
+		p.put(level, box, Blocks.ENCHANTING_TABLE.defaultBlockState(), 4, floor + 1, 8);
+		p.put(level, box, stair(Blocks.BIRCH_STAIRS, Direction.SOUTH), 6, floor + 1, 6);
+		p.bed(level, box, 8, floor + 1, 7, Blocks.LIGHT_BLUE_BED);
+		p.chest(level, box, random, 3, floor + 1, 3, ModStructures.lootTable("chests/treetop_library"));
+		p.put(level, box, hanging(), 6, floor + 3, 6);
+		BlockPos bed = p.pos(8, floor + 1, 7);
+		one(p, level, box, CharacterVariant.BOOKWORM, 5, floor + 1, 5, 6, 6, 4, bed, null);
+	}
+
+	/** Starwatch Observatory (my idea): a stone tower room with a glass dome and a copper telescope. Bookworm Lily. */
+	static void observatory(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		site(p, level, box, 10, 11, 10, Blocks.GRASS_BLOCK.defaultBlockState());
+		p.fill(level, box, 1, 0, 1, 9, 0, 9, Blocks.STONE_BRICKS.defaultBlockState());
+		p.walls(level, box, 1, 1, 9, 9, 1, 4, Blocks.STONE_BRICKS.defaultBlockState());
+		for (int x = 1; x <= 9; x++) {
+			for (int z = 1; z <= 9; z++) {
+				for (int y = 5; y <= 9; y++) {
+					double d = Math.sqrt((x - 5) * (x - 5) + (y - 4) * (y - 4) * 1.2 + (z - 5) * (z - 5));
+					if (d > 3.6 && d <= 4.6) {
+						p.put(level, box, Blocks.LIGHT_BLUE_STAINED_GLASS.defaultBlockState(), x, y, z);
+					}
+				}
+			}
+		}
+		p.door(level, box, 5, 1, 1, Blocks.SPRUCE_DOOR);
+		// Telescope: copper on a stand, pointing up through the dome.
+		p.put(level, box, Blocks.LIGHTNING_ROD.defaultBlockState(), 5, 1, 6);
+		p.put(level, box, Blocks.COPPER_BLOCK.defaultBlockState(), 5, 2, 6);
+		p.put(level, box, Blocks.LIGHTNING_ROD.defaultBlockState(), 5, 3, 6);
+		p.put(level, box, Blocks.LECTERN.defaultBlockState(), 3, 1, 7);
+		p.fill(level, box, 2, 1, 8, 4, 2, 8, Blocks.BOOKSHELF.defaultBlockState());
+		p.bed(level, box, 7, 1, 6, Blocks.BLUE_BED);
+		p.chest(level, box, random, 8, 1, 3, ModStructures.lootTable("chests/starwatch_observatory"));
+		p.put(level, box, Blocks.LANTERN.defaultBlockState(), 2, 1, 2);
+		BlockPos bed = p.pos(7, 1, 6);
+		one(p, level, box, CharacterVariant.BOOKWORM, 4, 1, 4, 5, 5, 8, bed, null);
+	}
+
+	// ============================================================ Madison
+
+	/** Riverside Mill: a stone-and-oak mill on the river with a big water wheel. Madison. */
+	static void riversideMill(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		p.fill(level, box, 0, 1, 0, 12, 9, 10, air());
+		p.fill(level, box, 1, 0, 1, 9, 0, 9, Blocks.STONE_BRICKS.defaultBlockState());
+		p.foundation(level, box, 1, 1, 9, 9, Blocks.COBBLESTONE.defaultBlockState());
+		p.walls(level, box, 1, 1, 9, 9, 1, 2, Blocks.COBBLESTONE.defaultBlockState());
+		p.walls(level, box, 1, 1, 9, 9, 3, 5, Blocks.OAK_PLANKS.defaultBlockState());
+		for (int[] c : new int[][]{{1, 1}, {9, 1}, {1, 9}, {9, 9}}) {
+			p.fill(level, box, c[0], 1, c[1], c[0], 5, c[1], Blocks.STRIPPED_OAK_LOG.defaultBlockState());
+		}
+		roof(p, level, box, 1, 1, 9, 9, 6, Blocks.SPRUCE_SLAB);
+		p.door(level, box, 5, 1, 1, Blocks.OAK_DOOR);
+		for (int z : new int[]{3, 7}) {
+			p.put(level, box, Blocks.GLASS_PANE.defaultBlockState(), 1, 3, z);
+		}
+		// Water wheel on the east side: an axle through the wall and a ring of planks with spokes.
+		p.fill(level, box, 9, 3, 5, 11, 3, 5, Blocks.OAK_LOG.defaultBlockState().setValue(RotatedPillarBlock.AXIS, Direction.Axis.X));
+		for (int dy = -3; dy <= 3; dy++) {
+			for (int dz = -3; dz <= 3; dz++) {
+				double r = Math.sqrt(dy * dy + dz * dz);
+				if (r > 2.5 && r < 3.5) {
+					p.put(level, box, Blocks.SPRUCE_PLANKS.defaultBlockState(), 11, 3 + dy, 5 + dz);
+				} else if ((dy == 0 || dz == 0) && r > 0.5 && r < 2.6) {
+					p.put(level, box, Blocks.SPRUCE_FENCE.defaultBlockState(), 11, 3 + dy, 5 + dz);
+				}
+			}
+		}
+		// Inside: millstone, grain, pantry.
+		p.put(level, box, Blocks.GRINDSTONE.defaultBlockState(), 7, 1, 5);
+		p.fill(level, box, 2, 1, 7, 3, 2, 8, Blocks.HAY_BLOCK.defaultBlockState());
+		p.chest(level, box, random, 7, 1, 8, ModStructures.lootTable("chests/riverside_mill"));
+		p.chest(level, box, random, 8, 1, 8, ModStructures.MADISON_PANTRY);
+		p.barrel(level, box, random, 8, 1, 2, ModStructures.BARREL_LOOT);
+		p.put(level, box, Blocks.SMOKER.defaultBlockState(), 2, 1, 3);
+		p.bed(level, box, 4, 1, 7, Blocks.YELLOW_BED);
+		p.put(level, box, hanging(), 5, 4, 5);
+		one(p, level, box, CharacterVariant.MADISON, 5, 1, 4, 5, 5, 8, p.pos(4, 1, 7), p.pos(8, 1, 8));
+	}
+
+	/** Bee Sanctuary: a wildflower meadow full of beehives and a little honey hut. Beekeeper Madison. */
+	static void beeSanctuary(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		site(p, level, box, 16, 7, 16, Blocks.GRASS_BLOCK.defaultBlockState());
+		for (int x = 0; x <= 16; x++) {
+			for (int z = 0; z <= 16; z++) {
+				if (random.nextInt(3) != 0) {
+					p.put(level, box, FLOWERS[random.nextInt(FLOWERS.length)].defaultBlockState(), x, 1, z);
+				}
+			}
+		}
+		p.fill(level, box, 8, 0, 0, 8, 0, 16, Blocks.DIRT_PATH.defaultBlockState());
+		p.fill(level, box, 8, 1, 0, 8, 1, 16, air());
+		for (int[] h : new int[][]{{3, 3}, {13, 3}, {3, 8}, {13, 8}, {3, 13}, {13, 13}, {6, 15}, {10, 15}, {5, 1}, {11, 1}}) {
+			p.beehive(level, box, random, h[0], 1, h[1]);
+		}
+		// Honey hut.
+		p.fill(level, box, 6, 0, 6, 10, 0, 10, Blocks.BIRCH_PLANKS.defaultBlockState());
+		p.walls(level, box, 6, 6, 10, 10, 1, 3, Blocks.HONEYCOMB_BLOCK.defaultBlockState());
+		for (int[] c : new int[][]{{6, 6}, {10, 6}, {6, 10}, {10, 10}}) {
+			p.fill(level, box, c[0], 1, c[1], c[0], 3, c[1], Blocks.BIRCH_LOG.defaultBlockState());
+		}
+		roof(p, level, box, 6, 6, 10, 10, 4, Blocks.BIRCH_SLAB);
+		p.door(level, box, 8, 1, 6, Blocks.BIRCH_DOOR);
+		p.put(level, box, Blocks.HONEY_BLOCK.defaultBlockState(), 9, 1, 9);
+		p.chest(level, box, random, 7, 1, 9, ModStructures.lootTable("chests/bee_sanctuary"));
+		p.put(level, box, hanging(), 8, 3, 8);
+		one(p, level, box, CharacterVariant.BEEKEEPER, 8, 1, 4, 8, 8, 10, null, null);
+	}
+
+	/** Sweet Berry Cabin (my idea): a spruce cabin with a chimney and rows of berry bushes. Madison. */
+	static void berryCabin(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		site(p, level, box, 10, 7, 12, Blocks.PODZOL.defaultBlockState());
+		p.fill(level, box, 2, 0, 1, 8, 0, 7, Blocks.SPRUCE_PLANKS.defaultBlockState());
+		p.walls(level, box, 2, 1, 8, 7, 1, 3, Blocks.SPRUCE_PLANKS.defaultBlockState());
+		for (int[] c : new int[][]{{2, 1}, {8, 1}, {2, 7}, {8, 7}}) {
+			p.fill(level, box, c[0], 1, c[1], c[0], 3, c[1], Blocks.SPRUCE_LOG.defaultBlockState());
+		}
+		roof(p, level, box, 2, 1, 8, 7, 4, Blocks.SPRUCE_SLAB);
+		p.fill(level, box, 8, 1, 4, 8, 6, 4, Blocks.COBBLESTONE.defaultBlockState());
+		p.put(level, box, Blocks.CAMPFIRE.defaultBlockState(), 8, 7, 4);
+		p.door(level, box, 5, 1, 1, Blocks.SPRUCE_DOOR);
+		p.put(level, box, Blocks.GLASS_PANE.defaultBlockState(), 2, 2, 4);
+		p.bed(level, box, 3, 1, 5, Blocks.RED_BED);
+		p.put(level, box, Blocks.FURNACE.defaultBlockState(), 7, 1, 4);
+		p.put(level, box, Blocks.COMPOSTER.defaultBlockState(), 9, 1, 8);
+		p.chest(level, box, random, 7, 1, 6, ModStructures.MADISON_PANTRY);
+		p.barrel(level, box, random, 7, 1, 2, ModStructures.lootTable("chests/berry_cabin"));
+		p.put(level, box, Blocks.LANTERN.defaultBlockState(), 3, 1, 2);
+		BlockState bush = Blocks.SWEET_BERRY_BUSH.defaultBlockState().setValue(SweetBerryBushBlock.AGE, 3);
+		for (int x = 1; x <= 9; x += 2) {
+			for (int z = 9; z <= 12; z++) {
+				p.put(level, box, Blocks.GRASS_BLOCK.defaultBlockState(), x, 0, z);
+				p.put(level, box, bush, x, 1, z);
+			}
+		}
+		one(p, level, box, CharacterVariant.MADISON, 5, 1, 4, 5, 8, 10, p.pos(3, 1, 5), p.pos(7, 1, 6));
+	}
+
+	// ============================================================ FelixSyn and Harley
+
+	/** Ruined Portal Hideout: a broken nether portal with a camp tucked behind it. FelixSyn (and Harley). */
+	static void ruinedPortalHideout(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		site(p, level, box, 12, 9, 10, Blocks.COARSE_DIRT.defaultBlockState());
+		for (int x = 2; x <= 10; x++) {
+			for (int z = 1; z <= 5; z++) {
+				int roll = random.nextInt(6);
+				p.put(level, box, roll == 0 ? Blocks.MAGMA_BLOCK.defaultBlockState() : roll < 3 ? Blocks.NETHERRACK.defaultBlockState()
+						: Blocks.COARSE_DIRT.defaultBlockState(), x, 0, z);
+			}
+		}
+		// The frame: 4 wide, 5 tall, with gaps and crying obsidian.
+		for (int y = 1; y <= 5; y++) {
+			for (int x = 4; x <= 7; x++) {
+				boolean edge = y == 1 || y == 5 || x == 4 || x == 7;
+				if (edge && random.nextInt(5) != 0) {
+					p.put(level, box, random.nextInt(4) == 0 ? Blocks.CRYING_OBSIDIAN.defaultBlockState() : Blocks.OBSIDIAN.defaultBlockState(), x, y, 3);
+				}
+			}
+		}
+		p.put(level, box, Blocks.GOLD_BLOCK.defaultBlockState(), 3, 1, 4);
+		p.put(level, box, Blocks.IRON_BARS.defaultBlockState(), 8, 1, 2);
+		// Camp behind the portal.
+		p.bed(level, box, 3, 1, 7, Blocks.BLACK_BED);
+		p.bed(level, box, 8, 1, 7, Blocks.PINK_BED);
+		p.put(level, box, Blocks.CAMPFIRE.defaultBlockState(), 6, 1, 8);
+		p.put(level, box, Blocks.OAK_LOG.defaultBlockState().setValue(RotatedPillarBlock.AXIS, Direction.Axis.X), 5, 1, 9);
+		p.put(level, box, Blocks.OAK_LOG.defaultBlockState().setValue(RotatedPillarBlock.AXIS, Direction.Axis.X), 6, 1, 9);
+		p.chest(level, box, random, 10, 1, 8, ModStructures.lootTable("chests/ruined_portal_hideout"));
+		p.barrel(level, box, random, 10, 1, 7, ModStructures.BARREL_LOOT);
+		p.put(level, box, Blocks.TARGET.defaultBlockState(), 1, 1, 8);
+		one(p, level, box, CharacterVariant.FELIXSYN, 6, 1, 6, 6, 6, 12, null, null);
+	}
+
+	/**
+	 * Village Campsite (built at the edge of a village when FelixSyn and Harley arrive): bedrolls, a campfire and
+	 * two mace training dummies (armor stands in old armor).
+	 */
+	static void villageCampsite(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		site(p, level, box, 10, 4, 8, Blocks.GRASS_BLOCK.defaultBlockState());
+		p.fill(level, box, 1, 0, 1, 9, 0, 7, Blocks.COARSE_DIRT.defaultBlockState());
+		p.bed(level, box, 2, 1, 5, Blocks.BLACK_BED);
+		p.bed(level, box, 4, 1, 5, Blocks.PINK_BED);
+		p.put(level, box, Blocks.CAMPFIRE.defaultBlockState(), 5, 1, 3);
+		p.put(level, box, Blocks.OAK_LOG.defaultBlockState().setValue(RotatedPillarBlock.AXIS, Direction.Axis.X), 4, 1, 1);
+		p.put(level, box, Blocks.OAK_LOG.defaultBlockState().setValue(RotatedPillarBlock.AXIS, Direction.Axis.X), 5, 1, 1);
+		p.put(level, box, Blocks.HAY_BLOCK.defaultBlockState(), 9, 1, 7);
+		p.put(level, box, Blocks.TARGET.defaultBlockState(), 9, 1, 6);
+		p.chest(level, box, random, 8, 1, 7, ModStructures.lootTable("chests/village_campsite"));
+		dummy(p, level, box, 8, 1, 2, Items.IRON_CHESTPLATE, Items.IRON_HELMET);
+		dummy(p, level, box, 8, 1, 4, Items.CHAINMAIL_CHESTPLATE, Items.LEATHER_HELMET);
+		one(p, level, box, CharacterVariant.FELIXSYN, 5, 1, 4, 5, 4, 24, null, null);
+	}
+
+	/** An armor stand wearing old armor: a training dummy for mace smashes. */
+	private static void dummy(HomePiece p, WorldGenLevel level, BoundingBox box, int x, int y, int z,
+			net.minecraft.world.item.Item chest, net.minecraft.world.item.Item head) {
+		BlockPos at = p.pos(x, y, z);
+		if (!box.isInside(at)) {
+			return;
+		}
+		ArmorStand stand = EntityType.ARMOR_STAND.create(level.getLevel(), EntitySpawnReason.STRUCTURE);
+		if (stand != null) {
+			stand.snapTo(at.getX() + 0.5, at.getY(), at.getZ() + 0.5, level.getRandom().nextFloat() * 360.0F, 0.0F);
+			stand.setItemSlot(EquipmentSlot.CHEST, new ItemStack(chest));
+			stand.setItemSlot(EquipmentSlot.HEAD, new ItemStack(head));
+			level.addFreshEntityWithPassengers(stand);
+		}
+	}
+
+	// ============================================================ Master BreadLoaf
+
+	/** Bastion Throne Room (built inside a bastion the first time a player gets there): a closed gold-and-blackstone hall. */
+	static void bastionThroneRoom(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		BlockState bricks = Blocks.POLISHED_BLACKSTONE_BRICKS.defaultBlockState();
+		p.fill(level, box, 0, 0, 0, 10, 7, 10, bricks);
+		p.fill(level, box, 1, 1, 1, 9, 6, 9, air());
+		p.fill(level, box, 1, 0, 1, 9, 0, 9, Blocks.POLISHED_BLACKSTONE.defaultBlockState());
+		p.fill(level, box, 5, 0, 1, 5, 0, 7, Blocks.GILDED_BLACKSTONE.defaultBlockState());
+		p.fill(level, box, 5, 1, 1, 5, 1, 7, Blocks.RED_CARPET.defaultBlockState());
+		p.fill(level, box, 4, 1, 0, 6, 3, 0, air());
+		// The throne.
+		p.put(level, box, Blocks.GOLD_BLOCK.defaultBlockState(), 5, 1, 8);
+		p.put(level, box, stair(Blocks.BLACKSTONE_STAIRS, Direction.NORTH), 5, 2, 8);
+		p.put(level, box, stair(Blocks.BLACKSTONE_STAIRS, Direction.EAST), 4, 2, 8);
+		p.put(level, box, stair(Blocks.BLACKSTONE_STAIRS, Direction.WEST), 6, 2, 8);
+		p.fill(level, box, 4, 1, 8, 4, 1, 8, Blocks.GOLD_BLOCK.defaultBlockState());
+		p.fill(level, box, 6, 1, 8, 6, 1, 8, Blocks.GOLD_BLOCK.defaultBlockState());
+		p.fill(level, box, 5, 3, 9, 5, 5, 9, Blocks.GOLD_BLOCK.defaultBlockState());
+		for (int[] c : new int[][]{{2, 2}, {8, 2}, {2, 6}, {8, 6}}) {
+			p.fill(level, box, c[0], 1, c[1], c[0], 4, c[1], Blocks.POLISHED_BLACKSTONE_BRICK_WALL.defaultBlockState());
+			p.put(level, box, Blocks.SOUL_LANTERN.defaultBlockState(), c[0], 5, c[1]);
+		}
+		p.chest(level, box, random, 2, 1, 8, ModStructures.lootTable("chests/bastion_throne_room"));
+		p.chest(level, box, random, 8, 1, 8, ModStructures.lootTable("chests/bastion_throne_room"));
+		BlockPos spawn = p.pos(5, 1, 6);
+		if (p.claimSpawn(spawn, box)) {
+			p.placeMarker(level, spawn, m -> m.addResident(CharacterVariant.MASTER, spawn, spawn, 5, null, null, null));
+		}
+	}
+
+	/** Nether Mace Arena: a round blackstone floor ringed by lava, with tall pillars of different heights. */
+	static void netherMaceArena(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		p.fill(level, box, 0, 1, 0, 24, 25, 24, air());
+		for (int x = 0; x <= 24; x++) {
+			for (int z = 0; z <= 24; z++) {
+				double d = Math.sqrt((x - 12) * (x - 12) + (z - 12) * (z - 12));
+				if (d <= 10.5) {
+					p.put(level, box, d > 9.5 ? Blocks.POLISHED_BLACKSTONE.defaultBlockState()
+							: (x + z) % 2 == 0 ? Blocks.BLACKSTONE.defaultBlockState() : Blocks.POLISHED_BLACKSTONE_BRICKS.defaultBlockState(), x, 0, z);
+					p.column(level, box, Blocks.BASALT.defaultBlockState(), x, -1, z);
+				} else if (d <= 12.0) {
+					p.put(level, box, Blocks.LAVA.defaultBlockState(), x, 0, z);
+					p.put(level, box, Blocks.BLACKSTONE.defaultBlockState(), x, -1, z);
+				}
+			}
+		}
+		p.put(level, box, Blocks.GILDED_BLACKSTONE.defaultBlockState(), 12, 0, 12);
+		int[] heights = {10, 16, 22, 16, 10, 16, 22, 16};
+		for (int i = 0; i < 8; i++) {
+			double angle = Math.PI * 2 * i / 8;
+			int px = 12 + (int) Math.round(Math.cos(angle) * 8);
+			int pz = 12 + (int) Math.round(Math.sin(angle) * 8);
+			int h = heights[i];
+			p.fill(level, box, px, 1, pz, px, h, pz, Blocks.POLISHED_BASALT.defaultBlockState());
+			p.fill(level, box, px - 1, h, pz - 1, px + 1, h, pz + 1, Blocks.POLISHED_BLACKSTONE.defaultBlockState());
+			for (int y = 1; y < h; y++) {
+				p.put(level, box, ladder(), px, y, pz - 1);
+			}
+			p.put(level, box, Blocks.SOUL_LANTERN.defaultBlockState(), px, h + 1, pz);
+		}
+		p.chest(level, box, random, 12, 1, 14, ModStructures.lootTable("chests/nether_mace_arena"));
+		BlockPos spawn = p.pos(12, 1, 10);
+		if (p.claimSpawn(spawn, box)) {
+			p.placeMarker(level, spawn, m -> m.addResident(CharacterVariant.MASTER, spawn, spawn, 9, null, null, null));
+		}
+	}
+
+	/** End Sky Platform: a round purpur platform high on an obsidian column over an outer End island. */
+	static void endSkyPlatform(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		int deck = 14;
+		p.fill(level, box, 0, 1, 0, 14, 19, 14, air());
+		p.fill(level, box, 5, 0, 5, 9, 0, 9, Blocks.END_STONE_BRICKS.defaultBlockState());
+		p.foundation(level, box, 5, 5, 9, 9, Blocks.END_STONE.defaultBlockState());
+		p.fill(level, box, 7, 1, 7, 7, deck - 1, 7, Blocks.OBSIDIAN.defaultBlockState());
+		for (int y = 1; y <= deck; y++) {
+			p.put(level, box, ladder(), 7, y, 6);
+		}
+		for (int x = 0; x <= 14; x++) {
+			for (int z = 0; z <= 14; z++) {
+				double d = Math.sqrt((x - 7) * (x - 7) + (z - 7) * (z - 7));
+				if (d <= 7.0 && !(x == 7 && z == 6)) {
+					p.put(level, box, d > 6.0 ? Blocks.PURPUR_PILLAR.defaultBlockState() : Blocks.PURPUR_BLOCK.defaultBlockState(), x, deck, z);
+				}
+			}
+		}
+		for (int i = 0; i < 8; i++) {
+			double angle = Math.PI * 2 * i / 8;
+			int x = 7 + (int) Math.round(Math.cos(angle) * 6);
+			int z = 7 + (int) Math.round(Math.sin(angle) * 6);
+			p.put(level, box, Blocks.END_ROD.defaultBlockState(), x, deck + 1, z);
+		}
+		p.chest(level, box, random, 9, deck + 1, 9, ModStructures.lootTable("chests/end_sky_platform"));
+		BlockPos spawn = p.pos(7, deck + 1, 9);
+		if (p.claimSpawn(spawn, box)) {
+			p.placeMarker(level, spawn, m -> m.addResident(CharacterVariant.MASTER, spawn, spawn, 5, null, null, null));
+		}
+	}
+
+	// ============================================================ shared
+
+	/** Friendship Festival: long tables with food, banners, lantern lines and a little stage. Bread, Lily and Madison. */
+	static void friendshipFestival(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		site(p, level, box, 20, 6, 16, Blocks.GRASS_BLOCK.defaultBlockState());
+		p.fill(level, box, 9, 0, 0, 11, 0, 16, Blocks.DIRT_PATH.defaultBlockState());
+		// Two long tables (top slabs with a tablecloth) with stair benches.
+		for (int tz : new int[]{5, 11}) {
+			for (int x = 2; x <= 7; x++) {
+				p.put(level, box, topSlab(Blocks.SPRUCE_SLAB), x, 1, tz);
+				p.put(level, box, Blocks.WHITE_CARPET.defaultBlockState(), x, 2, tz);
+				p.put(level, box, stair(Blocks.SPRUCE_STAIRS, Direction.SOUTH), x, 1, tz - 1);
+				p.put(level, box, stair(Blocks.SPRUCE_STAIRS, Direction.NORTH), x, 1, tz + 1);
+			}
+			p.put(level, box, Blocks.CAKE.defaultBlockState(), 4, 2, tz);
+			p.put(level, box, Blocks.CANDLE_CAKE.defaultBlockState(), 6, 2, tz);
+		}
+		// Picnic blankets on the other side.
+		for (int[] b : new int[][]{{13, 3, 0}, {16, 9, 1}, {13, 13, 2}}) {
+			Block carpet = new Block[]{Blocks.RED_CARPET, Blocks.YELLOW_CARPET, Blocks.PINK_CARPET}[b[2]];
+			p.fill(level, box, b[0], 1, b[1], b[0] + 2, 1, b[1] + 2, carpet.defaultBlockState());
+		}
+		// Little stage with a jukebox and note blocks.
+		p.fill(level, box, 16, 0, 0, 20, 0, 3, Blocks.OAK_PLANKS.defaultBlockState());
+		p.put(level, box, Blocks.JUKEBOX.defaultBlockState(), 18, 1, 1);
+		p.put(level, box, Blocks.NOTE_BLOCK.defaultBlockState(), 17, 1, 1);
+		p.put(level, box, Blocks.NOTE_BLOCK.defaultBlockState(), 19, 1, 1);
+		// Banner poles and lantern lines around the edge.
+		Block[] banners = {Blocks.RED_BANNER, Blocks.YELLOW_BANNER, Blocks.PINK_BANNER, Blocks.LIME_BANNER, Blocks.LIGHT_BLUE_BANNER};
+		int i = 0;
+		for (int x = 0; x <= 20; x += 5) {
+			for (int z : new int[]{0, 16}) {
+				p.fill(level, box, x, 1, z, x, 3, z, Blocks.OAK_FENCE.defaultBlockState());
+				p.put(level, box, Blocks.LANTERN.defaultBlockState(), x, 4, z);
+				p.put(level, box, banners[i++ % banners.length].defaultBlockState(), x + 1 > 20 ? x - 1 : x + 1, 1, z);
+			}
+		}
+		p.chest(level, box, random, 1, 1, 8, ModStructures.lootTable("chests/friendship_festival"));
+		p.chest(level, box, random, 1, 1, 9, ModStructures.lootTable("chests/friendship_festival"));
+		p.barrel(level, box, random, 8, 1, 8, ModStructures.BARREL_LOOT);
+		BlockPos spawn = p.pos(10, 1, 8);
+		if (p.claimSpawn(spawn, box)) {
+			BlockPos center = p.pos(10, 1, 8);
+			p.placeMarker(level, spawn, m -> {
+				m.addResident(CharacterVariant.BREADLOAF, spawn, center, 10, null, null, null);
+				m.addResident(CharacterVariant.LILY, spawn, center, 10, null, null, null);
+				m.addResident(CharacterVariant.MADISON, spawn, center, 10, null, null, null);
+			});
+		}
+	}
+
+	/** Loaf Lighthouse (my idea): a striped tower on the shore with a glowing lamp room. Fisherman ItzBreadLoaf. */
+	static void lighthouse(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		p.fill(level, box, 0, 1, 0, 8, 21, 8, air());
+		p.fill(level, box, 0, 0, 0, 8, 0, 8, Blocks.STONE_BRICKS.defaultBlockState());
+		p.foundation(level, box, 0, 0, 8, 8, Blocks.STONE_BRICKS.defaultBlockState());
+		for (int y = 1; y <= 16; y++) {
+			BlockState stripe = (y - 1) / 3 % 2 == 0 ? Blocks.WHITE_CONCRETE.defaultBlockState() : Blocks.RED_CONCRETE.defaultBlockState();
+			p.walls(level, box, 2, 2, 6, 6, y, y, stripe);
+		}
+		p.door(level, box, 4, 1, 2, Blocks.SPRUCE_DOOR);
+		for (int y = 1; y <= 17; y++) {
+			p.put(level, box, ladder(), 4, y, 5);
+		}
+		for (int y : new int[]{6, 12}) {
+			p.put(level, box, Blocks.GLASS_PANE.defaultBlockState(), 2, y, 4);
+			p.put(level, box, Blocks.GLASS_PANE.defaultBlockState(), 6, y, 4);
+		}
+		p.fill(level, box, 1, 17, 1, 7, 17, 7, Blocks.STONE_BRICKS.defaultBlockState());
+		p.put(level, box, ladder(), 4, 17, 5);
+		p.walls(level, box, 1, 1, 7, 7, 18, 18, Blocks.IRON_BARS.defaultBlockState());
+		p.walls(level, box, 3, 3, 5, 5, 18, 19, Blocks.GLASS.defaultBlockState());
+		p.put(level, box, air(), 4, 18, 5);
+		p.put(level, box, air(), 4, 19, 5);
+		p.put(level, box, Blocks.SEA_LANTERN.defaultBlockState(), 4, 18, 4);
+		p.put(level, box, Blocks.GLOWSTONE.defaultBlockState(), 4, 19, 4);
+		p.fill(level, box, 2, 20, 2, 6, 20, 6, Blocks.STONE_BRICK_SLAB.defaultBlockState());
+		// Ground floor: bed, fish barrel, chest.
+		p.bed(level, box, 3, 1, 3, Blocks.BLUE_BED);
+		p.barrel(level, box, random, 5, 1, 3, ModStructures.FISH_BARREL);
+		p.chest(level, box, random, 5, 1, 4, ModStructures.lootTable("chests/loaf_lighthouse"));
+		p.put(level, box, Blocks.LANTERN.defaultBlockState(), 3, 1, 5);
+		one(p, level, box, CharacterVariant.FISHERMAN, 4, 1, 1, 4, 4, 10, p.pos(3, 1, 3), null);
+	}
+
+	/** Shipwreck Camp (my idea): Pirates camping beside the broken half of their ship. */
+	static void shipwreckCamp(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		p.fill(level, box, 0, 1, 0, 16, 7, 10, air());
+		p.fill(level, box, 0, 0, 0, 16, 0, 10, Blocks.SAND.defaultBlockState());
+		p.foundation(level, box, 0, 0, 16, 10, Blocks.SANDSTONE.defaultBlockState());
+		// Broken hull: dark oak walls with missing chunks, tilted mast.
+		for (int x = 2; x <= 11; x++) {
+			for (int y = 0; y <= 3; y++) {
+				for (int z : new int[]{2, 7}) {
+					if (random.nextInt(5) != 0 || y == 0) {
+						p.put(level, box, Blocks.DARK_OAK_PLANKS.defaultBlockState(), x, y, z);
+					}
+				}
+			}
+		}
+		p.fill(level, box, 2, 0, 3, 2, 3, 6, Blocks.DARK_OAK_PLANKS.defaultBlockState());
+		p.fill(level, box, 3, 0, 3, 11, 0, 6, Blocks.SPRUCE_PLANKS.defaultBlockState());
+		p.fill(level, box, 6, 1, 4, 6, 6, 4, Blocks.DARK_OAK_LOG.defaultBlockState());
+		p.put(level, box, Blocks.WHITE_WOOL.defaultBlockState(), 7, 5, 4);
+		p.put(level, box, Blocks.WHITE_WOOL.defaultBlockState(), 7, 4, 4);
+		p.chest(level, box, random, 4, 1, 5, ModStructures.lootTable("chests/shipwreck_camp"));
+		p.chest(level, box, random, 9, 1, 5, ModStructures.lootTable("chests/shipwreck_camp"));
+		p.barrel(level, box, random, 10, 1, 3, ModStructures.FISH_BARREL);
+		// Camp.
+		p.smallTent(level, box, 13, 5, Blocks.BLACK_WOOL.defaultBlockState());
+		p.put(level, box, Blocks.CAMPFIRE.defaultBlockState(), 14, 1, 2);
+		p.put(level, box, Blocks.BLACK_BANNER.defaultBlockState(), 16, 1, 0);
+		group(p, level, box, 13, 1, 2, 10, 4, 10, CharacterVariant.PIRATE, CharacterVariant.PIRATE);
+	}
+
+	/** Snowball Fort (my idea): two snow forts facing each other, with snowball stashes. Two ItzBreadLoafs. */
+	static void snowballFort(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		site(p, level, box, 18, 3, 12, Blocks.SNOW_BLOCK.defaultBlockState());
+		BlockState snow = Blocks.SNOW_BLOCK.defaultBlockState();
+		for (int[] fort : new int[][]{{1, 6, 1}, {12, 17, -1}}) {
+			int x0 = fort[0];
+			int x1 = fort[1];
+			int front = fort[2] > 0 ? x1 : x0;
+			p.fill(level, box, front, 1, 3, front, 2, 9, snow);
+			p.fill(level, box, x0, 1, 3, x1, 1, 3, snow);
+			p.fill(level, box, x0, 1, 9, x1, 1, 9, snow);
+			for (int z = 3; z <= 9; z += 2) {
+				p.put(level, box, snow, front, 3, z);
+			}
+			p.put(level, box, Blocks.SNOW.defaultBlockState(), (x0 + x1) / 2, 1, 6);
+		}
+		p.put(level, box, snow, 9, 1, 6);
+		p.put(level, box, snow, 9, 2, 6);
+		p.put(level, box, Blocks.CARVED_PUMPKIN.defaultBlockState(), 9, 3, 6);
+		p.chest(level, box, random, 2, 1, 5, ModStructures.lootTable("chests/snowball_fort"));
+		p.chest(level, box, random, 16, 1, 7, ModStructures.lootTable("chests/snowball_fort"));
+		group(p, level, box, 9, 1, 4, 9, 6, 10, CharacterVariant.BREADLOAF, CharacterVariant.VILLAGER);
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/worldgen/RuntimeSites.java
+
+```java
+package com.itzbreadloaf.worldgen;
+
+import com.mojang.serialization.Codec;
+import java.util.ArrayList;
+import java.util.List;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
+import net.minecraft.world.level.saveddata.SavedData;
+import net.minecraft.world.level.saveddata.SavedDataType;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * Structures the mod builds while the game runs instead of at world generation (Village Campsites at the edge of
+ * villages, Bastion Throne Rooms inside bastions). /locate can't find these, so their boxes are saved here and the
+ * structure tracker checks them for "found it" and their advancements.
+ */
+public final class RuntimeSites {
+	/** One built site: what it is, which dimension, and its box. */
+	public record Site(String kind, String dimension, BoundingBox box) {
+		String encode() {
+			return this.kind + "|" + this.dimension + "|" + this.box.minX() + "|" + this.box.minY() + "|" + this.box.minZ()
+					+ "|" + this.box.maxX() + "|" + this.box.maxY() + "|" + this.box.maxZ();
+		}
+
+		static @Nullable Site decode(String text) {
+			String[] parts = text.split("\\|");
+			if (parts.length != 8) {
+				return null;
+			}
+			try {
+				int[] n = new int[6];
+				for (int i = 0; i < 6; i++) {
+					n[i] = Integer.parseInt(parts[i + 2]);
+				}
+				return new Site(parts[0], parts[1], new BoundingBox(n[0], n[1], n[2], n[3], n[4], n[5]));
+			} catch (NumberFormatException e) {
+				return null;
+			}
+		}
+	}
+
+	private RuntimeSites() {
+	}
+
+	public static void add(ServerLevel level, HomeKind kind, BoundingBox box) {
+		Data data = data(level.getServer());
+		data.sites.add(new Site(kind.getSerializedName(), level.dimension().identifier().toString(), box));
+		data.setDirty();
+	}
+
+	public static List<Site> all(MinecraftServer server) {
+		return data(server).sites;
+	}
+
+	private static Data data(MinecraftServer server) {
+		return server.overworld().getDataStorage().computeIfAbsent(Data.TYPE);
+	}
+
+	public static class Data extends SavedData {
+		public static final Codec<Data> CODEC = Codec.STRING.listOf().fieldOf("sites").codec()
+				.xmap(Data::new, data -> data.sites.stream().map(Site::encode).toList());
+		public static final SavedDataType<Data> TYPE = new SavedDataType<>("itzbreadloaf_runtime_sites", Data::new, CODEC, null);
+
+		final List<Site> sites = new ArrayList<>();
+
+		public Data() {
+		}
+
+		public Data(List<String> stored) {
+			for (String text : stored) {
+				Site site = Site.decode(text);
+				if (site != null) {
+					this.sites.add(site);
+				}
+			}
+		}
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/worldgen/SpecialHomes.java
+
+```java
+package com.itzbreadloaf.worldgen;
+
+import com.itzbreadloaf.brain.LilyBrain;
+import com.itzbreadloaf.character.CharacterVariant;
+import java.util.UUID;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.entity.EntitySpawnReason;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.Mob;
+import net.minecraft.world.level.WorldGenLevel;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.CampfireBlock;
+import net.minecraft.world.level.block.CarvedPumpkinBlock;
+import net.minecraft.world.level.block.FarmBlock;
+import net.minecraft.world.level.block.LadderBlock;
+import net.minecraft.world.level.block.LanternBlock;
+import net.minecraft.world.level.block.LeavesBlock;
+import net.minecraft.world.level.block.RotatedPillarBlock;
+import net.minecraft.world.level.block.StairBlock;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
+
+/**
+ * Lily, Madison, shared and special structures: greenhouse, lakeside gazebo, farmstead, orchard, market stall,
+ * Cousins' Camp, PvP Arena, Giant Loaf, Nether Mace Training Ground, End Mace Tower, and five extras (windmill,
+ * Sweaty Dojo, Flower Shrine, Smugglers' Cove, Pumpkin Patch).
+ */
+final class SpecialHomes {
+	static final Block[] FLOWERS = {Blocks.POPPY, Blocks.CORNFLOWER, Blocks.ALLIUM, Blocks.OXEYE_DAISY,
+			Blocks.AZURE_BLUET, Blocks.LILY_OF_THE_VALLEY, Blocks.PINK_TULIP, Blocks.DANDELION, Blocks.RED_TULIP};
+
+	private SpecialHomes() {
+	}
+
+	static BlockState air() {
+		return Blocks.AIR.defaultBlockState();
+	}
+
+	static BlockState hanging() {
+		return Blocks.LANTERN.defaultBlockState().setValue(LanternBlock.HANGING, true);
+	}
+
+	/** Clears the space and lays a ground layer with a foundation underneath. */
+	static void site(HomePiece p, WorldGenLevel level, BoundingBox box, int maxX, int height, int maxZ, BlockState ground) {
+		p.fill(level, box, 0, 1, 0, maxX, height, maxZ, air());
+		p.fill(level, box, 0, 0, 0, maxX, 0, maxZ, ground);
+		p.foundation(level, box, 0, 0, maxX, maxZ, Blocks.DIRT.defaultBlockState());
+	}
+
+	/** A farm animal standing at local coordinates (kept forever, like structure animals). */
+	static void animal(HomePiece p, WorldGenLevel level, BoundingBox box, EntityType<? extends Mob> type, int x, int y, int z) {
+		BlockPos at = p.pos(x, y, z);
+		if (!box.isInside(at)) {
+			return;
+		}
+		Mob mob = type.create(level.getLevel(), EntitySpawnReason.STRUCTURE);
+		if (mob != null) {
+			mob.snapTo(at.getX() + 0.5, at.getY(), at.getZ() + 0.5, level.getRandom().nextFloat() * 360.0F, 0.0F);
+			mob.setPersistenceRequired();
+			level.addFreshEntityWithPassengers(mob);
+		}
+	}
+
+	static void one(HomePiece p, WorldGenLevel level, BoundingBox box, CharacterVariant type, int x, int y, int z,
+			int homeX, int homeZ, int radius, BlockPos bed, BlockPos pantry) {
+		BlockPos spawn = p.pos(x, y, z);
+		if (p.claimSpawn(spawn, box)) {
+			BlockPos home = p.pos(homeX, y, homeZ);
+			p.placeMarker(level, spawn, m -> m.addResident(type, spawn, home, radius, bed, null, pantry));
+		}
+	}
+
+	// ------------------------------------------------------------ ImLilyLol
+
+	/** Glass greenhouse with flower planters and saplings. */
+	static void greenhouse(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		site(p, level, box, 8, 6, 10, Blocks.GRASS_BLOCK.defaultBlockState());
+		p.fill(level, box, 1, 0, 1, 7, 0, 9, Blocks.STONE_BRICKS.defaultBlockState());
+		p.walls(level, box, 1, 1, 7, 9, 1, 4, Blocks.GLASS.defaultBlockState());
+		for (int[] c : new int[][]{{1, 1}, {7, 1}, {1, 9}, {7, 9}}) {
+			p.fill(level, box, c[0], 1, c[1], c[0], 5, c[1], Blocks.WHITE_CONCRETE.defaultBlockState());
+		}
+		p.fill(level, box, 1, 5, 1, 7, 5, 9, Blocks.GLASS.defaultBlockState());
+		p.door(level, box, 4, 1, 1, Blocks.BIRCH_DOOR);
+		// Planters along both sides: dirt beds with flowers and saplings.
+		for (int z = 3; z <= 8; z++) {
+			for (int x : new int[]{2, 6}) {
+				p.put(level, box, Blocks.DIRT.defaultBlockState(), x, 0, z);
+				Block plant = z % 3 == 0 ? (random.nextBoolean() ? Blocks.CHERRY_SAPLING : Blocks.BIRCH_SAPLING) : FLOWERS[random.nextInt(FLOWERS.length)];
+				p.put(level, box, plant.defaultBlockState(), x, 1, z);
+			}
+		}
+		p.put(level, box, Blocks.WATER.defaultBlockState(), 4, 0, 8);
+		p.chest(level, box, random, 4, 1, 9 - 1, ModStructures.lootTable("chests/greenhouse"));
+		p.barrel(level, box, random, 3, 1, 8, ModStructures.BARREL_LOOT);
+		p.put(level, box, hanging(), 4, 4, 5);
+		one(p, level, box, CharacterVariant.GARDENER, 4, 1, 3, 4, 5, LilyBrain.HOME_RADIUS, null, null);
+	}
+
+	/** A gazebo by a little pond, with benches and a lectern: Lily's calm reading spot. */
+	static void gazebo(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		site(p, level, box, 12, 6, 12, Blocks.GRASS_BLOCK.defaultBlockState());
+		// Pond.
+		for (int x = 0; x <= 12; x++) {
+			for (int z = 8; z <= 12; z++) {
+				double d = Math.sqrt((x - 6) * (x - 6) + (z - 10) * (z - 10) * 2.0);
+				if (d < 5.5) {
+					p.put(level, box, Blocks.DIRT.defaultBlockState(), x, -1, z);
+					p.put(level, box, Blocks.WATER.defaultBlockState(), x, 0, z);
+				}
+			}
+		}
+		p.put(level, box, Blocks.LILY_PAD.defaultBlockState(), 4, 1, 10);
+		p.put(level, box, Blocks.LILY_PAD.defaultBlockState(), 8, 1, 11);
+		// Gazebo: posts, a slab roof, benches, a lectern.
+		p.fill(level, box, 3, 0, 1, 9, 0, 6, Blocks.BIRCH_PLANKS.defaultBlockState());
+		for (int[] c : new int[][]{{3, 1}, {9, 1}, {3, 6}, {9, 6}}) {
+			p.fill(level, box, c[0], 1, c[1], c[0], 3, c[1], Blocks.BIRCH_FENCE.defaultBlockState());
+		}
+		p.fill(level, box, 2, 4, 0, 10, 4, 7, Blocks.CHERRY_SLAB.defaultBlockState());
+		p.fill(level, box, 4, 5, 2, 8, 5, 5, Blocks.CHERRY_SLAB.defaultBlockState());
+		BlockState bench = Blocks.BIRCH_STAIRS.defaultBlockState().setValue(StairBlock.FACING, Direction.NORTH);
+		p.fill(level, box, 4, 1, 6, 8, 1, 6, bench);
+		p.put(level, box, Blocks.LECTERN.defaultBlockState(), 6, 1, 2);
+		p.put(level, box, hanging(), 6, 3, 4);
+		p.chest(level, box, random, 4, 1, 2, ModStructures.lootTable("chests/lakeside_gazebo"));
+		for (int i = 0; i < 6; i++) {
+			int x = random.nextInt(13);
+			p.put(level, box, FLOWERS[random.nextInt(FLOWERS.length)].defaultBlockState(), x, 1, random.nextBoolean() ? 0 : 7);
+		}
+		CharacterVariant type = random.nextBoolean() ? CharacterVariant.BOOKWORM : CharacterVariant.LILY;
+		one(p, level, box, type, 6, 1, 3, 6, 4, LilyBrain.HOME_RADIUS, null, null);
+	}
+
+	/** Flower Shrine: lanterns on posts around flower beds and a small altar. */
+	static void flowerShrine(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		site(p, level, box, 8, 6, 8, Blocks.MOSS_BLOCK.defaultBlockState());
+		p.fill(level, box, 3, 0, 3, 5, 0, 5, Blocks.MOSSY_STONE_BRICKS.defaultBlockState());
+		p.put(level, box, Blocks.MOSSY_STONE_BRICK_WALL.defaultBlockState(), 4, 1, 4);
+		p.put(level, box, Blocks.POTTED_LILY_OF_THE_VALLEY.defaultBlockState(), 4, 2, 4);
+		for (int[] c : new int[][]{{1, 1}, {7, 1}, {1, 7}, {7, 7}}) {
+			p.fill(level, box, c[0], 1, c[1], c[0], 2, c[1], Blocks.CHERRY_FENCE.defaultBlockState());
+			p.put(level, box, Blocks.LANTERN.defaultBlockState(), c[0], 3, c[1]);
+		}
+		for (int x = 0; x <= 8; x++) {
+			for (int z = 0; z <= 8; z++) {
+				boolean ring = (x == 2 || x == 6 || z == 2 || z == 6) && x >= 2 && x <= 6 && z >= 2 && z <= 6;
+				if (ring && random.nextInt(4) != 0) {
+					p.put(level, box, FLOWERS[random.nextInt(FLOWERS.length)].defaultBlockState(), x, 1, z);
+				}
+			}
+		}
+		p.put(level, box, Blocks.PINK_PETALS.defaultBlockState(), 0, 1, 4);
+		p.chest(level, box, random, 4, 1, 6 + 1, ModStructures.lootTable("chests/flower_shrine"));
+		one(p, level, box, CharacterVariant.GARDENER, 4, 1, 1, 4, 4, 8, null, null);
+	}
+
+	// ------------------------------------------------------------ Madison
+
+	/** Farmstead: a red barn, fenced pens with animals, crop fields and a big pantry Madison watches. */
+	static void farmstead(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		site(p, level, box, 24, 10, 20, Blocks.GRASS_BLOCK.defaultBlockState());
+		// Barn.
+		BlockState red = Blocks.RED_TERRACOTTA.defaultBlockState();
+		p.fill(level, box, 1, 0, 1, 10, 0, 10, Blocks.SPRUCE_PLANKS.defaultBlockState());
+		p.walls(level, box, 1, 1, 10, 10, 1, 5, red);
+		for (int[] c : new int[][]{{1, 1}, {10, 1}, {1, 10}, {10, 10}}) {
+			p.fill(level, box, c[0], 1, c[1], c[0], 6, c[1], Blocks.STRIPPED_SPRUCE_LOG.defaultBlockState());
+		}
+		for (int y = 6; y <= 9; y++) {
+			int inset = y - 6;
+			p.fill(level, box, 1 + inset, y, 1, 10 - inset, y, 10, Blocks.DARK_OAK_PLANKS.defaultBlockState());
+		}
+		p.fill(level, box, 2, 6, 2, 9, 6, 9, air());
+		p.fill(level, box, 4, 1, 1, 7, 4, 1, air());
+		p.fill(level, box, 2, 1, 7, 4, 2, 9, Blocks.HAY_BLOCK.defaultBlockState());
+		p.chest(level, box, random, 8, 1, 9, ModStructures.MADISON_PANTRY);
+		p.chest(level, box, random, 9, 1, 9, ModStructures.MADISON_PANTRY);
+		p.barrel(level, box, random, 9, 1, 7, ModStructures.BARREL_LOOT);
+		p.bed(level, box, 8, 1, 4, Blocks.YELLOW_BED);
+		p.put(level, box, hanging(), 5, 5, 5);
+		// Animal pens.
+		p.walls(level, box, 12, 1, 18, 9, 1, 1, Blocks.OAK_FENCE.defaultBlockState());
+		p.walls(level, box, 19, 1, 23, 9, 1, 1, Blocks.OAK_FENCE.defaultBlockState());
+		p.put(level, box, Blocks.OAK_FENCE_GATE.defaultBlockState(), 15, 1, 9);
+		p.put(level, box, Blocks.OAK_FENCE_GATE.defaultBlockState(), 21, 1, 9);
+		animal(p, level, box, EntityType.COW, 14, 1, 4);
+		animal(p, level, box, EntityType.COW, 16, 1, 6);
+		animal(p, level, box, EntityType.SHEEP, 21, 1, 4);
+		animal(p, level, box, EntityType.SHEEP, 22, 1, 6);
+		animal(p, level, box, EntityType.CHICKEN, 13, 1, 7);
+		animal(p, level, box, EntityType.CHICKEN, 20, 1, 3);
+		p.put(level, box, Blocks.WATER_CAULDRON.defaultBlockState(), 17, 1, 2);
+		// Crop fields with a water channel.
+		BlockState farmland = Blocks.FARMLAND.defaultBlockState().setValue(FarmBlock.MOISTURE, 7);
+		Block[] crops = {Blocks.WHEAT, Blocks.CARROTS, Blocks.POTATOES, Blocks.BEETROOTS};
+		for (int x = 12; x <= 23; x++) {
+			for (int z = 12; z <= 19; z++) {
+				if (z == 15) {
+					p.put(level, box, Blocks.WATER.defaultBlockState(), x, 0, z);
+					continue;
+				}
+				p.put(level, box, farmland, x, 0, z);
+				net.minecraft.world.level.block.CropBlock crop = (net.minecraft.world.level.block.CropBlock) crops[(x / 3) % crops.length];
+				p.put(level, box, crop.getStateForAge(random.nextInt(crop.getMaxAge() + 1)), x, 1, z);
+			}
+		}
+		BlockPos bed = p.pos(8, 1, 5);
+		BlockPos pantry = p.pos(8, 1, 9);
+		one(p, level, box, CharacterVariant.FARMER, 6, 1, 3, 12, 11, 12, bed, pantry);
+	}
+
+	/** Orchard and beehive farm: rows of blossoming trees and hives over campfires. */
+	static void orchard(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		site(p, level, box, 18, 8, 18, Blocks.GRASS_BLOCK.defaultBlockState());
+		for (int tx = 3; tx <= 15; tx += 6) {
+			for (int tz = 3; tz <= 15; tz += 6) {
+				p.fill(level, box, tx, 1, tz, tx, 3, tz, Blocks.OAK_LOG.defaultBlockState());
+				for (int dx = -2; dx <= 2; dx++) {
+					for (int dz = -2; dz <= 2; dz++) {
+						for (int y = 3; y <= 5; y++) {
+							int r = Math.abs(dx) + Math.abs(dz) + (y - 4) * (y - 4) * 2;
+							if ((dx != 0 || dz != 0 || y > 3) && r <= 3 && random.nextInt(6) != 0) {
+								Block leaf = random.nextInt(3) == 0 ? Blocks.FLOWERING_AZALEA_LEAVES : Blocks.OAK_LEAVES;
+								p.put(level, box, leaf.defaultBlockState().setValue(LeavesBlock.PERSISTENT, true), tx + dx, y, tz + dz);
+							}
+						}
+					}
+				}
+			}
+		}
+		// Beehives on the paths between the trees.
+		p.beehive(level, box, random, 6, 1, 9);
+		p.beehive(level, box, random, 12, 1, 9);
+		p.beehive(level, box, random, 9, 1, 6);
+		p.beehive(level, box, random, 9, 1, 12);
+		for (int i = 0; i < 20; i++) {
+			int x = random.nextInt(19);
+			int z = random.nextInt(19);
+			p.put(level, box, FLOWERS[random.nextInt(FLOWERS.length)].defaultBlockState(), x, 1, z);
+		}
+		p.chest(level, box, random, 9, 1, 9, ModStructures.lootTable("chests/orchard"));
+		p.barrel(level, box, random, 10, 1, 9, ModStructures.BARREL_LOOT);
+		one(p, level, box, CharacterVariant.BEEKEEPER, 9, 1, 8, 9, 9, 10, null, null);
+	}
+
+	/** Market stall: a striped awning over a counter with produce barrels. Merchant Madison. */
+	static void marketStall(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		site(p, level, box, 8, 5, 6, Blocks.DIRT_PATH.defaultBlockState());
+		for (int[] c : new int[][]{{1, 1}, {7, 1}, {1, 5}, {7, 5}}) {
+			p.fill(level, box, c[0], 1, c[1], c[0], 3, c[1], Blocks.OAK_FENCE.defaultBlockState());
+		}
+		for (int x = 1; x <= 7; x++) {
+			Block wool = x % 2 == 0 ? Blocks.WHITE_WOOL : Blocks.LIME_WOOL;
+			p.fill(level, box, x, 4, 1, x, 4, 5, wool.defaultBlockState());
+		}
+		p.fill(level, box, 2, 1, 2, 6, 1, 2, Blocks.SPRUCE_SLAB.defaultBlockState().setValue(net.minecraft.world.level.block.SlabBlock.TYPE,
+				net.minecraft.world.level.block.state.properties.SlabType.TOP));
+		p.put(level, box, Blocks.MELON.defaultBlockState(), 2, 2, 2);
+		p.put(level, box, Blocks.PUMPKIN.defaultBlockState(), 6, 2, 2);
+		p.barrel(level, box, random, 2, 1, 4, ModStructures.lootTable("chests/market_stall"));
+		p.barrel(level, box, random, 6, 1, 4, ModStructures.lootTable("chests/market_stall"));
+		p.put(level, box, Blocks.LANTERN.defaultBlockState(), 4, 2, 2);
+		one(p, level, box, CharacterVariant.MERCHANT, 4, 1, 3, 4, 3, 3, null, null);
+	}
+
+	/** Windmill: a stone base, a wooden tower and wool sails. Farmer Madison and a Village ItzBreadLoaf. */
+	static void windmill(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		site(p, level, box, 14, 16, 14, Blocks.GRASS_BLOCK.defaultBlockState());
+		p.fill(level, box, 2, 0, 2, 8, 0, 8, Blocks.COBBLESTONE.defaultBlockState());
+		p.walls(level, box, 2, 2, 8, 8, 1, 4, Blocks.COBBLESTONE.defaultBlockState());
+		p.walls(level, box, 3, 3, 7, 7, 5, 10, Blocks.SPRUCE_PLANKS.defaultBlockState());
+		p.fill(level, box, 3, 4, 3, 7, 4, 7, Blocks.SPRUCE_PLANKS.defaultBlockState());
+		p.fill(level, box, 4, 11, 4, 6, 11, 6, Blocks.SPRUCE_SLAB.defaultBlockState());
+		p.door(level, box, 5, 1, 2, Blocks.SPRUCE_DOOR);
+		// Sails on the front: an X of white wool around a log hub.
+		p.put(level, box, Blocks.OAK_LOG.defaultBlockState().setValue(RotatedPillarBlock.AXIS, Direction.Axis.Z), 5, 8, 2);
+		for (int i = 1; i <= 4; i++) {
+			p.put(level, box, Blocks.WHITE_WOOL.defaultBlockState(), 5 + i, 8 + i, 1);
+			p.put(level, box, Blocks.WHITE_WOOL.defaultBlockState(), 5 - i, 8 - i, 1);
+			p.put(level, box, Blocks.WHITE_WOOL.defaultBlockState(), 5 + i, 8 - i, 1);
+			p.put(level, box, Blocks.WHITE_WOOL.defaultBlockState(), 5 - i, 8 + i, 1);
+		}
+		p.put(level, box, Blocks.GRINDSTONE.defaultBlockState(), 4, 1, 6);
+		p.fill(level, box, 6, 1, 6, 7, 2, 7, Blocks.HAY_BLOCK.defaultBlockState());
+		p.chest(level, box, random, 3, 1, 6, ModStructures.lootTable("chests/windmill"));
+		p.barrel(level, box, random, 3, 1, 7, ModStructures.BARREL_LOOT);
+		p.put(level, box, hanging(), 5, 3, 5);
+		// A little wheat field around it.
+		BlockState farmland = Blocks.FARMLAND.defaultBlockState().setValue(FarmBlock.MOISTURE, 7);
+		for (int x = 0; x <= 14; x++) {
+			for (int z = 10; z <= 14; z++) {
+				if (z == 12) {
+					// Water channel keeps the field wet.
+					p.put(level, box, Blocks.WATER.defaultBlockState(), x, 0, z);
+					continue;
+				}
+				p.put(level, box, farmland, x, 0, z);
+				p.put(level, box, ((net.minecraft.world.level.block.CropBlock) Blocks.WHEAT).getStateForAge(4 + random.nextInt(4)), x, 1, z);
+			}
+		}
+		// Hay stacks and a flour barrel by the field.
+		p.fill(level, box, 11, 1, 3, 12, 2, 4, Blocks.HAY_BLOCK.defaultBlockState());
+		p.barrel(level, box, random, 12, 1, 6, ModStructures.lootTable("chests/windmill"));
+		BlockPos spawn = p.pos(5, 1, 4);
+		if (p.claimSpawn(spawn, box)) {
+			BlockPos home = p.pos(5, 1, 5);
+			p.placeMarker(level, spawn, m -> {
+				// The Bread Mill is ItzBreadLoaf's; Farmer Madison helps with the field.
+				m.addResident(CharacterVariant.BREADLOAF, spawn, home, 9, null, null, null);
+				m.addResident(CharacterVariant.FARMER, spawn, home, 9, null, null, null);
+			});
+		}
+	}
+
+	/** Pumpkin Patch: a field of pumpkins (and a few jack o'lanterns) with a scarecrow. Farmer Madison. */
+	static void pumpkinPatch(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		site(p, level, box, 14, 6, 12, Blocks.GRASS_BLOCK.defaultBlockState());
+		p.walls(level, box, 0, 0, 14, 12, 1, 1, Blocks.SPRUCE_FENCE.defaultBlockState());
+		p.put(level, box, Blocks.SPRUCE_FENCE_GATE.defaultBlockState(), 7, 1, 0);
+		for (int x = 1; x <= 13; x++) {
+			for (int z = 1; z <= 11; z++) {
+				if (random.nextInt(4) == 0) {
+					Block pumpkin = random.nextInt(8) == 0 ? Blocks.JACK_O_LANTERN : Blocks.PUMPKIN;
+					BlockState state = pumpkin == Blocks.PUMPKIN ? pumpkin.defaultBlockState()
+							: pumpkin.defaultBlockState().setValue(CarvedPumpkinBlock.FACING, Direction.Plane.HORIZONTAL.getRandomDirection(random));
+					p.put(level, box, state, x, 1, z);
+				} else if (random.nextInt(3) == 0) {
+					p.put(level, box, Blocks.COARSE_DIRT.defaultBlockState(), x, 0, z);
+				}
+			}
+		}
+		// Farm shed: tools, composter and the pumpkin barrel.
+		p.fill(level, box, 10, 0, 8, 13, 0, 11, Blocks.SPRUCE_PLANKS.defaultBlockState());
+		p.fill(level, box, 10, 1, 8, 13, 3, 11, air());
+		p.walls(level, box, 10, 8, 13, 11, 1, 3, Blocks.SPRUCE_PLANKS.defaultBlockState());
+		p.fill(level, box, 9, 4, 7, 14, 4, 12, Blocks.SPRUCE_SLAB.defaultBlockState());
+		p.door(level, box, 11, 1, 8, Blocks.SPRUCE_DOOR);
+		p.put(level, box, Blocks.COMPOSTER.defaultBlockState(), 12, 1, 10);
+		p.barrel(level, box, random, 11, 1, 10, ModStructures.lootTable("chests/pumpkin_patch"));
+		p.put(level, box, Blocks.LANTERN.defaultBlockState(), 12, 1, 9);
+		p.put(level, box, Blocks.MELON.defaultBlockState(), 3, 1, 3);
+		p.put(level, box, Blocks.MELON.defaultBlockState(), 4, 1, 9);
+		// Scarecrow.
+		p.fill(level, box, 7, 1, 6, 7, 2, 6, Blocks.OAK_FENCE.defaultBlockState());
+		p.put(level, box, Blocks.HAY_BLOCK.defaultBlockState(), 7, 3, 6);
+		p.put(level, box, Blocks.CARVED_PUMPKIN.defaultBlockState().setValue(CarvedPumpkinBlock.FACING, Direction.NORTH), 7, 4, 6);
+		p.put(level, box, Blocks.OAK_FENCE.defaultBlockState(), 6, 3, 6);
+		p.put(level, box, Blocks.OAK_FENCE.defaultBlockState(), 8, 3, 6);
+		p.chest(level, box, random, 1, 1, 11, ModStructures.lootTable("chests/pumpkin_patch"));
+		p.barrel(level, box, random, 2, 1, 11, ModStructures.BARREL_LOOT);
+		one(p, level, box, CharacterVariant.FARMER, 7, 1, 2, 7, 6, 8, null, null);
+	}
+
+	// ------------------------------------------------------------ shared
+
+	/** Cousins' Camp: Lily's pink tent and Madison's yellow tent around one campfire. */
+	static void cousinsCamp(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		site(p, level, box, 12, 4, 10, Blocks.GRASS_BLOCK.defaultBlockState());
+		p.smallTent(level, box, 1, 2, Blocks.PINK_WOOL.defaultBlockState());
+		p.smallTent(level, box, 9, 2, Blocks.YELLOW_WOOL.defaultBlockState());
+		p.put(level, box, Blocks.CAMPFIRE.defaultBlockState().setValue(CampfireBlock.LIT, true), 6, 1, 6);
+		BlockState bench = Blocks.OAK_LOG.defaultBlockState().setValue(RotatedPillarBlock.AXIS, Direction.Axis.X);
+		p.put(level, box, bench, 5, 1, 8);
+		p.put(level, box, bench, 6, 1, 8);
+		p.put(level, box, bench, 7, 1, 8);
+		p.chest(level, box, random, 6, 1, 10, ModStructures.lootTable("chests/cousins_camp"));
+		p.barrel(level, box, random, 5, 1, 10, ModStructures.BARREL_LOOT);
+		for (int i = 0; i < 6; i++) {
+			p.put(level, box, FLOWERS[random.nextInt(FLOWERS.length)].defaultBlockState(), random.nextInt(13), 1, random.nextBoolean() ? 0 : 1);
+		}
+		BlockPos spawn = p.pos(6, 1, 4);
+		if (p.claimSpawn(spawn, box)) {
+			BlockPos fire = p.pos(6, 1, 7);
+			BlockPos lilyBed = p.pos(2, 1, 3);
+			BlockPos madisonBed = p.pos(10, 1, 3);
+			p.placeMarker(level, spawn, m -> {
+				m.addResident(CharacterVariant.LILY, spawn, fire, 8, lilyBed, null, null);
+				m.addResident(CharacterVariant.MADISON, spawn, fire, 8, madisonBed, null, null);
+			});
+		}
+	}
+
+	/** PvP Arena: sand floor, fences, stands. An ItzBreadLoaf and FelixSyn (with Harley) live here, so they fight. */
+	static void pvpArena(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		site(p, level, box, 22, 5, 22, Blocks.GRASS_BLOCK.defaultBlockState());
+		p.fill(level, box, 2, 0, 2, 20, 0, 20, Blocks.SAND.defaultBlockState());
+		p.walls(level, box, 2, 2, 20, 20, 1, 1, Blocks.OAK_FENCE.defaultBlockState());
+		p.put(level, box, Blocks.OAK_FENCE_GATE.defaultBlockState(), 11, 1, 2);
+		p.put(level, box, Blocks.OAK_FENCE_GATE.defaultBlockState(), 11, 1, 20);
+		// Stands on two sides.
+		for (int x = 4; x <= 18; x++) {
+			p.put(level, box, Blocks.STONE_BRICK_STAIRS.defaultBlockState().setValue(StairBlock.FACING, Direction.NORTH), x, 1, 0);
+			p.put(level, box, Blocks.STONE_BRICK_STAIRS.defaultBlockState().setValue(StairBlock.FACING, Direction.SOUTH), x, 1, 22);
+		}
+		for (int[] c : new int[][]{{2, 2}, {20, 2}, {2, 20}, {20, 20}}) {
+			p.fill(level, box, c[0], 1, c[1], c[0], 3, c[1], Blocks.STONE_BRICK_WALL.defaultBlockState());
+			p.put(level, box, Blocks.LANTERN.defaultBlockState(), c[0], 4, c[1]);
+		}
+		p.put(level, box, Blocks.RED_BANNER.defaultBlockState(), 7, 1, 11);
+		p.put(level, box, Blocks.BLUE_BANNER.defaultBlockState(), 15, 1, 11);
+		p.chest(level, box, random, 1, 1, 11, ModStructures.lootTable("chests/pvp_arena"));
+		BlockPos spawn = p.pos(6, 1, 11);
+		if (p.claimSpawn(spawn, box)) {
+			BlockPos breadSide = p.pos(6, 1, 11);
+			BlockPos felixSide = p.pos(16, 1, 11);
+			p.placeMarker(level, spawn, m -> {
+				m.addResident(CharacterVariant.BREADLOAF, breadSide, breadSide, 8, null, null, null);
+				m.addResident(CharacterVariant.FELIXSYN, felixSide, felixSide, 8, null, null, null);
+			});
+		}
+	}
+
+	/** Giant Loaf (very rare easter egg): a huge loaf of hay, terracotta and sandstone with a treasure room inside. */
+	static void giantLoaf(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		site(p, level, box, 26, 11, 14, Blocks.GRASS_BLOCK.defaultBlockState());
+		// An elongated dome: crust of orange/brown terracotta, sandstone ends, hay "crumb" inside the walls.
+		for (int x = 1; x <= 25; x++) {
+			for (int z = 1; z <= 13; z++) {
+				for (int y = 0; y <= 10; y++) {
+					double dx = (x - 13) / 12.5;
+					double dz = (z - 7) / 6.5;
+					double dy = y / 10.0;
+					double d = dx * dx * dx * dx + dz * dz + dy * dy;
+					if (d > 1.0) {
+						continue;
+					}
+					boolean shell = d > 0.7;
+					BlockState state;
+					if (!shell) {
+						state = y >= 1 && y <= 5 && Math.abs(x - 13) <= 7 && Math.abs(z - 7) <= 3 ? air() : Blocks.HAY_BLOCK.defaultBlockState();
+					} else if (Math.abs(x - 13) >= 11) {
+						state = Blocks.SMOOTH_SANDSTONE.defaultBlockState();
+					} else if (y >= 8 && (x + z) % 5 == 0) {
+						state = Blocks.WHITE_TERRACOTTA.defaultBlockState();
+					} else {
+						state = (x * 7 + z * 3 + y) % 4 == 0 ? Blocks.BROWN_TERRACOTTA.defaultBlockState() : Blocks.ORANGE_TERRACOTTA.defaultBlockState();
+					}
+					p.put(level, box, state, x, y, z);
+				}
+			}
+		}
+		// Door in at one end, a tunnel to the treasure room.
+		p.fill(level, box, 1, 1, 7, 6, 2, 7, air());
+		p.put(level, box, Blocks.SANDSTONE.defaultBlockState(), 1, 3, 7);
+		p.fill(level, box, 6, 0, 4, 20, 0, 10, Blocks.SMOOTH_SANDSTONE.defaultBlockState());
+		p.chest(level, box, random, 13, 1, 4, ModStructures.lootTable("chests/giant_loaf"));
+		p.chest(level, box, random, 13, 1, 10, ModStructures.lootTable("chests/giant_loaf"));
+		p.chest(level, box, random, 19, 1, 7, ModStructures.lootTable("chests/giant_loaf"));
+		p.barrel(level, box, random, 8, 1, 4, ModStructures.lootTable("chests/bread_bakery"));
+		p.barrel(level, box, random, 8, 1, 10, ModStructures.lootTable("chests/bread_bakery"));
+		p.put(level, box, Blocks.GOLD_BLOCK.defaultBlockState(), 13, 1, 7);
+		p.put(level, box, Blocks.CAKE.defaultBlockState(), 13, 2, 7);
+		p.put(level, box, hanging(), 10, 5, 7);
+		p.put(level, box, hanging(), 16, 5, 7);
+	}
+
+	/** Nether Mace Training Ground: blackstone pillars of different heights with platforms for mace drops. */
+	static void netherTrainingGround(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		p.fill(level, box, 0, 1, 0, 20, 21, 20, air());
+		p.fill(level, box, 0, 0, 0, 20, 0, 20, Blocks.POLISHED_BLACKSTONE_BRICKS.defaultBlockState());
+		p.foundation(level, box, 0, 0, 20, 20, Blocks.BASALT.defaultBlockState());
+		int[][] pillars = {{3, 3, 8}, {17, 3, 12}, {3, 17, 16}, {17, 17, 10}, {10, 10, 20}};
+		for (int[] pillar : pillars) {
+			p.fill(level, box, pillar[0], 1, pillar[1], pillar[0], pillar[2], pillar[1], Blocks.POLISHED_BASALT.defaultBlockState());
+			p.fill(level, box, pillar[0] - 1, pillar[2], pillar[1] - 1, pillar[0] + 1, pillar[2], pillar[1] + 1, Blocks.POLISHED_BLACKSTONE.defaultBlockState());
+			for (int y = 1; y < pillar[2]; y++) {
+				p.put(level, box, Blocks.LADDER.defaultBlockState().setValue(LadderBlock.FACING, Direction.NORTH), pillar[0], y, pillar[1] - 1);
+			}
+			p.put(level, box, Blocks.SOUL_LANTERN.defaultBlockState(), pillar[0], pillar[2] + 1, pillar[1]);
+		}
+		// Targets on the ground to aim smashes at.
+		for (int[] t : new int[][]{{7, 7}, {13, 7}, {7, 13}, {13, 13}}) {
+			p.put(level, box, Blocks.TARGET.defaultBlockState(), t[0], 1, t[1]);
+		}
+		p.chest(level, box, random, 1, 1, 10, ModStructures.lootTable("chests/nether_training_ground"));
+		p.barrel(level, box, random, 1, 1, 11, ModStructures.BARREL_LOOT);
+		BlockPos spawn = p.pos(10, 1, 5);
+		if (p.claimSpawn(spawn, box)) {
+			p.placeMarker(level, spawn, m -> m.addResident(CharacterVariant.MASTER, spawn, spawn, 10, null, null, null));
+		}
+	}
+
+	/** End Mace Tower: a tall purpur tower with a ladder and a lookout on top where Master BreadLoaf waits. */
+	static void endMaceTower(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		p.fill(level, box, 0, 1, 0, 8, 31, 8, air());
+		p.fill(level, box, 0, 0, 0, 8, 0, 8, Blocks.END_STONE_BRICKS.defaultBlockState());
+		p.foundation(level, box, 0, 0, 8, 8, Blocks.END_STONE.defaultBlockState());
+		p.walls(level, box, 1, 1, 7, 7, 1, 26, Blocks.PURPUR_BLOCK.defaultBlockState());
+		for (int[] c : new int[][]{{1, 1}, {7, 1}, {1, 7}, {7, 7}}) {
+			p.fill(level, box, c[0], 1, c[1], c[0], 28, c[1], Blocks.PURPUR_PILLAR.defaultBlockState());
+		}
+		p.fill(level, box, 4, 1, 1, 4, 2, 1, air());
+		for (int y = 1; y <= 27; y++) {
+			p.put(level, box, Blocks.LADDER.defaultBlockState().setValue(LadderBlock.FACING, Direction.NORTH), 4, y, 6);
+		}
+		for (int y : new int[]{8, 15, 22}) {
+			p.put(level, box, Blocks.END_ROD.defaultBlockState(), 2, y, 2);
+			p.put(level, box, Blocks.END_ROD.defaultBlockState(), 6, y, 6 - 1);
+		}
+		for (int x = 0; x <= 8; x++) {
+			for (int z = 0; z <= 8; z++) {
+				if (x != 4 || z != 6) {
+					p.put(level, box, Blocks.PURPUR_SLAB.defaultBlockState(), x, 27, z);
+				}
+			}
+		}
+		for (int i = 0; i <= 8; i += 2) {
+			for (int[] c : new int[][]{{i, 0}, {i, 8}, {0, i}, {8, i}}) {
+				p.put(level, box, Blocks.PURPUR_BLOCK.defaultBlockState(), c[0], 28, c[1]);
+			}
+		}
+		p.chest(level, box, random, 2, 28, 2, ModStructures.lootTable("chests/end_mace_tower"));
+		BlockPos spawn = p.pos(4, 28, 3);
+		if (p.claimSpawn(spawn, box)) {
+			p.placeMarker(level, spawn, m -> m.addResident(CharacterVariant.MASTER, spawn, spawn, 3, null, null, null));
+		}
+	}
+
+	/** Sweaty Dojo: a training hall with targets, a straw dummy and an armor rack; a Sweaty ItzBreadLoaf trains here. */
+	static void sweatyDojo(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		site(p, level, box, 12, 6, 12, Blocks.GRASS_BLOCK.defaultBlockState());
+		p.fill(level, box, 1, 0, 1, 11, 0, 11, Blocks.BAMBOO_MOSAIC.defaultBlockState());
+		for (int[] c : new int[][]{{1, 1}, {11, 1}, {1, 11}, {11, 11}, {6, 1}, {6, 11}, {1, 6}, {11, 6}}) {
+			p.fill(level, box, c[0], 1, c[1], c[0], 4, c[1], Blocks.STRIPPED_DARK_OAK_LOG.defaultBlockState());
+		}
+		p.fill(level, box, 0, 5, 0, 12, 5, 12, Blocks.DARK_OAK_SLAB.defaultBlockState());
+		p.fill(level, box, 2, 6, 2, 10, 6, 10, Blocks.DARK_OAK_SLAB.defaultBlockState());
+		p.put(level, box, Blocks.TARGET.defaultBlockState(), 3, 1, 9);
+		p.put(level, box, Blocks.TARGET.defaultBlockState(), 9, 1, 9);
+		p.fill(level, box, 6, 1, 9, 6, 2, 9, Blocks.HAY_BLOCK.defaultBlockState());
+		p.put(level, box, Blocks.CARVED_PUMPKIN.defaultBlockState().setValue(CarvedPumpkinBlock.FACING, Direction.NORTH), 6, 3, 9);
+		p.put(level, box, Blocks.ANVIL.defaultBlockState(), 10, 1, 3);
+		p.put(level, box, hanging(), 6, 4, 6);
+		p.chest(level, box, random, 2, 1, 3, ModStructures.lootTable("chests/sweaty_dojo"));
+		p.barrel(level, box, random, 2, 1, 4, ModStructures.BARREL_LOOT);
+		one(p, level, box, CharacterVariant.SWEATY, 6, 1, 4, 6, 6, 6, null, null);
+	}
+
+	/** Smugglers' Cove: a beach shack, crates and a little dock. A Pirate and a Bandit share the loot. */
+	static void smugglersCove(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random) {
+		p.fill(level, box, 0, 1, 0, 12, 6, 14, air());
+		p.fill(level, box, 0, 0, 0, 12, 0, 7, Blocks.SAND.defaultBlockState());
+		p.foundation(level, box, 0, 0, 12, 7, Blocks.SANDSTONE.defaultBlockState());
+		p.walls(level, box, 1, 1, 7, 6, 1, 3, Blocks.DARK_OAK_PLANKS.defaultBlockState());
+		p.fill(level, box, 1, 4, 1, 7, 4, 6, Blocks.DARK_OAK_SLAB.defaultBlockState());
+		p.door(level, box, 4, 1, 6, Blocks.DARK_OAK_DOOR);
+		p.chest(level, box, random, 2, 1, 2, ModStructures.lootTable("chests/smugglers_cove"));
+		p.chest(level, box, random, 3, 1, 2, ModStructures.lootTable("chests/smugglers_cove"));
+		p.barrel(level, box, random, 6, 1, 2, ModStructures.BARREL_LOOT);
+		p.barrel(level, box, random, 9, 1, 3, ModStructures.FISH_BARREL);
+		p.barrel(level, box, random, 10, 1, 3, ModStructures.BARREL_LOOT);
+		p.put(level, box, hanging(), 4, 3, 4);
+		// Dock out into the water.
+		p.fill(level, box, 9, 0, 6, 11, 0, 14, Blocks.SPRUCE_PLANKS.defaultBlockState());
+		for (int z = 8; z <= 14; z += 3) {
+			p.column(level, box, Blocks.SPRUCE_LOG.defaultBlockState(), 9, -1, z);
+			p.column(level, box, Blocks.SPRUCE_LOG.defaultBlockState(), 11, -1, z);
+		}
+		p.put(level, box, Blocks.BLACK_BANNER.defaultBlockState(), 10, 1, 14);
+		BlockPos spawn = p.pos(10, 1, 8);
+		if (p.claimSpawn(spawn, box)) {
+			UUID group = p.group();
+			BlockPos home = p.pos(6, 1, 8);
+			p.placeMarker(level, spawn, m -> {
+				m.addResident(CharacterVariant.PIRATE, spawn, home, 8, null, group, null);
+				m.addResident(CharacterVariant.BANDIT, spawn, home, 8, null, group, null);
+			});
+		}
+	}
+}
+```
+
+## src/main/resources/assets/itzbreadloaf/blockstates/master_loaf_trophy.json
+
+```json
+{
+  "variants": {
+    "": {
+      "model": "itzbreadloaf:block/master_loaf_trophy"
+    }
+  }
+}
+```
+
+## src/main/resources/assets/itzbreadloaf/blockstates/resident_marker.json
+
+```json
+{
+  "variants": {
+    "": {
+      "model": "minecraft:block/structure_void"
+    }
+  }
+}
+```
+
+## src/main/resources/assets/itzbreadloaf/items/felixsyn_spawn_egg.json
+
+```json
+{
+  "model": {
+    "type": "minecraft:model",
+    "model": "itzbreadloaf:item/felixsyn_spawn_egg"
+  }
+}
+```
+
+## src/main/resources/assets/itzbreadloaf/items/harley_spawn_egg.json
+
+```json
+{
+  "model": {
+    "type": "minecraft:model",
+    "model": "itzbreadloaf:item/harley_spawn_egg"
+  }
+}
+```
+
+## src/main/resources/assets/itzbreadloaf/items/harleys_blade.json
+
+```json
+{
+  "model": {
+    "type": "minecraft:model",
+    "model": "itzbreadloaf:item/harleys_blade"
+  }
+}
+```
+
+## src/main/resources/assets/itzbreadloaf/items/imlilylol_spawn_egg.json
+
+```json
+{
+  "model": {
+    "type": "minecraft:model",
+    "model": "itzbreadloaf:item/imlilylol_spawn_egg"
+  }
+}
+```
+
+## src/main/resources/assets/itzbreadloaf/items/itzbreadloaf_spawn_egg.json
+
+```json
+{
+  "model": {
+    "type": "minecraft:model",
+    "model": "itzbreadloaf:item/itzbreadloaf_spawn_egg"
+  }
+}
+```
+
+## src/main/resources/assets/itzbreadloaf/items/loaf_bread.json
+
+```json
+{
+  "model": {
+    "type": "minecraft:model",
+    "model": "itzbreadloaf:item/loaf_bread"
+  }
+}
+```
+
+## src/main/resources/assets/itzbreadloaf/items/madison_spawn_egg.json
+
+```json
+{
+  "model": {
+    "type": "minecraft:model",
+    "model": "itzbreadloaf:item/madison_spawn_egg"
+  }
+}
+```
+
+## src/main/resources/assets/itzbreadloaf/items/master_breadloaf_spawn_egg.json
+
+```json
+{
+  "model": {
+    "type": "minecraft:model",
+    "model": "itzbreadloaf:item/master_breadloaf_spawn_egg"
+  }
+}
+```
+
+## src/main/resources/assets/itzbreadloaf/items/master_loaf_trophy.json
+
+```json
+{
+  "model": {
+    "type": "minecraft:model",
+    "model": "itzbreadloaf:block/master_loaf_trophy"
+  }
+}
+```
+
+## src/main/resources/assets/itzbreadloaf/lang/en_us.json
+
+```json
+{
+  "entity.itzbreadloaf.itzbreadloaf": "ItzBreadLoaf",
+  "item.itzbreadloaf.itzbreadloaf_spawn_egg": "ItzBreadLoaf Spawn Egg",
+  "subtitles.itzbreadloaf.meow": "ItzBreadLoaf meows",
+  "subtitles.itzbreadloaf.ambient": "ItzBreadLoaf talks",
+  "subtitles.itzbreadloaf.hurt": "ItzBreadLoaf gets hit",
+  "subtitles.itzbreadloaf.death": "ItzBreadLoaf dies",
+  "subtitles.itzbreadloaf.taunt": "ItzBreadLoaf spots you",
+  "subtitles.itzbreadloaf.tamed": "ItzBreadLoaf is tamed",
+  "entity.itzbreadloaf.imlilylol": "ImLilyLol",
+  "item.itzbreadloaf.imlilylol_spawn_egg": "ImLilyLol Spawn Egg",
+  "subtitles.itzbreadloaf.imlilylol_voice": "ImLilyLol speaks softly",
+  "advancements.itzbreadloaf.bread_winner.title": "Bread Winner",
+  "advancements.itzbreadloaf.bread_winner.description": "Tame an ItzBreadLoaf with steak",
+  "advancements.itzbreadloaf.earned_her_trust.title": "Earned Her Trust",
+  "advancements.itzbreadloaf.earned_her_trust.description": "Befriend ImLilyLol with five gifts",
+  "advancements.itzbreadloaf.family_reunion.title": "Family Reunion",
+  "advancements.itzbreadloaf.family_reunion.description": "Have a baby with ItzBreadLoaf and ImLilyLol",
+  "itemGroup.itzbreadloaf.loafcraft": "LoafCraft",
+  "item.itzbreadloaf.loaf_bread": "Loaf Bread",
+  "block.itzbreadloaf.master_loaf_trophy": "Master Loaf Trophy",
+  "block.itzbreadloaf.resident_marker": "LoafCraft Resident Marker",
+  "advancements.itzbreadloaf.root.title": "LoafCraft",
+  "advancements.itzbreadloaf.root.description": "Friends, foes, families, and a lot of bread",
+  "advancements.itzbreadloaf.hands_off_the_pantry.title": "Hands Off the Pantry",
+  "advancements.itzbreadloaf.hands_off_the_pantry.description": "Make Madison mad by taking food from her pantry",
+  "advancements.itzbreadloaf.peace_offering.title": "Peace Offering",
+  "advancements.itzbreadloaf.peace_offering.description": "Calm Madison down by putting her food back",
+  "advancements.itzbreadloaf.cousin_club.title": "Cousin Club",
+  "advancements.itzbreadloaf.cousin_club.description": "Befriend both ImLilyLol and Madison",
+  "advancements.itzbreadloaf.little_loaf.title": "Little Loaf",
+  "advancements.itzbreadloaf.little_loaf.description": "Have a baby with ItzBreadLoaf and Madison",
+  "advancements.itzbreadloaf.grounded.title": "Grounded",
+  "advancements.itzbreadloaf.grounded.description": "Defeat Master BreadLoaf",
+  "advancements.itzbreadloaf.mace_master.title": "Mace Master",
+  "advancements.itzbreadloaf.mace_master.description": "Defeat Master BreadLoaf without taking any fall damage",
+  "advancements.itzbreadloaf.tent_raider.title": "Tent Raider",
+  "advancements.itzbreadloaf.tent_raider.description": "Find an ItzBreadLoaf tent",
+  "advancements.itzbreadloaf.storm_the_fort.title": "Storm the Fort",
+  "advancements.itzbreadloaf.storm_the_fort.description": "Defeat a Captain ItzBreadLoaf",
+  "advancements.itzbreadloaf.fresh_from_the_oven.title": "Fresh From the Oven",
+  "advancements.itzbreadloaf.fresh_from_the_oven.description": "Buy something from Baker Madison",
+  "advancements.itzbreadloaf.sky_high.title": "Sky High",
+  "advancements.itzbreadloaf.sky_high.description": "Find Master BreadLoaf's Sky Arena",
+  "advancements.itzbreadloaf.welcome_to_loaftown.title": "Welcome to Loaftown",
+  "advancements.itzbreadloaf.welcome_to_loaftown.description": "Visit a LoafCraft Village",
+  "advancements.itzbreadloaf.ahoy.title": "Ahoy!",
+  "advancements.itzbreadloaf.ahoy.description": "Find a pirate ship",
+  "advancements.itzbreadloaf.tree_hugger.title": "Tree Hugger",
+  "advancements.itzbreadloaf.tree_hugger.description": "Find Lily's Treehouse",
+  "entity.itzbreadloaf.madison": "Madison",
+  "item.itzbreadloaf.madison_spawn_egg": "Madison Spawn Egg",
+  "subtitles.itzbreadloaf.madison_voice": "Madison says hey",
+  "entity.itzbreadloaf.master_breadloaf": "Master BreadLoaf",
+  "item.itzbreadloaf.master_breadloaf_spawn_egg": "Master BreadLoaf Spawn Egg",
+  "entity.itzbreadloaf.felixsyn": "FelixSyn",
+  "item.itzbreadloaf.felixsyn_spawn_egg": "FelixSyn Spawn Egg",
+  "entity.itzbreadloaf.harley": "Harley",
+  "item.itzbreadloaf.harley_spawn_egg": "Harley Spawn Egg",
+  "item.itzbreadloaf.harleys_blade": "Harley's Blade",
+  "advancements.itzbreadloaf.rival_showdown.title": "Rival Showdown",
+  "advancements.itzbreadloaf.rival_showdown.description": "Watch FelixSyn and ItzBreadLoaf fight",
+  "advancements.itzbreadloaf.village_drifter.title": "Village Drifter",
+  "advancements.itzbreadloaf.village_drifter.description": "Find FelixSyn hanging around a village",
+  "advancements.itzbreadloaf.taken_in.title": "Taken In",
+  "advancements.itzbreadloaf.taken_in.description": "Tame Harley with a golden apple",
+  "advancements.itzbreadloaf.untouchable.title": "Untouchable",
+  "advancements.itzbreadloaf.untouchable.description": "Defeat a wild Harley and take her blade",
+  "advancements.itzbreadloaf.structure_hunter.title": "Structure Hunter",
+  "advancements.itzbreadloaf.structure_hunter.description": "Find 10 different LoafCraft structures",
+  "advancements.itzbreadloaf.lilys_travels.title": "Lily's Travels",
+  "advancements.itzbreadloaf.lilys_travels.description": "Find ImLilyLol's houses in 3 different biomes",
+  "advancements.itzbreadloaf.loaf_legend.title": "Loaf Legend",
+  "advancements.itzbreadloaf.loaf_legend.description": "Find the legendary Giant Loaf",
+  "subtitles.itzbreadloaf.crit": "ItzBreadLoaf lands a big hit",
+  "subtitles.itzbreadloaf.start_duel": "ItzBreadLoaf starts a duel",
+  "subtitles.itzbreadloaf.end_duel": "ItzBreadLoaf wins a duel",
+  "subtitles.itzbreadloaf.gives_gift": "ItzBreadLoaf gives a gift",
+  "subtitles.itzbreadloaf.given_gift": "ItzBreadLoaf gets a gift",
+  "subtitles.itzbreadloaf.daily_mission": "ItzBreadLoaf gives a mission",
+  "advancements.itzbreadloaf.mill_worker.title": "Mill Worker",
+  "advancements.itzbreadloaf.mill_worker.description": "Visit the Bread Mill or a Riverside Mill",
+  "advancements.itzbreadloaf.sky_cottage.title": "Sky Cottage",
+  "advancements.itzbreadloaf.sky_cottage.description": "Climb up to ImLilyLol's Floating Island Cottage",
+  "advancements.itzbreadloaf.festival_goer.title": "Festival Goer",
+  "advancements.itzbreadloaf.festival_goer.description": "Join the fun at the Friendship Festival",
+  "advancements.itzbreadloaf.throne_room_crasher.title": "Throne Room Crasher",
+  "advancements.itzbreadloaf.throne_room_crasher.description": "Barge into Master BreadLoaf's throne room in a bastion",
+  "advancements.itzbreadloaf.peak_performance.title": "Peak Performance",
+  "advancements.itzbreadloaf.peak_performance.description": "Reach a Mountain Outpost",
+  "advancements.itzbreadloaf.campfire_stories.title": "Campfire Stories",
+  "advancements.itzbreadloaf.campfire_stories.description": "Find FelixSyn and Harley's campsite at the edge of a village"
+}
+```
+
+## src/main/resources/assets/itzbreadloaf/models/block/master_loaf_trophy.json
+
+```json
+{
+  "parent": "minecraft:block/block",
+  "textures": {
+    "particle": "minecraft:block/gold_block",
+    "gold": "minecraft:block/gold_block",
+    "loaf": "itzbreadloaf:block/master_loaf_trophy_loaf"
+  },
+  "elements": [
+    {
+      "from": [
+        3,
+        0,
+        3
+      ],
+      "to": [
+        13,
+        2,
+        13
+      ],
+      "faces": {
+        "north": {
+          "texture": "#gold"
+        },
+        "south": {
+          "texture": "#gold"
+        },
+        "east": {
+          "texture": "#gold"
+        },
+        "west": {
+          "texture": "#gold"
+        },
+        "up": {
+          "texture": "#gold"
+        },
+        "down": {
+          "texture": "#gold"
+        }
+      }
+    },
+    {
+      "from": [
+        6,
+        2,
+        6
+      ],
+      "to": [
+        10,
+        6,
+        10
+      ],
+      "faces": {
+        "north": {
+          "texture": "#gold"
+        },
+        "south": {
+          "texture": "#gold"
+        },
+        "east": {
+          "texture": "#gold"
+        },
+        "west": {
+          "texture": "#gold"
+        },
+        "up": {
+          "texture": "#gold"
+        },
+        "down": {
+          "texture": "#gold"
+        }
+      }
+    },
+    {
+      "from": [
+        4,
+        6,
+        4
+      ],
+      "to": [
+        12,
+        8,
+        12
+      ],
+      "faces": {
+        "north": {
+          "texture": "#gold"
+        },
+        "south": {
+          "texture": "#gold"
+        },
+        "east": {
+          "texture": "#gold"
+        },
+        "west": {
+          "texture": "#gold"
+        },
+        "up": {
+          "texture": "#gold"
+        },
+        "down": {
+          "texture": "#gold"
+        }
+      }
+    },
+    {
+      "from": [
+        4,
+        8,
+        5
+      ],
+      "to": [
+        12,
+        13,
+        11
+      ],
+      "faces": {
+        "north": {
+          "texture": "#loaf"
+        },
+        "south": {
+          "texture": "#loaf"
+        },
+        "east": {
+          "texture": "#loaf"
+        },
+        "west": {
+          "texture": "#loaf"
+        },
+        "up": {
+          "texture": "#loaf"
+        },
+        "down": {
+          "texture": "#loaf"
+        }
+      }
+    }
+  ]
+}
+```
+
+## src/main/resources/assets/itzbreadloaf/models/item/felixsyn_spawn_egg.json
+
+```json
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "itzbreadloaf:item/felixsyn_spawn_egg"
+  }
+}
+```
+
+## src/main/resources/assets/itzbreadloaf/models/item/harley_spawn_egg.json
+
+```json
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "itzbreadloaf:item/harley_spawn_egg"
+  }
+}
+```
+
+## src/main/resources/assets/itzbreadloaf/models/item/harleys_blade.json
+
+```json
+{
+  "parent": "minecraft:item/handheld",
+  "textures": {
+    "layer0": "itzbreadloaf:item/harleys_blade"
+  }
+}
+```
+
+## src/main/resources/assets/itzbreadloaf/models/item/imlilylol_spawn_egg.json
+
+```json
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "itzbreadloaf:item/imlilylol_spawn_egg"
+  }
+}
+```
+
+## src/main/resources/assets/itzbreadloaf/models/item/itzbreadloaf_spawn_egg.json
+
+```json
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "itzbreadloaf:item/itzbreadloaf_spawn_egg"
+  }
+}
+```
+
+## src/main/resources/assets/itzbreadloaf/models/item/loaf_bread.json
+
+```json
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "itzbreadloaf:item/loaf_bread"
+  }
+}
+```
+
+## src/main/resources/assets/itzbreadloaf/models/item/madison_spawn_egg.json
+
+```json
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "itzbreadloaf:item/madison_spawn_egg"
+  }
+}
+```
+
+## src/main/resources/assets/itzbreadloaf/models/item/master_breadloaf_spawn_egg.json
+
+```json
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "itzbreadloaf:item/master_breadloaf_spawn_egg"
+  }
+}
+```
+
+## src/main/resources/assets/itzbreadloaf/sounds.json
+
+```json
+{
+  "itzbreadloaf.meow": {
+    "subtitle": "subtitles.itzbreadloaf.meow",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:meow",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "itzbreadloaf.ambient": {
+    "subtitle": "subtitles.itzbreadloaf.ambient",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:breadloaf/idle_1",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/idle_2",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/idle_3",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/idle_4",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/idle_5",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/idle_6",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/idle_7",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/idle_8",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/idle_9",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/idle_10",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/idle_11",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/idle_12",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/idle_13",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/idle_14",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "itzbreadloaf.hurt": {
+    "subtitle": "subtitles.itzbreadloaf.hurt",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:breadloaf/hurt_1",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/hurt_2",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/hurt_3",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/hurt_4",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/hurt_5",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/hurt_6",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/hurt_7",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "itzbreadloaf.death": {
+    "subtitle": "subtitles.itzbreadloaf.death",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:breadloaf/death_1",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/death_2",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/death_3",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/death_4",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/death_5",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "itzbreadloaf.taunt": {
+    "subtitle": "subtitles.itzbreadloaf.taunt",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:breadloaf/spots_player_1",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/spots_player_2",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/spots_player_3",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/spots_player_4",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/spots_player_5",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/spots_player_6",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/spots_player_7",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/spots_player_8",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/spots_player_9",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/spots_player_10",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/spots_player_11",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/spots_player_12",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/spots_player_13",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/spots_player_14",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/spots_player_15",
+        "attenuation_distance": 24
+      }
+    ]
+  },
+  "itzbreadloaf.tamed": {
+    "subtitle": "subtitles.itzbreadloaf.tamed",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:breadloaf/tamed_1",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/tamed_2",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/tamed_3",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/tamed_4",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/tamed_5",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "imlilylol.voice": {
+    "subtitle": "subtitles.itzbreadloaf.imlilylol_voice",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:imlilylol_voice",
+        "attenuation_distance": 12
+      }
+    ]
+  },
+  "madison.voice": {
+    "subtitle": "subtitles.itzbreadloaf.madison_voice",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:madison_voice",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "itzbreadloaf.crit": {
+    "subtitle": "subtitles.itzbreadloaf.crit",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:breadloaf/crit_1",
+        "attenuation_distance": 20
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/crit_2",
+        "attenuation_distance": 20
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/crit_3",
+        "attenuation_distance": 20
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/crit_4",
+        "attenuation_distance": 20
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/crit_5",
+        "attenuation_distance": 20
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/crit_6",
+        "attenuation_distance": 20
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/crit_7",
+        "attenuation_distance": 20
+      }
+    ]
+  },
+  "itzbreadloaf.start_duel": {
+    "subtitle": "subtitles.itzbreadloaf.start_duel",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:breadloaf/start_duel_1",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/start_duel_2",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/start_duel_3",
+        "attenuation_distance": 24
+      }
+    ]
+  },
+  "itzbreadloaf.end_duel": {
+    "subtitle": "subtitles.itzbreadloaf.end_duel",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:breadloaf/end_duel_1",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/end_duel_2",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/end_duel_3",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/end_duel_4",
+        "attenuation_distance": 24
+      }
+    ]
+  },
+  "itzbreadloaf.gives_gift": {
+    "subtitle": "subtitles.itzbreadloaf.gives_gift",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:breadloaf/gives_gift_1",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/gives_gift_2",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/gives_gift_3",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "itzbreadloaf.given_gift": {
+    "subtitle": "subtitles.itzbreadloaf.given_gift",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:breadloaf/given_gift_1",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/given_gift_2",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/given_gift_3",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/given_gift_4",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/given_gift_5",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "itzbreadloaf.daily_mission": {
+    "subtitle": "subtitles.itzbreadloaf.daily_mission",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:breadloaf/daily_mission_1",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/daily_mission_2",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/daily_mission_3",
+        "attenuation_distance": 16
+      }
+    ]
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/ahoy.json
+
+```json
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "found": {
+      "trigger": "minecraft:location",
+      "conditions": {
+        "player": [
+          {
+            "condition": "minecraft:entity_properties",
+            "entity": "this",
+            "predicate": {
+              "location": {
+                "structures": "itzbreadloaf:pirate_ship"
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:trident",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.ahoy.title",
+      "fallback": "Ahoy!"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.ahoy.description",
+      "fallback": "Find a pirate ship"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "found"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/bread_winner.json
+
+```json
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:bread",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.bread_winner.title",
+      "fallback": "Bread Winner"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.bread_winner.description",
+      "fallback": "Tame an ItzBreadLoaf with steak"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/campfire_stories.json
+
+```json
+{
+  "parent": "itzbreadloaf:village_drifter",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:campfire",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.campfire_stories.title",
+      "fallback": "Campfire Stories"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.campfire_stories.description",
+      "fallback": "Find FelixSyn and Harley's campsite at the edge of a village"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/cousin_club.json
+
+```json
+{
+  "parent": "itzbreadloaf:earned_her_trust",
+  "criteria": {
+    "lily": {
+      "trigger": "minecraft:impossible"
+    },
+    "madison": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:cherry_sapling",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.cousin_club.title",
+      "fallback": "Cousin Club"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.cousin_club.description",
+      "fallback": "Befriend both ImLilyLol and Madison"
+    },
+    "frame": "goal"
+  },
+  "requirements": [
+    [
+      "lily"
+    ],
+    [
+      "madison"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/earned_her_trust.json
+
+```json
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:pink_tulip",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.earned_her_trust.title",
+      "fallback": "Earned Her Trust"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.earned_her_trust.description",
+      "fallback": "Befriend ImLilyLol with five gifts"
+    },
+    "frame": "goal"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/family_reunion.json
+
+```json
+{
+  "parent": "itzbreadloaf:bread_winner",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:cake",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.family_reunion.title",
+      "fallback": "Family Reunion"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.family_reunion.description",
+      "fallback": "Have a baby with ItzBreadLoaf and ImLilyLol"
+    },
+    "frame": "challenge"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/festival_goer.json
+
+```json
+{
+  "parent": "itzbreadloaf:structure_hunter",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:cake",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.festival_goer.title",
+      "fallback": "Festival Goer"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.festival_goer.description",
+      "fallback": "Join the fun at the Friendship Festival"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/fresh_from_the_oven.json
+
+```json
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "itzbreadloaf:loaf_bread",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.fresh_from_the_oven.title",
+      "fallback": "Fresh From the Oven"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.fresh_from_the_oven.description",
+      "fallback": "Buy something from Baker Madison"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/grounded.json
+
+```json
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:mace",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.grounded.title",
+      "fallback": "Grounded"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.grounded.description",
+      "fallback": "Defeat Master BreadLoaf"
+    },
+    "frame": "challenge"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/hands_off_the_pantry.json
+
+```json
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:pumpkin_pie",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.hands_off_the_pantry.title",
+      "fallback": "Hands Off the Pantry"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.hands_off_the_pantry.description",
+      "fallback": "Make Madison mad by taking food from her pantry"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/lilys_travels.json
+
+```json
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:pink_petals",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.lilys_travels.title",
+      "fallback": "Lily's Travels"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.lilys_travels.description",
+      "fallback": "Find ImLilyLol's houses in 3 different biomes"
+    },
+    "frame": "goal"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/little_loaf.json
+
+```json
+{
+  "parent": "itzbreadloaf:bread_winner",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "itzbreadloaf:loaf_bread",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.little_loaf.title",
+      "fallback": "Little Loaf"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.little_loaf.description",
+      "fallback": "Have a baby with ItzBreadLoaf and Madison"
+    },
+    "frame": "challenge"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/loaf_legend.json
+
+```json
+{
+  "parent": "itzbreadloaf:structure_hunter",
+  "criteria": {
+    "found": {
+      "trigger": "minecraft:location",
+      "conditions": {
+        "player": [
+          {
+            "condition": "minecraft:entity_properties",
+            "entity": "this",
+            "predicate": {
+              "location": {
+                "structures": "itzbreadloaf:giant_loaf"
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "itzbreadloaf:loaf_bread",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.loaf_legend.title",
+      "fallback": "Loaf Legend"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.loaf_legend.description",
+      "fallback": "Find the legendary Giant Loaf"
+    },
+    "frame": "challenge",
+    "hidden": true
+  },
+  "requirements": [
+    [
+      "found"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/mace_master.json
+
+```json
+{
+  "parent": "itzbreadloaf:grounded",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:wind_charge",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.mace_master.title",
+      "fallback": "Mace Master"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.mace_master.description",
+      "fallback": "Defeat Master BreadLoaf without taking any fall damage"
+    },
+    "frame": "challenge",
+    "hidden": true
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/mill_worker.json
+
+```json
+{
+  "parent": "itzbreadloaf:structure_hunter",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:wheat",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.mill_worker.title",
+      "fallback": "Mill Worker"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.mill_worker.description",
+      "fallback": "Visit the Bread Mill or a Riverside Mill"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/peace_offering.json
+
+```json
+{
+  "parent": "itzbreadloaf:hands_off_the_pantry",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:golden_carrot",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.peace_offering.title",
+      "fallback": "Peace Offering"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.peace_offering.description",
+      "fallback": "Calm Madison down by putting her food back"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/peak_performance.json
+
+```json
+{
+  "parent": "itzbreadloaf:structure_hunter",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:spyglass",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.peak_performance.title",
+      "fallback": "Peak Performance"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.peak_performance.description",
+      "fallback": "Reach a Mountain Outpost"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/rival_showdown.json
+
+```json
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:mace",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.rival_showdown.title",
+      "fallback": "Rival Showdown"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.rival_showdown.description",
+      "fallback": "Watch FelixSyn and ItzBreadLoaf fight"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/root.json
+
+```json
+{
+  "criteria": {
+    "tick": {
+      "trigger": "minecraft:tick"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "itzbreadloaf:itzbreadloaf_spawn_egg",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.root.title",
+      "fallback": "LoafCraft"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.root.description",
+      "fallback": "Friends, foes, families, and a lot of bread"
+    },
+    "background": "minecraft:block/cherry_planks",
+    "show_toast": false,
+    "announce_to_chat": false
+  },
+  "requirements": [
+    [
+      "tick"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/sky_cottage.json
+
+```json
+{
+  "parent": "itzbreadloaf:lilys_travels",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:cherry_leaves",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.sky_cottage.title",
+      "fallback": "Sky Cottage"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.sky_cottage.description",
+      "fallback": "Climb up to ImLilyLol's Floating Island Cottage"
+    },
+    "frame": "goal"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/sky_high.json
+
+```json
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "found": {
+      "trigger": "minecraft:location",
+      "conditions": {
+        "player": [
+          {
+            "condition": "minecraft:entity_properties",
+            "entity": "this",
+            "predicate": {
+              "location": {
+                "structures": "itzbreadloaf:sky_arena"
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:elytra",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.sky_high.title",
+      "fallback": "Sky High"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.sky_high.description",
+      "fallback": "Find Master BreadLoaf's Sky Arena"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "found"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/storm_the_fort.json
+
+```json
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:red_banner",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.storm_the_fort.title",
+      "fallback": "Storm the Fort"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.storm_the_fort.description",
+      "fallback": "Defeat a Captain ItzBreadLoaf"
+    },
+    "frame": "challenge"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/structure_hunter.json
+
+```json
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:compass",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.structure_hunter.title",
+      "fallback": "Structure Hunter"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.structure_hunter.description",
+      "fallback": "Find 10 different LoafCraft structures"
+    },
+    "frame": "goal"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/taken_in.json
+
+```json
+{
+  "parent": "itzbreadloaf:village_drifter",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:golden_apple",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.taken_in.title",
+      "fallback": "Taken In"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.taken_in.description",
+      "fallback": "Tame Harley with a golden apple"
+    },
+    "frame": "goal"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/tent_raider.json
+
+```json
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "tent": {
+      "trigger": "minecraft:location",
+      "conditions": {
+        "player": [
+          {
+            "condition": "minecraft:entity_properties",
+            "entity": "this",
+            "predicate": {
+              "location": {
+                "structures": "itzbreadloaf:tent"
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:white_wool",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.tent_raider.title",
+      "fallback": "Tent Raider"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.tent_raider.description",
+      "fallback": "Find an ItzBreadLoaf tent"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "tent"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/throne_room_crasher.json
+
+```json
+{
+  "parent": "itzbreadloaf:grounded",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:gold_block",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.throne_room_crasher.title",
+      "fallback": "Throne Room Crasher"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.throne_room_crasher.description",
+      "fallback": "Barge into Master BreadLoaf's throne room in a bastion"
+    },
+    "frame": "challenge"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/tree_hugger.json
+
+```json
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "found": {
+      "trigger": "minecraft:location",
+      "conditions": {
+        "player": [
+          {
+            "condition": "minecraft:entity_properties",
+            "entity": "this",
+            "predicate": {
+              "location": {
+                "structures": "itzbreadloaf:treehouse"
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:cherry_sapling",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.tree_hugger.title",
+      "fallback": "Tree Hugger"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.tree_hugger.description",
+      "fallback": "Find Lily's Treehouse"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "found"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/untouchable.json
+
+```json
+{
+  "parent": "itzbreadloaf:village_drifter",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "itzbreadloaf:harleys_blade",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.untouchable.title",
+      "fallback": "Untouchable"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.untouchable.description",
+      "fallback": "Defeat a wild Harley and take her blade"
+    },
+    "frame": "challenge"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/village_drifter.json
+
+```json
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:bell",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.village_drifter.title",
+      "fallback": "Village Drifter"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.village_drifter.description",
+      "fallback": "Find FelixSyn hanging around a village"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/welcome_to_loaftown.json
+
+```json
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "found": {
+      "trigger": "minecraft:location",
+      "conditions": {
+        "player": [
+          {
+            "condition": "minecraft:entity_properties",
+            "entity": "this",
+            "predicate": {
+              "location": {
+                "structures": "itzbreadloaf:village"
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:bell",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.welcome_to_loaftown.title",
+      "fallback": "Welcome to Loaftown"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.welcome_to_loaftown.description",
+      "fallback": "Visit a LoafCraft Village"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "found"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/blocks/master_loaf_trophy.json
+
+```json
+{
+  "type": "minecraft:block",
+  "pools": [
+    {
+      "rolls": 1.0,
+      "bonus_rolls": 0.0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "itzbreadloaf:master_loaf_trophy"
+        }
+      ],
+      "conditions": [
+        {
+          "condition": "minecraft:survives_explosion"
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/badlands_saloon.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4,
+        "max": 8
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:gold_ingot",
+          "weight": 20,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:raw_gold",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cooked_beef",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 5
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:honey_bottle",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:rail",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 12
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_pickaxe",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:tnt",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:name_tag",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/bakery.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4.0,
+        "max": 8.0
+      },
+      "bonus_rolls": 0.0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "itzbreadloaf:loaf_bread",
+          "weight": 25,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 25,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 3,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cake",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cookie",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 12
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:pumpkin_pie",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:wheat",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 3,
+                "max": 10
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:sugar",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:egg",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/bandit_camp.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3.0,
+        "max": 7.0
+      },
+      "bonus_rolls": 0.0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 20,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:gold_ingot",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_ingot",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 5
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:crossbow",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:saddle",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 5
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:leather",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/barrel_supplies.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 2,
+        "max": 5
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 20,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:coal",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:torch",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 12
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:string",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:wheat",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_nugget",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 3,
+                "max": 9
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:leather",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:arrow",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 12
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "itzbreadloaf:loaf_bread",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/bastion_throne_room.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 6,
+        "max": 10
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:gold_block",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:gold_ingot",
+          "weight": 20,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 12
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:netherite_scrap",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:ancient_debris",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:golden_apple",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:enchanted_golden_apple",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:wind_charge",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 6,
+                "max": 16
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:heavy_core",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:netherite_upgrade_smithing_template",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/bee_sanctuary.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4,
+        "max": 7
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:honey_bottle",
+          "weight": 25,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:honeycomb",
+          "weight": 25,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:honey_block",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bee_nest",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:glass_bottle",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:shears",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:campfire",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:sunflower",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/berry_cabin.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 6
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:sweet_berries",
+          "weight": 30,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 12
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cooked_rabbit",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:rabbit_stew",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:glass_bottle",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:spruce_sapling",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/bread_bakery.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4,
+        "max": 7
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 25,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 3,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "itzbreadloaf:loaf_bread",
+          "weight": 20,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:wheat",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 12
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:hay_block",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cake",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cookie",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 10
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:coal",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/cliffside_base.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4,
+        "max": 7
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_ingot",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cooked_beef",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:ender_pearl",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:golden_apple",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_sword",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:shield",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:torch",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 12
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "itzbreadloaf:loaf_bread",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:netherite_scrap",
+          "weight": 1,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/cousins_camp.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4,
+        "max": 7
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cooked_porkchop",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cooked_chicken",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:sweet_berries",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 3,
+                "max": 9
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cookie",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:book",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:fishing_rod",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 5
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "itzbreadloaf:loaf_bread",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:pink_wool",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:yellow_wool",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/desert_bunker.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4,
+        "max": 8
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:gold_ingot",
+          "weight": 18,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:tnt",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:arrow",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 8,
+                "max": 24
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 5
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_ingot",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:golden_apple",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:sand",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 12
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/end_mace_tower.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 5,
+        "max": 8
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:wind_charge",
+          "weight": 20,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 6,
+                "max": 16
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:mace",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:heavy_core",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:breeze_rod",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:ender_pearl",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:golden_apple",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:enchanted_book",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:netherite_ingot",
+          "weight": 1,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:shulker_shell",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/end_sky_platform.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 5,
+        "max": 8
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:wind_charge",
+          "weight": 18,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 6,
+                "max": 16
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:elytra",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:mace",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:firework_rocket",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 12
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:ender_pearl",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:golden_apple",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:shulker_shell",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:netherite_ingot",
+          "weight": 1,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/fishing_barrel.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 2,
+        "max": 5
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cod",
+          "weight": 25,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 5
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:salmon",
+          "weight": 18,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:tropical_fish",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:pufferfish",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:string",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:fishing_rod",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:ink_sac",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:kelp",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:nautilus_shell",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/fishing_dock.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 6
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cod",
+          "weight": 25,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:salmon",
+          "weight": 18,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 5
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:fishing_rod",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:string",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:nautilus_shell",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:name_tag",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bucket",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cooked_cod",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/floating_island_cottage.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 6
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cherry_sapling",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:pink_petals",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:feather",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:book",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cookie",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:elytra",
+          "weight": 1,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:phantom_membrane",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:music_disc_otherside",
+          "weight": 1,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/flower_shrine.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 5
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:lily_of_the_valley",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:torchflower_seeds",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:pitcher_pod",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:pink_petals",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:honeycomb",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:golden_carrot",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:experience_bottle",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:golden_apple",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/fort.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4.0,
+        "max": 8.0
+      },
+      "bonus_rolls": 0.0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_ingot",
+          "weight": 20,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:golden_apple",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_sword",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:shield",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond_axe",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cooked_beef",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:arrow",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 8,
+                "max": 24
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/friendship_festival.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 5,
+        "max": 8
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cake",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cookie",
+          "weight": 20,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 12
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:pumpkin_pie",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:firework_rocket",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 3,
+                "max": 10
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "itzbreadloaf:loaf_bread",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 5
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:honey_bottle",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:music_disc_cat",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 5
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:golden_apple",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:white_banner",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/giant_loaf.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 6,
+        "max": 10
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "itzbreadloaf:loaf_bread",
+          "weight": 25,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 12
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 20,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 6,
+                "max": 16
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:golden_apple",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:enchanted_golden_apple",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:gold_block",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cake",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:netherite_scrap",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:enchanted_book",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/greenhouse.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 6
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bone_meal",
+          "weight": 25,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 12
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cherry_sapling",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:birch_sapling",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:poppy",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cornflower",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:pink_petals",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:melon_seeds",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:pumpkin_seeds",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:honey_bottle",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/house.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3.0,
+        "max": 6.0
+      },
+      "bonus_rolls": 0.0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 20,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2.0,
+                "max": 6.0
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cooked_beef",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1.0,
+                "max": 4.0
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_ingot",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1.0,
+                "max": 4.0
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:arrow",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4.0,
+                "max": 12.0
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "rolls": 1.0,
+      "bonus_rolls": 0.0,
+      "conditions": [
+        {
+          "condition": "minecraft:random_chance",
+          "chance": 0.3
+        }
+      ],
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:stone_sword",
+          "weight": 4
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_sword",
+          "weight": 3
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_axe",
+          "weight": 2
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bow",
+          "weight": 3
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:crossbow",
+          "weight": 2
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_spear",
+          "weight": 2
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/igloo_hideout.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4,
+        "max": 7
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:golden_apple",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_ingot",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cooked_salmon",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:snowball",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 12
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:leather",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:potion",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:gold_nugget",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 12
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/jungle_treehouse.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 6
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cocoa_beans",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:melon_slice",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bamboo",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 12
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:jungle_sapling",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:gold_ingot",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:arrow",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 12
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cookie",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/lakeside_gazebo.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 6
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:book",
+          "weight": 25,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:writable_book",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:feather",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:ink_sac",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cookie",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:fishing_rod",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cod",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:enchanted_book",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:lily_pad",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/lantern_garden.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 5
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:lantern",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:torchflower_seeds",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:glow_berries",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bone_meal",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 3,
+                "max": 9
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:lily_of_the_valley",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:honey_bottle",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:glow_ink_sac",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/lily_flower_cottage.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 6
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:pink_petals",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:flowering_azalea",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:moss_block",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bone_meal",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:honeycomb",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:sweet_berries",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cookie",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 5
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:lily_of_the_valley",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/lily_house.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3.0,
+        "max": 6.0
+      },
+      "bonus_rolls": 0.0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cookie",
+          "weight": 20,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2.0,
+                "max": 8.0
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:book",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1.0,
+                "max": 3.0
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cherry_sapling",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1.0,
+                "max": 3.0
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:pink_petals",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2.0,
+                "max": 6.0
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:sweet_berries",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2.0,
+                "max": 6.0
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cake",
+          "weight": 5
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/lily_meadow_cottage.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 6
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cornflower",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:allium",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:honey_bottle",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bone_meal",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cookie",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "itzbreadloaf:loaf_bread",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:book",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/lily_mushroom_house.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 6
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:mushroom_stew",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:red_mushroom",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:brown_mushroom",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:rabbit_stew",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:glow_berries",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cookie",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 5
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:mycelium",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:golden_carrot",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/lily_reading_cabin.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 6
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:book",
+          "weight": 20,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:paper",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:ink_sac",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:feather",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:experience_bottle",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:writable_book",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cookie",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:candle",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/lily_snowy_cabin.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 6
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:sweet_berries",
+          "weight": 18,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cookie",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:white_wool",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:lantern",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:candle",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:spruce_sapling",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:pumpkin_pie",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:leather",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/loaf_lighthouse.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 6
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cod",
+          "weight": 20,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:salmon",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:fishing_rod",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:glowstone_dust",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:compass",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:map",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:nautilus_shell",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:prismarine_shard",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/lookout_tower.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 6
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:arrow",
+          "weight": 30,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 8,
+                "max": 32
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bow",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:spyglass",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_ingot",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:torch",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 12
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:spectral_arrow",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:crossbow",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/madison_pantry.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4.0,
+        "max": 7.0
+      },
+      "bonus_rolls": 0.0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 20,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2.0,
+                "max": 6.0
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:golden_carrot",
+          "weight": 14,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1.0,
+                "max": 4.0
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:pumpkin_pie",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1.0,
+                "max": 3.0
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:honey_bottle",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1.0,
+                "max": 3.0
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cooked_chicken",
+          "weight": 14,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1.0,
+                "max": 4.0
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/market_stall.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 6
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:carrot",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 3,
+                "max": 9
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:potato",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 3,
+                "max": 9
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:beetroot",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 3,
+                "max": 9
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:melon_slice",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 3,
+                "max": 9
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:pumpkin_pie",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "itzbreadloaf:loaf_bread",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/mining_camp.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4,
+        "max": 8
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:raw_iron",
+          "weight": 20,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:coal",
+          "weight": 20,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 12
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:raw_copper",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 3,
+                "max": 10
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:raw_gold",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:redstone",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 3,
+                "max": 10
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:lapis_lazuli",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 3,
+                "max": 9
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_pickaxe",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:torch",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 8,
+                "max": 16
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:rail",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 12
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/mountain_outpost.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4,
+        "max": 7
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:arrow",
+          "weight": 25,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 8,
+                "max": 24
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:spyglass",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bow",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_ingot",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 5
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cooked_mutton",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 5
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_helmet",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:goat_horn",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/nether_mace_arena.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 5,
+        "max": 8
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:wind_charge",
+          "weight": 20,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 6,
+                "max": 16
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:mace",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:heavy_core",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:breeze_rod",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:golden_apple",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:gold_block",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:netherite_scrap",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:ancient_debris",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:blaze_rod",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:enchanted_golden_apple",
+          "weight": 1,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/nether_training_ground.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4,
+        "max": 7
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:wind_charge",
+          "weight": 20,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 12
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:breeze_rod",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:mace",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:heavy_core",
+          "weight": 1,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:golden_apple",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:gold_ingot",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:netherite_scrap",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:blaze_rod",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:ender_pearl",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/orchard.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4,
+        "max": 7
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:apple",
+          "weight": 30,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:honey_bottle",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:honeycomb",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:golden_apple",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:oak_sapling",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:shears",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:glass_bottle",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bone_meal",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 3,
+                "max": 9
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/pirate_ship.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4.0,
+        "max": 8.0
+      },
+      "bonus_rolls": 0.0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:gold_ingot",
+          "weight": 20,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:heart_of_the_sea",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cooked_cod",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:map",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:nautilus_shell",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:trident",
+          "weight": 1,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/pumpkin_patch.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 6
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:pumpkin_seeds",
+          "weight": 20,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:pumpkin_pie",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:carved_pumpkin",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:jack_o_lantern",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:candle",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bone",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:string",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/pvp_arena.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4,
+        "max": 7
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:golden_apple",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:ender_pearl",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:wind_charge",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond_sword",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_sword",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:shield",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:arrow",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 16
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cooked_beef",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:mace",
+          "weight": 1,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/riverside_mill.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4,
+        "max": 7
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:wheat",
+          "weight": 25,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 6,
+                "max": 16
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 20,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "itzbreadloaf:loaf_bread",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:sugar",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:egg",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cod",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cake",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/ruined_loaf_castle.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 5,
+        "max": 9
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 5
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 3,
+                "max": 10
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:gold_ingot",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 3,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:golden_apple",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:enchanted_golden_apple",
+          "weight": 1,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:netherite_scrap",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond_sword",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_chestplate",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:saddle",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "itzbreadloaf:loaf_bread",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:experience_bottle",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/ruined_portal_hideout.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4,
+        "max": 7
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:obsidian",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:flint_and_steel",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:gold_ingot",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:wind_charge",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 12
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:golden_apple",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:ender_pearl",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:golden_sword",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:breeze_rod",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:mace",
+          "weight": 1,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/shipwreck_camp.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4,
+        "max": 8
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:gold_ingot",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_ingot",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:map",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:compass",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:gunpowder",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 5
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:heart_of_the_sea",
+          "weight": 1,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cooked_cod",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 5
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:spyglass",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/sky_arena.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4.0,
+        "max": 7.0
+      },
+      "bonus_rolls": 0.0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 5
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 3,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:golden_apple",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:wind_charge",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 8,
+                "max": 24
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:firework_rocket",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 8,
+                "max": 24
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:ender_pearl",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:netherite_scrap",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:heavy_core",
+          "weight": 1,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/smugglers_cove.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 5,
+        "max": 8
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:gold_ingot",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:gunpowder",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:tnt",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:compass",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:map",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:honey_bottle",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:heart_of_the_sea",
+          "weight": 1,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:spyglass",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/snowball_fort.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 6
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:snowball",
+          "weight": 30,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 8,
+                "max": 16
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cookie",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:pumpkin_pie",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:leather_helmet",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:blue_ice",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/starwatch_observatory.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 6
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:spyglass",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:amethyst_shard",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:book",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:compass",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:clock",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:map",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:copper_ingot",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:experience_bottle",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 5
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:ender_eye",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/swamp_hut.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3,
+        "max": 6
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:slime_ball",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:glass_bottle",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:mangrove_propagule",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cooked_cod",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 5
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "itzbreadloaf:loaf_bread",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:lead",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_sword",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/sweaty_dojo.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4,
+        "max": 7
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:golden_apple",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:ender_pearl",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_sword",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond_sword",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:shield",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cooked_beef",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:experience_bottle",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bamboo",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 12
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/tent.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3.0,
+        "max": 7.0
+      },
+      "bonus_rolls": 0.0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 20,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2.0,
+                "max": 6.0
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cooked_beef",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1.0,
+                "max": 5.0
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:arrow",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4.0,
+                "max": 16.0
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:leather",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1.0,
+                "max": 4.0
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:string",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1.0,
+                "max": 4.0
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:torch",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2.0,
+                "max": 8.0
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_ingot",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1.0,
+                "max": 3.0
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "rolls": 1.0,
+      "bonus_rolls": 0.0,
+      "conditions": [
+        {
+          "condition": "minecraft:random_chance",
+          "chance": 0.3
+        }
+      ],
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:stone_sword",
+          "weight": 4
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_sword",
+          "weight": 3
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_axe",
+          "weight": 2
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bow",
+          "weight": 3
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:crossbow",
+          "weight": 2
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_spear",
+          "weight": 2
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/treehouse.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3.0,
+        "max": 6.0
+      },
+      "bonus_rolls": 0.0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:book",
+          "weight": 20,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:paper",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cookie",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cherry_sapling",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:pink_petals",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:experience_bottle",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:name_tag",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:writable_book",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/treetop_library.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4,
+        "max": 7
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:book",
+          "weight": 25,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 5
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:enchanted_book",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:writable_book",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:paper",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:lapis_lazuli",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:experience_bottle",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 5
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:feather",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cookie",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 5
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/village.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3.0,
+        "max": 6.0
+      },
+      "bonus_rolls": 0.0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 20,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 5
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:wheat",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 3,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_ingot",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:carrot",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 5
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "itzbreadloaf:loaf_bread",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cooked_beef",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/village_campsite.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4,
+        "max": 7
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:wind_charge",
+          "weight": 20,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 12
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:golden_apple",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cooked_porkchop",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 5
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:ender_pearl",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_sword",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:breeze_rod",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:mace",
+          "weight": 1,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 5
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/watchtower.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 3.0,
+        "max": 5.0
+      },
+      "bonus_rolls": 0.0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:arrow",
+          "weight": 30,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 8,
+                "max": 32
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bow",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:spyglass",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_ingot",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:torch",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 12
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/windmill.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 4,
+        "max": 7
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:wheat",
+          "weight": 25,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 6,
+                "max": 16
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 20,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:wheat_seeds",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 12
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:hay_block",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "itzbreadloaf:loaf_bread",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_hoe",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cake",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/badlands_saloon.json
+
+```json
+{
+  "values": [
+    "#minecraft:is_badlands"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/bakery.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "minecraft:meadow",
+    "minecraft:flower_forest",
+    "minecraft:forest"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/bandit_camp.json
+
+```json
+{
+  "values": [
+    "#minecraft:is_forest",
+    "#minecraft:is_taiga",
+    "minecraft:dark_forest",
+    "#minecraft:is_badlands",
+    "#minecraft:is_savanna"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/bee_sanctuary.json
+
+```json
+{
+  "values": [
+    "minecraft:flower_forest",
+    "minecraft:meadow",
+    "minecraft:sunflower_plains",
+    "minecraft:cherry_grove",
+    "minecraft:plains"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/berry_cabin.json
+
+```json
+{
+  "values": [
+    "minecraft:taiga",
+    "minecraft:snowy_taiga",
+    "minecraft:old_growth_pine_taiga",
+    "minecraft:old_growth_spruce_taiga"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/bread_bakery.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "minecraft:meadow"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/cliffside_base.json
+
+```json
+{
+  "values": [
+    "minecraft:windswept_hills",
+    "minecraft:windswept_gravelly_hills",
+    "minecraft:windswept_forest",
+    "minecraft:meadow",
+    "minecraft:stony_shore"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/cousins_camp.json
+
+```json
+{
+  "values": [
+    "minecraft:forest",
+    "minecraft:birch_forest",
+    "minecraft:flower_forest",
+    "minecraft:meadow",
+    "minecraft:cherry_grove",
+    "minecraft:plains"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/desert_bunker.json
+
+```json
+{
+  "values": [
+    "minecraft:desert",
+    "#minecraft:is_badlands"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/end_mace_tower.json
+
+```json
+{
+  "values": [
+    "minecraft:end_highlands",
+    "minecraft:end_midlands"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/end_sky_platform.json
+
+```json
+{
+  "values": [
+    "minecraft:end_highlands",
+    "minecraft:end_midlands"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/farmstead.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "minecraft:savanna"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/fishing_dock.json
+
+```json
+{
+  "values": [
+    "minecraft:river",
+    "minecraft:beach",
+    "minecraft:snowy_beach"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/floating_island_cottage.json
+
+```json
+{
+  "values": [
+    "minecraft:cherry_grove"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/flower_shrine.json
+
+```json
+{
+  "values": [
+    "minecraft:flower_forest",
+    "minecraft:cherry_grove",
+    "minecraft:meadow",
+    "minecraft:sunflower_plains"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/fort.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:meadow",
+    "#minecraft:is_forest",
+    "#minecraft:is_taiga",
+    "#minecraft:is_savanna",
+    "minecraft:windswept_hills",
+    "minecraft:snowy_plains"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/friendship_festival.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:meadow",
+    "minecraft:flower_forest",
+    "minecraft:sunflower_plains",
+    "minecraft:cherry_grove"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/giant_loaf.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "minecraft:meadow"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/greenhouse.json
+
+```json
+{
+  "values": [
+    "minecraft:flower_forest",
+    "minecraft:meadow",
+    "minecraft:cherry_grove",
+    "minecraft:plains"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/house.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "minecraft:meadow",
+    "#minecraft:is_forest",
+    "#minecraft:is_taiga",
+    "#minecraft:is_savanna",
+    "minecraft:snowy_plains",
+    "minecraft:snowy_taiga",
+    "minecraft:desert"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/igloo_hideout.json
+
+```json
+{
+  "values": [
+    "minecraft:snowy_plains",
+    "minecraft:snowy_taiga",
+    "minecraft:ice_spikes",
+    "minecraft:snowy_slopes"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/jungle_treehouse.json
+
+```json
+{
+  "values": [
+    "#minecraft:is_jungle",
+    "minecraft:dark_forest"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/lakeside_gazebo.json
+
+```json
+{
+  "values": [
+    "minecraft:birch_forest",
+    "minecraft:old_growth_birch_forest",
+    "minecraft:flower_forest",
+    "minecraft:forest",
+    "minecraft:cherry_grove"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/lantern_garden.json
+
+```json
+{
+  "values": [
+    "minecraft:flower_forest",
+    "minecraft:cherry_grove",
+    "minecraft:meadow",
+    "minecraft:birch_forest"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/lily_flower_cottage.json
+
+```json
+{
+  "values": [
+    "minecraft:flower_forest"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/lily_house.json
+
+```json
+{
+  "values": [
+    "minecraft:cherry_grove"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/lily_meadow_cottage.json
+
+```json
+{
+  "values": [
+    "minecraft:meadow"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/lily_mushroom_house.json
+
+```json
+{
+  "values": [
+    "minecraft:mushroom_fields"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/lily_reading_cabin.json
+
+```json
+{
+  "values": [
+    "minecraft:birch_forest",
+    "minecraft:old_growth_birch_forest"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/lily_snowy_cabin.json
+
+```json
+{
+  "values": [
+    "minecraft:snowy_taiga"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/loaf_lighthouse.json
+
+```json
+{
+  "values": [
+    "#minecraft:is_beach",
+    "minecraft:stony_shore"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/lookout_tower.json
+
+```json
+{
+  "values": [
+    "#minecraft:is_forest",
+    "#minecraft:is_taiga",
+    "minecraft:dark_forest",
+    "minecraft:old_growth_pine_taiga",
+    "minecraft:old_growth_spruce_taiga"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/madison_house.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:meadow",
+    "minecraft:sunflower_plains",
+    "minecraft:flower_forest"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/market_stall.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "minecraft:savanna",
+    "minecraft:meadow",
+    "minecraft:forest"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/mining_camp.json
+
+```json
+{
+  "values": [
+    "#minecraft:is_overworld"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/mountain_outpost.json
+
+```json
+{
+  "values": [
+    "minecraft:jagged_peaks",
+    "minecraft:frozen_peaks",
+    "minecraft:stony_peaks",
+    "minecraft:snowy_slopes"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/nether_mace_arena.json
+
+```json
+{
+  "values": [
+    "#minecraft:is_nether"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/nether_training_ground.json
+
+```json
+{
+  "values": [
+    "#minecraft:is_nether"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/orchard.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "minecraft:flower_forest",
+    "minecraft:meadow"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/pirate_ship.json
+
+```json
+{
+  "values": [
+    "#minecraft:is_ocean"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/pumpkin_patch.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:forest",
+    "minecraft:taiga",
+    "minecraft:dark_forest"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/pvp_arena.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:savanna",
+    "minecraft:desert",
+    "minecraft:badlands"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/riverside_mill.json
+
+```json
+{
+  "values": [
+    "minecraft:river"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/ruined_loaf_castle.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "#minecraft:is_savanna"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/ruined_portal_hideout.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:forest",
+    "minecraft:taiga",
+    "minecraft:savanna",
+    "minecraft:desert",
+    "minecraft:birch_forest",
+    "minecraft:dark_forest",
+    "minecraft:snowy_plains"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/shipwreck_camp.json
+
+```json
+{
+  "values": [
+    "#minecraft:is_beach"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/sky_arena.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:desert",
+    "minecraft:snowy_plains",
+    "#minecraft:is_savanna",
+    "#minecraft:is_badlands",
+    "minecraft:meadow"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/smugglers_cove.json
+
+```json
+{
+  "values": [
+    "#minecraft:is_beach",
+    "minecraft:stony_shore"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/snowball_fort.json
+
+```json
+{
+  "values": [
+    "minecraft:snowy_plains",
+    "minecraft:ice_spikes",
+    "minecraft:snowy_taiga",
+    "minecraft:grove"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/starwatch_observatory.json
+
+```json
+{
+  "values": [
+    "minecraft:meadow",
+    "minecraft:snowy_slopes",
+    "minecraft:windswept_hills",
+    "minecraft:snowy_plains"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/swamp_hut.json
+
+```json
+{
+  "values": [
+    "minecraft:swamp",
+    "minecraft:mangrove_swamp"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/sweaty_dojo.json
+
+```json
+{
+  "values": [
+    "minecraft:bamboo_jungle",
+    "minecraft:jungle",
+    "minecraft:cherry_grove",
+    "minecraft:savanna",
+    "minecraft:plains"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/tent.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "minecraft:meadow",
+    "#minecraft:is_forest",
+    "#minecraft:is_taiga",
+    "#minecraft:is_savanna",
+    "minecraft:snowy_plains",
+    "minecraft:snowy_taiga",
+    "minecraft:desert"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/treehouse.json
+
+```json
+{
+  "values": [
+    "minecraft:cherry_grove",
+    "minecraft:forest",
+    "minecraft:birch_forest",
+    "minecraft:flower_forest",
+    "minecraft:old_growth_birch_forest",
+    "minecraft:meadow"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/treetop_library.json
+
+```json
+{
+  "values": [
+    "minecraft:birch_forest",
+    "minecraft:old_growth_birch_forest"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/village.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "minecraft:meadow",
+    "#minecraft:is_forest",
+    "#minecraft:is_savanna",
+    "minecraft:snowy_plains"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/watchtower.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "#minecraft:is_forest",
+    "#minecraft:is_taiga",
+    "#minecraft:is_savanna",
+    "minecraft:desert",
+    "minecraft:snowy_plains",
+    "minecraft:meadow"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/windmill.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "minecraft:meadow"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/badlands_saloon.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "badlands_saloon",
+  "biomes": "#itzbreadloaf:has_structure/badlands_saloon",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/bakery.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "bakery",
+  "biomes": "#itzbreadloaf:has_structure/bakery",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/bandit_camp.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "bandit_camp",
+  "biomes": "#itzbreadloaf:has_structure/bandit_camp",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/bee_sanctuary.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "bee_sanctuary",
+  "biomes": "#itzbreadloaf:has_structure/bee_sanctuary",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/berry_cabin.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "berry_cabin",
+  "biomes": "#itzbreadloaf:has_structure/berry_cabin",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/bread_bakery.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "bread_bakery",
+  "biomes": "#itzbreadloaf:has_structure/bread_bakery",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/cliffside_base.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "cliffside_base",
+  "biomes": "#itzbreadloaf:has_structure/cliffside_base",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/cousins_camp.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "cousins_camp",
+  "biomes": "#itzbreadloaf:has_structure/cousins_camp",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/desert_bunker.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "desert_bunker",
+  "biomes": "#itzbreadloaf:has_structure/desert_bunker",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/end_mace_tower.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "end_mace_tower",
+  "biomes": "#itzbreadloaf:has_structure/end_mace_tower",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/end_sky_platform.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "end_sky_platform",
+  "biomes": "#itzbreadloaf:has_structure/end_sky_platform",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/farmstead.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "farmstead",
+  "biomes": "#itzbreadloaf:has_structure/farmstead",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/fishing_dock.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "fishing_dock",
+  "biomes": "#itzbreadloaf:has_structure/fishing_dock",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/floating_island_cottage.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "floating_island_cottage",
+  "biomes": "#itzbreadloaf:has_structure/floating_island_cottage",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/flower_shrine.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "flower_shrine",
+  "biomes": "#itzbreadloaf:has_structure/flower_shrine",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/fort.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "fort",
+  "biomes": "#itzbreadloaf:has_structure/fort",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/friendship_festival.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "friendship_festival",
+  "biomes": "#itzbreadloaf:has_structure/friendship_festival",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/giant_loaf.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "giant_loaf",
+  "biomes": "#itzbreadloaf:has_structure/giant_loaf",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/greenhouse.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "greenhouse",
+  "biomes": "#itzbreadloaf:has_structure/greenhouse",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/house.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "house",
+  "biomes": "#itzbreadloaf:has_structure/house",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/igloo_hideout.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "igloo_hideout",
+  "biomes": "#itzbreadloaf:has_structure/igloo_hideout",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/jungle_treehouse.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "jungle_treehouse",
+  "biomes": "#itzbreadloaf:has_structure/jungle_treehouse",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/lakeside_gazebo.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "lakeside_gazebo",
+  "biomes": "#itzbreadloaf:has_structure/lakeside_gazebo",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/lantern_garden.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "lantern_garden",
+  "biomes": "#itzbreadloaf:has_structure/lantern_garden",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/lily_flower_cottage.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "lily_flower_cottage",
+  "biomes": "#itzbreadloaf:has_structure/lily_flower_cottage",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/lily_house.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "lily_house",
+  "biomes": "#itzbreadloaf:has_structure/lily_house",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/lily_meadow_cottage.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "lily_meadow_cottage",
+  "biomes": "#itzbreadloaf:has_structure/lily_meadow_cottage",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/lily_mushroom_house.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "lily_mushroom_house",
+  "biomes": "#itzbreadloaf:has_structure/lily_mushroom_house",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/lily_reading_cabin.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "lily_reading_cabin",
+  "biomes": "#itzbreadloaf:has_structure/lily_reading_cabin",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/lily_snowy_cabin.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "lily_snowy_cabin",
+  "biomes": "#itzbreadloaf:has_structure/lily_snowy_cabin",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/loaf_lighthouse.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "loaf_lighthouse",
+  "biomes": "#itzbreadloaf:has_structure/loaf_lighthouse",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/lookout_tower.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "lookout_tower",
+  "biomes": "#itzbreadloaf:has_structure/lookout_tower",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/madison_house.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "madison_house",
+  "biomes": "#itzbreadloaf:has_structure/madison_house",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/market_stall.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "market_stall",
+  "biomes": "#itzbreadloaf:has_structure/market_stall",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/mining_camp.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "mining_camp",
+  "biomes": "#itzbreadloaf:has_structure/mining_camp",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/mountain_outpost.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "mountain_outpost",
+  "biomes": "#itzbreadloaf:has_structure/mountain_outpost",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/nether_mace_arena.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "nether_mace_arena",
+  "biomes": "#itzbreadloaf:has_structure/nether_mace_arena",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/nether_training_ground.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "nether_training_ground",
+  "biomes": "#itzbreadloaf:has_structure/nether_training_ground",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/orchard.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "orchard",
+  "biomes": "#itzbreadloaf:has_structure/orchard",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/pirate_ship.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "pirate_ship",
+  "biomes": "#itzbreadloaf:has_structure/pirate_ship",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/pumpkin_patch.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "pumpkin_patch",
+  "biomes": "#itzbreadloaf:has_structure/pumpkin_patch",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/pvp_arena.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "pvp_arena",
+  "biomes": "#itzbreadloaf:has_structure/pvp_arena",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/riverside_mill.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "riverside_mill",
+  "biomes": "#itzbreadloaf:has_structure/riverside_mill",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/ruined_loaf_castle.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "ruined_loaf_castle",
+  "biomes": "#itzbreadloaf:has_structure/ruined_loaf_castle",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/ruined_portal_hideout.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "ruined_portal_hideout",
+  "biomes": "#itzbreadloaf:has_structure/ruined_portal_hideout",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/shipwreck_camp.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "shipwreck_camp",
+  "biomes": "#itzbreadloaf:has_structure/shipwreck_camp",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/sky_arena.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "sky_arena",
+  "biomes": "#itzbreadloaf:has_structure/sky_arena",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/smugglers_cove.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "smugglers_cove",
+  "biomes": "#itzbreadloaf:has_structure/smugglers_cove",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/snowball_fort.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "snowball_fort",
+  "biomes": "#itzbreadloaf:has_structure/snowball_fort",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/starwatch_observatory.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "starwatch_observatory",
+  "biomes": "#itzbreadloaf:has_structure/starwatch_observatory",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/swamp_hut.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "swamp_hut",
+  "biomes": "#itzbreadloaf:has_structure/swamp_hut",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/sweaty_dojo.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "sweaty_dojo",
+  "biomes": "#itzbreadloaf:has_structure/sweaty_dojo",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/tent.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "tent",
+  "biomes": "#itzbreadloaf:has_structure/tent",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/treehouse.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "treehouse",
+  "biomes": "#itzbreadloaf:has_structure/treehouse",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/treetop_library.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "treetop_library",
+  "biomes": "#itzbreadloaf:has_structure/treetop_library",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/village.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "village",
+  "biomes": "#itzbreadloaf:has_structure/village",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/watchtower.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "watchtower",
+  "biomes": "#itzbreadloaf:has_structure/watchtower",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/windmill.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "windmill",
+  "biomes": "#itzbreadloaf:has_structure/windmill",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/badlands_saloon.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:badlands_saloon",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 26,
+    "separation": 8,
+    "salt": 1022403,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/bakeries.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:bakery",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 30,
+    "separation": 9,
+    "salt": 1022010,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/bandit_camps.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:bandit_camp",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 30,
+    "separation": 9,
+    "salt": 1022008,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/bee_sanctuary.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:bee_sanctuary",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 26,
+    "separation": 8,
+    "salt": 1022409,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/berry_cabin.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:berry_cabin",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 24,
+    "separation": 8,
+    "salt": 1022416,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/bread_bakery.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:bread_bakery",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 26,
+    "separation": 8,
+    "salt": 1022201,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/cliffside_base.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:cliffside_base",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 26,
+    "separation": 8,
+    "salt": 1022404,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/cousins_camp.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:cousins_camp",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 26,
+    "separation": 9,
+    "salt": 1022309,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/desert_bunker.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:desert_bunker",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 26,
+    "separation": 8,
+    "salt": 1022205,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/end_mace_tower.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:end_mace_tower",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 20,
+    "separation": 7,
+    "salt": 1022313
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/end_sky_platform.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:end_sky_platform",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 22,
+    "separation": 7,
+    "salt": 1022412
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/farmstead.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:farmstead",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 34,
+    "separation": 11,
+    "salt": 1022304,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/fishing_dock.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:fishing_dock",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 20,
+    "separation": 6,
+    "salt": 1022207,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/floating_island_cottage.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:floating_island_cottage",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 20,
+    "separation": 7,
+    "salt": 1022405,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/flower_shrine.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:flower_shrine",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 30,
+    "separation": 10,
+    "salt": 1022303,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/forts.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:fort",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 34,
+    "separation": 11,
+    "salt": 1022006,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/friendship_festival.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:friendship_festival",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 30,
+    "separation": 10,
+    "salt": 1022413,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/giant_loaf.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:giant_loaf",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 40,
+    "separation": 14,
+    "salt": 1022311,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/greenhouse.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:greenhouse",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 28,
+    "separation": 9,
+    "salt": 1022301,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/houses.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:house",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 20,
+    "separation": 7,
+    "salt": 1022001,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/igloo_hideout.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:igloo_hideout",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 24,
+    "separation": 8,
+    "salt": 1022206,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/jungle_treehouse.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:jungle_treehouse",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 24,
+    "separation": 8,
+    "salt": 1022204,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/lakeside_gazebo.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:lakeside_gazebo",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 28,
+    "separation": 9,
+    "salt": 1022302,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/lantern_garden.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:lantern_garden",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 26,
+    "separation": 8,
+    "salt": 1022406,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/lily_flower_cottage.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:lily_flower_cottage",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 16,
+    "separation": 6,
+    "salt": 1022102,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/lily_houses.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:lily_house",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 16,
+    "separation": 5,
+    "salt": 1022003,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/lily_meadow_cottage.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:lily_meadow_cottage",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 16,
+    "separation": 6,
+    "salt": 1022101,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/lily_mushroom_house.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:lily_mushroom_house",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 20,
+    "separation": 7,
+    "salt": 1022105,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/lily_reading_cabin.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:lily_reading_cabin",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 16,
+    "separation": 6,
+    "salt": 1022103,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/lily_snowy_cabin.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:lily_snowy_cabin",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 16,
+    "separation": 6,
+    "salt": 1022104,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/loaf_lighthouse.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:loaf_lighthouse",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 26,
+    "separation": 8,
+    "salt": 1022414,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/lookout_tower.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:lookout_tower",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 24,
+    "separation": 8,
+    "salt": 1022202,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/madison_houses.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:madison_house",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 18,
+    "separation": 6,
+    "salt": 1022004,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/market_stall.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:market_stall",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 24,
+    "separation": 8,
+    "salt": 1022306,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/mining_camp.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:mining_camp",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 32,
+    "separation": 10,
+    "salt": 1022203,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/mountain_outpost.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:mountain_outpost",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 24,
+    "separation": 8,
+    "salt": 1022402,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/nether_mace_arena.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:nether_mace_arena",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 26,
+    "separation": 8,
+    "salt": 1022411
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/nether_training_ground.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:nether_training_ground",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 24,
+    "separation": 8,
+    "salt": 1022312
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/orchard.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:orchard",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 30,
+    "separation": 10,
+    "salt": 1022305,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/pirate_ships.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:pirate_ship",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 28,
+    "separation": 8,
+    "salt": 1022012,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/pumpkin_patch.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:pumpkin_patch",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 28,
+    "separation": 9,
+    "salt": 1022308,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/pvp_arena.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:pvp_arena",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 30,
+    "separation": 10,
+    "salt": 1022310,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/riverside_mill.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:riverside_mill",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 22,
+    "separation": 7,
+    "salt": 1022408,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/ruined_loaf_castle.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:ruined_loaf_castle",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 36,
+    "separation": 12,
+    "salt": 1022208,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/ruined_portal_hideout.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:ruined_portal_hideout",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 30,
+    "separation": 10,
+    "salt": 1022410,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/shipwreck_camp.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:shipwreck_camp",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 28,
+    "separation": 9,
+    "salt": 1022417,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/sky_arenas.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:sky_arena",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 40,
+    "separation": 14,
+    "salt": 1022011,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/smugglers_cove.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:smugglers_cove",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 30,
+    "separation": 10,
+    "salt": 1022315,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/snowball_fort.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:snowball_fort",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 26,
+    "separation": 8,
+    "salt": 1022418,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/starwatch_observatory.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:starwatch_observatory",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 28,
+    "separation": 9,
+    "salt": 1022415,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/swamp_hut.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:swamp_hut",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 24,
+    "separation": 8,
+    "salt": 1022401,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/sweaty_dojo.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:sweaty_dojo",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 32,
+    "separation": 10,
+    "salt": 1022314,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/tents.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:tent",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 25,
+    "separation": 8,
+    "salt": 1022002,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/treehouses.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:treehouse",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 28,
+    "separation": 8,
+    "salt": 1022009,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/treetop_library.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:treetop_library",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 22,
+    "separation": 7,
+    "salt": 1022407,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/villages.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:village",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 36,
+    "separation": 12,
+    "salt": 1022005,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/watchtowers.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:watchtower",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 24,
+    "separation": 8,
+    "salt": 1022007,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/windmill.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:windmill",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 28,
+    "separation": 9,
+    "salt": 1022307,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/fabric.mod.json
+
+```json
+{
+	"schemaVersion": 1,
+	"id": "itzbreadloaf",
+	"version": "${version}",
+	"name": "LoafCraft: Friends & Foes",
+	"description": "Meet ItzBreadLoaf, ImLilyLol, Madison, FelixSyn, Harley and Master BreadLoaf: Carpet fake players with their own homes, personalities and families. Tame them, raise little ones, explore 60 structures across all three dimensions, and face Master BreadLoaf, an elytra mace boss. Requires Carpet.",
+	"authors": [
+		"ItzBreadLoaf"
+	],
+	"contact": {
+		"homepage": "https://github.com/ninjapop256-beep/LoafCraft-Friends-and-Foes",
+		"sources": "https://github.com/ninjapop256-beep/LoafCraft-Friends-and-Foes",
+		"issues": "https://github.com/ninjapop256-beep/LoafCraft-Friends-and-Foes/issues"
+	},
+	"license": "All-Rights-Reserved",
+	"icon": "assets/itzbreadloaf/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"com.itzbreadloaf.ItzBreadLoaf"
+		],
+		"client": [
+			"com.itzbreadloaf.client.ItzBreadLoafClient"
+		]
+	},
+	"mixins": [
+		"itzbreadloaf.mixins.json",
+		{
+			"config": "itzbreadloaf.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~1.21.11",
+		"java": ">=21",
+		"fabric-api": "*",
+		"carpet": ">=1.4.194"
+	}
+}
+```
+
+## src/main/resources/itzbreadloaf.mixins.json
+
+```json
+{
+	"required": true,
+	"minVersion": "0.8",
+	"package": "com.itzbreadloaf.mixin",
+	"compatibilityLevel": "JAVA_21",
+	"mixins": [
+		"AvatarAccessor",
+		"EntityAccessor",
+		"EntityPlayerMPFakeMixin",
+		"ExperienceOrbMixin",
+		"FishingHookAccessor",
+		"ItemEntityMixin",
+		"LivingEntityMixin",
+		"PlayerAdvancementsMixin",
+		"PlayerListMixin",
+		"PlayerMixin",
+		"ServerGamePacketListenerImplAccessor",
+		"ServerGamePacketListenerImplMixin",
+		"SleepStatusMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}
+```

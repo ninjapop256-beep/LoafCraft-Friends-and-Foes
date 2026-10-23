@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:home",
+  "kind": "fishing_dock",
+  "biomes": "#itzbreadloaf:has_structure/fishing_dock",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}

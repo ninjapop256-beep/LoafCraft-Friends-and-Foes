@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:home",
+  "kind": "mining_camp",
+  "biomes": "#itzbreadloaf:has_structure/mining_camp",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}

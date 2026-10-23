@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:home",
+  "kind": "lily_mushroom_house",
+  "biomes": "#itzbreadloaf:has_structure/lily_mushroom_house",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}

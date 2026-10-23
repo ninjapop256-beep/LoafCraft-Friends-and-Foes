@@ -1,0 +1,28 @@
+{
+  "parent": "itzbreadloaf:structure_hunter",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:cake",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.festival_goer.title",
+      "fallback": "Festival Goer"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.festival_goer.description",
+      "fallback": "Join the fun at the Friendship Festival"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

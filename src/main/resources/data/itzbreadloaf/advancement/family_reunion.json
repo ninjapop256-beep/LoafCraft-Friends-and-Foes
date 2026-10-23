@@ -1,0 +1,28 @@
+{
+  "parent": "itzbreadloaf:bread_winner",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:cake",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.family_reunion.title",
+      "fallback": "Family Reunion"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.family_reunion.description",
+      "fallback": "Have a baby with ItzBreadLoaf and ImLilyLol"
+    },
+    "frame": "challenge"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

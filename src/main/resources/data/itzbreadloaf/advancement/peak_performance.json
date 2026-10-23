@@ -1,0 +1,28 @@
+{
+  "parent": "itzbreadloaf:structure_hunter",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:spyglass",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.peak_performance.title",
+      "fallback": "Peak Performance"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.peak_performance.description",
+      "fallback": "Reach a Mountain Outpost"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

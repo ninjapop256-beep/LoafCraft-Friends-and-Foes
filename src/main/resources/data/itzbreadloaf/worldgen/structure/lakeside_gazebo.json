@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:home",
+  "kind": "lakeside_gazebo",
+  "biomes": "#itzbreadloaf:has_structure/lakeside_gazebo",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}

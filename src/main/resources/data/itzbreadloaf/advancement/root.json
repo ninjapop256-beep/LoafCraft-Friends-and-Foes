@@ -1,0 +1,29 @@
+{
+  "criteria": {
+    "tick": {
+      "trigger": "minecraft:tick"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "itzbreadloaf:itzbreadloaf_spawn_egg",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.root.title",
+      "fallback": "LoafCraft"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.root.description",
+      "fallback": "Friends, foes, families, and a lot of bread"
+    },
+    "background": "minecraft:block/cherry_planks",
+    "show_toast": false,
+    "announce_to_chat": false
+  },
+  "requirements": [
+    [
+      "tick"
+    ]
+  ]
+}

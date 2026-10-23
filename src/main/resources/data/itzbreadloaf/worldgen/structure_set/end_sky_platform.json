@@ -1,0 +1,14 @@
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:end_sky_platform",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 22,
+    "separation": 7,
+    "salt": 1022412
+  }
+}

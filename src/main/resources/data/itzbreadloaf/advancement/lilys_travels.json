@@ -1,0 +1,28 @@
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:pink_petals",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.lilys_travels.title",
+      "fallback": "Lily's Travels"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.lilys_travels.description",
+      "fallback": "Find ImLilyLol's houses in 3 different biomes"
+    },
+    "frame": "goal"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

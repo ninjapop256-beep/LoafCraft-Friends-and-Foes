@@ -1,0 +1,28 @@
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:mace",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.rival_showdown.title",
+      "fallback": "Rival Showdown"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.rival_showdown.description",
+      "fallback": "Watch FelixSyn and ItzBreadLoaf fight"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

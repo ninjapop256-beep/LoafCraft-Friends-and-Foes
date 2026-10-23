@@ -1,0 +1,41 @@
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "found": {
+      "trigger": "minecraft:location",
+      "conditions": {
+        "player": [
+          {
+            "condition": "minecraft:entity_properties",
+            "entity": "this",
+            "predicate": {
+              "location": {
+                "structures": "itzbreadloaf:treehouse"
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:cherry_sapling",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.tree_hugger.title",
+      "fallback": "Tree Hugger"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.tree_hugger.description",
+      "fallback": "Find Lily's Treehouse"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "found"
+    ]
+  ]
+}

@@ -1,0 +1,335 @@
+package com.itzbreadloaf.brain;
+
+import com.itzbreadloaf.ModAdvancements;
+import com.itzbreadloaf.character.CharacterKind;
+import com.itzbreadloaf.character.CharacterManager;
+import com.itzbreadloaf.character.CharacterVariant;
+import com.itzbreadloaf.character.LoafCharacter;
+import com.itzbreadloaf.character.LoafIds;
+import java.util.UUID;
+import net.minecraft.ChatFormatting;
+import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.npc.villager.AbstractVillager;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * FelixSyn: a homeless mace fighter who drifts around villages with his partner Harley. He hangs out at the bell and
+ * the well, curls up on a hay bale (or the ground) at night, and trades nothing.
+ *
+ * Neutral to players: he only goes after players who attack him, Harley, or villagers. But he and every ItzBreadLoaf
+ * (wild or tamed) are sworn rivals: whenever they see each other within 24 blocks, they fight.
+ *
+ * Fights like a PvP mace player: wind charge at his feet, Density + Wind Burst mace smash on the way down, a sword
+ * on the ground in between, golden apples when low.
+ */
+public class FelixBrain extends LoafBrain {
+	public static final double RIVAL_RANGE = 24.0;
+	public static final double HOME_RADIUS = 24.0;
+
+	private final MaceJump maceJump;
+	private @Nullable BlockPos hangoutSpot;
+	private int hangoutTicks;
+	private int nextRivalMessage;
+	private int nextDrifterCheck;
+
+	public FelixBrain(LoafCharacter character) {
+		super(character);
+		this.maceJump = new MaceJump(this.player, this.controls, this.combat);
+		this.combat.critChance = 0.6F;
+		this.combat.retreatBelow = (float) com.itzbreadloaf.config.ModConfig.get().felixRetreatHealth;
+	}
+
+	/** FelixSyn spawns with Harley at his side (villages, the spawn egg, /loafcraft spawn felixsyn). */
+	public static @Nullable LoafCharacter spawnDuo(ServerLevel level, Vec3 pos, @Nullable BlockPos home) {
+		BlockPos homePos = home != null ? home : BlockPos.containing(pos);
+		LoafCharacter felix = CharacterManager.create(level, CharacterVariant.FELIXSYN, pos, level.getRandom().nextFloat() * 360.0F,
+				brain -> brain.setupHome(homePos, (int) HOME_RADIUS, null));
+		if (felix == null) {
+			return null;
+		}
+		UUID felixId = felix.player.getUUID();
+		CharacterManager.create(level, CharacterVariant.HARLEY, pos.add(1.0, 0.0, 0.0), level.getRandom().nextFloat() * 360.0F, brain -> {
+			brain.setupHome(homePos, (int) HOME_RADIUS, null);
+			if (brain instanceof HarleyBrain harley) {
+				harley.setPartner(felixId);
+			}
+		});
+		return felix;
+	}
+
+	@Override
+	protected String[] chatterLines() {
+		return new String[]{"this mace never misses", "wind charges: check", "the village bell is my alarm clock",
+				"where's Harley?", "ItzBreadLoaf better watch out", "*bounces on a wind charge*"};
+	}
+
+	@Override
+	protected @Nullable String[] chatWith(LoafBrain other) {
+		return other.kind() == com.itzbreadloaf.character.CharacterKind.HARLEY
+				? new String[]{"ready to roam, partner?", "Harley, watch my back", "let's check the well"} : null;
+	}
+
+	@Override
+	protected double baseMaxHealth() {
+		return com.itzbreadloaf.config.ModConfig.get().felixHealth;
+	}
+
+	@Override
+	protected void rollGear() {
+		Kits.felixSyn(this.player, this.player.level(), this.random);
+	}
+
+	@Override
+	protected void restock() {
+		if (Inv.count(this.player, Inv::isFood) < 4) {
+			Inv.give(this.player, new ItemStack(Items.COOKED_PORKCHOP, 8));
+		}
+		if (Inv.count(this.player, stack -> stack.is(Items.WIND_CHARGE)) < 8) {
+			Inv.give(this.player, new ItemStack(Items.WIND_CHARGE, 16));
+		}
+	}
+
+	@Override
+	protected SoundSource soundSource() {
+		return SoundSource.NEUTRAL;
+	}
+
+	@Override
+	public int experienceReward() {
+		return 20;
+	}
+
+	@Override
+	public boolean allowDamage(DamageSource source, float amount) {
+		// His own mace smashes don't hurt him.
+		return !(this.maceJump.isActive() && source.is(net.minecraft.tags.DamageTypeTags.IS_FALL));
+	}
+
+	// ---------------------------------------------------------------- behavior
+
+	@Override
+	protected void tickBehavior() {
+		this.maceJump.tickCooldown();
+		if (this.ticks >= this.nextDrifterCheck) {
+			this.nextDrifterCheck = this.ticks + 40;
+			for (ServerPlayer viewer : this.player.level().players()) {
+				if (LoafIds.isRealPlayer(viewer) && viewer.distanceTo(this.player) < 12.0) {
+					ModAdvancements.award(viewer, ModAdvancements.VILLAGE_DRIFTER);
+				}
+			}
+		}
+		if (this.ticks % 10 == 0) {
+			this.chooseTarget();
+		}
+		if (this.target != null) {
+			this.fight(this.target);
+			return;
+		}
+		this.maceJump.cancel();
+		if (this.tryEat() || this.tickLove()) {
+			return;
+		}
+		if (this.player.level().isDarkOutside()) {
+			this.sleepRough();
+			return;
+		}
+		this.controls.setSneaking(false);
+		if (this.returnHome()) {
+			return;
+		}
+		this.hangOut();
+	}
+
+	private void chooseTarget() {
+		// Whoever hit him (and isn't Harley).
+		LivingEntity attacker = this.lastAttacker;
+		if (attacker != null && attacker.isAlive() && this.ticks - this.lastHurtTick < 200 && !this.isPartner(attacker)
+				&& !(attacker instanceof Player p && (p.isCreative() || p.isSpectator()))) {
+			this.setTarget(attacker);
+			return;
+		}
+		if (this.target != null) {
+			return;
+		}
+		// Whoever attacks Harley.
+		HarleyBrain harley = this.partnerBrain();
+		if (harley != null && harley.lastAttacker != null && harley.lastAttacker.isAlive() && harley.ticks - harley.lastHurtTick < 200
+				&& harley.lastAttacker != this.player) {
+			this.setTarget(harley.lastAttacker);
+			return;
+		}
+		// Players who attack villagers.
+		for (AbstractVillager villager : this.player.level().getEntitiesOfClass(AbstractVillager.class, this.player.getBoundingBox().inflate(16.0))) {
+			if (villager.getLastHurtByMob() instanceof Player bully && LoafIds.isRealPlayer(bully) && !bully.isCreative()
+					&& villager.tickCount - villager.getLastHurtByMobTimestamp() < 100) {
+				this.setTarget(bully);
+				return;
+			}
+		}
+		// Sworn rivals: any ItzBreadLoaf he can see within 24 blocks (but not a tamed one sitting on its owner's orders).
+		LivingEntity rival = findRival(this.player, CharacterKind.BREADLOAF);
+		if (rival != null) {
+			this.setTarget(rival);
+		}
+	}
+
+	/** The closest character of that kind within 24 blocks in sight (skipping babies and ones ordered to sit). */
+	public static @Nullable LivingEntity findRival(Player self, CharacterKind kind) {
+		LivingEntity best = null;
+		for (LoafCharacter other : CharacterManager.active()) {
+			if (other.kind() != kind || other.brain == null || other.player.level() != self.level() || other.brain.isBaby()
+					|| other.brain.isSitting() || other.player.distanceTo(self) > RIVAL_RANGE || !self.hasLineOfSight(other.player)) {
+				continue;
+			}
+			if (best == null || other.player.distanceTo(self) < best.distanceTo(self)) {
+				best = other.player;
+			}
+		}
+		return best;
+	}
+
+	/** "FelixSyn and ItzBreadLoaf are fighting!" for everyone watching (and the Rival Showdown advancement). */
+	public static void announceRivalry(ServerLevel level, Vec3 where) {
+		for (ServerPlayer viewer : level.players()) {
+			if (LoafIds.isRealPlayer(viewer) && viewer.position().distanceTo(where) < 40.0) {
+				viewer.displayClientMessage(Component.literal("FelixSyn and ItzBreadLoaf are fighting!").withStyle(ChatFormatting.RED, ChatFormatting.BOLD), true);
+				ModAdvancements.award(viewer, ModAdvancements.RIVAL_SHOWDOWN);
+			}
+		}
+	}
+
+	private void fight(LivingEntity target) {
+		if (LoafIds.kind(target.getUUID()) == CharacterKind.BREADLOAF && this.ticks >= this.nextRivalMessage) {
+			this.nextRivalMessage = this.ticks + 200;
+			announceRivalry(this.player.level(), this.player.position());
+		}
+		if (this.player.distanceTo(target) > 40.0) {
+			this.setTarget(null);
+			return;
+		}
+		if (this.maceJump.isActive()) {
+			this.maceJump.tick(target, 6.0F);
+			return;
+		}
+		if (this.player.getHealth() < this.player.getMaxHealth() * 0.4F && this.eatNow(stack -> stack.is(Items.GOLDEN_APPLE))) {
+			return;
+		}
+		if (this.player.getHealth() < this.player.getMaxHealth() * 0.3F && this.throwSplash(this.player, net.minecraft.world.item.alchemy.Potions.STRONG_HEALING)) {
+			return;
+		}
+		double distance = this.player.distanceTo(target);
+		if (distance < 6.0 && distance > 1.5 && this.maceJump.canStart() && this.random.nextInt(4) == 0) {
+			this.maceJump.start(100 + this.random.nextInt(60));
+			this.maceJump.tick(target, 6.0F);
+			return;
+		}
+		// On the ground: his sword.
+		int sword = Inv.ready(this.player, stack -> stack.is(net.minecraft.tags.ItemTags.SWORDS), 0);
+		if (sword >= 0) {
+			this.controls.selectSlot(sword);
+		}
+		this.combat.fight(target, this.nav);
+	}
+
+	/** Bell and well: he wanders between them (and around the village) during the day. */
+	private void hangOut() {
+		if (this.hangoutSpot == null || --this.hangoutTicks <= 0) {
+			this.hangoutTicks = 300 + this.random.nextInt(400);
+			BlockPos center = this.home != null ? this.home : this.player.blockPosition();
+			this.hangoutSpot = switch (this.random.nextInt(3)) {
+				case 0 -> this.findBlock(center, 24, 8, state -> state.is(Blocks.BELL));
+				case 1 -> this.findBlock(center, 24, 6, state -> state.getFluidState().isSource() && state.is(Blocks.WATER));
+				default -> null;
+			};
+		}
+		if (this.hangoutSpot != null && this.player.position().distanceTo(Vec3.atCenterOf(this.hangoutSpot)) > 3.0) {
+			this.nav.moveTo(this.hangoutSpot, 2.5, Navigator.Speed.WALK);
+			return;
+		}
+		this.wander(HOME_RADIUS * 0.6);
+	}
+
+	/** Night: no bed, so he curls up on a hay bale if there is one nearby, otherwise right where he is. */
+	private void sleepRough() {
+		BlockPos center = this.home != null ? this.home : this.player.blockPosition();
+		BlockPos hay = this.findBlock(center, 20, 6, state -> state.is(Blocks.HAY_BLOCK));
+		if (hay != null && this.player.position().distanceTo(Vec3.atBottomCenterOf(hay.above())) > 1.2) {
+			this.nav.moveTo(hay.above(), 0.8, Navigator.Speed.WALK);
+			return;
+		}
+		this.nav.stop();
+		this.controls.setSneaking(true);
+		this.controls.look(this.player.getYRot(), 40.0F);
+	}
+
+	// ---------------------------------------------------------------- Harley
+
+	public boolean isPartner(@Nullable LivingEntity entity) {
+		LoafBrain brain = CharacterManager.brain(entity);
+		return brain instanceof HarleyBrain harley && this.player.getUUID().equals(harley.partner());
+	}
+
+	private @Nullable HarleyBrain partnerBrain() {
+		for (LoafCharacter other : CharacterManager.active()) {
+			if (other.brain instanceof HarleyBrain harley && this.player.getUUID().equals(harley.partner())) {
+				return harley;
+			}
+		}
+		return null;
+	}
+
+	// ---------------------------------------------------------------- death and drops
+
+	/** Drops some of his loot (not his whole kit), and lets Harley know who did it. */
+	@Override
+	public boolean onDeath(DamageSource source) {
+		HarleyBrain harley = this.partnerBrain();
+		if (harley != null && source.getEntity() instanceof LivingEntity killer) {
+			harley.onPartnerKilled(killer);
+		}
+		ServerLevel level = this.player.level();
+		for (int i = 0; i < 36; i++) {
+			ItemStack stack = this.player.getInventory().getItem(i);
+			boolean drop = stack.is(Items.MACE) && this.random.nextFloat() < 0.4F
+					|| stack.is(Items.WIND_CHARGE) || stack.is(Items.GOLDEN_APPLE) && this.random.nextBoolean();
+			if (drop) {
+				this.player.spawnAtLocation(level, stack.copy());
+			}
+		}
+		for (EquipmentSlot slot : new EquipmentSlot[]{EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET}) {
+			if (this.random.nextFloat() < 0.25F) {
+				this.player.spawnAtLocation(level, this.player.getItemBySlot(slot).copy());
+			}
+		}
+		this.player.getInventory().clearContent();
+		return false;
+	}
+
+	@Override
+	public void save(CompoundTag tag) {
+		super.save(tag);
+		if (this.hangoutSpot != null) {
+			tag.store("Hangout", BlockPos.CODEC, this.hangoutSpot);
+		}
+	}
+
+	@Override
+	public void load(CompoundTag tag) {
+		super.load(tag);
+		this.hangoutSpot = tag.read("Hangout", BlockPos.CODEC).orElse(null);
+	}
+
+}

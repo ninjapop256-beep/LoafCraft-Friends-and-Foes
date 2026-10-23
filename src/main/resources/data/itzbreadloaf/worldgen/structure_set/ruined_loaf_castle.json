@@ -1,0 +1,18 @@
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:ruined_loaf_castle",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 36,
+    "separation": 12,
+    "salt": 1022208,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}

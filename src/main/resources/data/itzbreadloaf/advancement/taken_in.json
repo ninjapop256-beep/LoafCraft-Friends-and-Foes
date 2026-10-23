@@ -1,0 +1,28 @@
+{
+  "parent": "itzbreadloaf:village_drifter",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:golden_apple",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.taken_in.title",
+      "fallback": "Taken In"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.taken_in.description",
+      "fallback": "Tame Harley with a golden apple"
+    },
+    "frame": "goal"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

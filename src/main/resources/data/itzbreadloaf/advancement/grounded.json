@@ -1,0 +1,28 @@
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:mace",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.grounded.title",
+      "fallback": "Grounded"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.grounded.description",
+      "fallback": "Defeat Master BreadLoaf"
+    },
+    "frame": "challenge"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

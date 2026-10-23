@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:home",
+  "kind": "loaf_lighthouse",
+  "biomes": "#itzbreadloaf:has_structure/loaf_lighthouse",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}

@@ -1,0 +1,28 @@
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:compass",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.structure_hunter.title",
+      "fallback": "Structure Hunter"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.structure_hunter.description",
+      "fallback": "Find 10 different LoafCraft structures"
+    },
+    "frame": "goal"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

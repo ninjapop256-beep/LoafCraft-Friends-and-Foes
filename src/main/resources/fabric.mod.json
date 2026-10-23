@@ -1,0 +1,40 @@
+{
+	"schemaVersion": 1,
+	"id": "itzbreadloaf",
+	"version": "${version}",
+	"name": "LoafCraft: Friends & Foes",
+	"description": "Meet ItzBreadLoaf, ImLilyLol, Madison, FelixSyn, Harley and Master BreadLoaf: Carpet fake players with their own homes, personalities and families. Tame them, raise little ones, explore 60 structures across all three dimensions, and face Master BreadLoaf, an elytra mace boss. Requires Carpet.",
+	"authors": [
+		"ItzBreadLoaf"
+	],
+	"contact": {
+		"homepage": "https://github.com/ninjapop256-beep/LoafCraft-Friends-and-Foes",
+		"sources": "https://github.com/ninjapop256-beep/LoafCraft-Friends-and-Foes",
+		"issues": "https://github.com/ninjapop256-beep/LoafCraft-Friends-and-Foes/issues"
+	},
+	"license": "All-Rights-Reserved",
+	"icon": "assets/itzbreadloaf/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"com.itzbreadloaf.ItzBreadLoaf"
+		],
+		"client": [
+			"com.itzbreadloaf.client.ItzBreadLoafClient"
+		]
+	},
+	"mixins": [
+		"itzbreadloaf.mixins.json",
+		{
+			"config": "itzbreadloaf.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~1.21.11",
+		"java": ">=21",
+		"fabric-api": "*",
+		"carpet": ">=1.4.194"
+	}
+}

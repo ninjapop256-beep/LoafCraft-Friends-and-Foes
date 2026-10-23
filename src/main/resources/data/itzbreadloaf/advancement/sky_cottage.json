@@ -1,0 +1,28 @@
+{
+  "parent": "itzbreadloaf:lilys_travels",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:cherry_leaves",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.sky_cottage.title",
+      "fallback": "Sky Cottage"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.sky_cottage.description",
+      "fallback": "Climb up to ImLilyLol's Floating Island Cottage"
+    },
+    "frame": "goal"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

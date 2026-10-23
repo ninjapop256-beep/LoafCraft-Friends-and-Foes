@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:home",
+  "kind": "lily_flower_cottage",
+  "biomes": "#itzbreadloaf:has_structure/lily_flower_cottage",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}

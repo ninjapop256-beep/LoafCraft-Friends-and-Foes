@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:home",
+  "kind": "floating_island_cottage",
+  "biomes": "#itzbreadloaf:has_structure/floating_island_cottage",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}

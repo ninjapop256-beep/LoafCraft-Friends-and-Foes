@@ -1,0 +1,28 @@
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:red_banner",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.storm_the_fort.title",
+      "fallback": "Storm the Fort"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.storm_the_fort.description",
+      "fallback": "Defeat a Captain ItzBreadLoaf"
+    },
+    "frame": "challenge"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

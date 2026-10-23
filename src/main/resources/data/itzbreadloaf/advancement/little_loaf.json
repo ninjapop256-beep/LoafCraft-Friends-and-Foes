@@ -1,0 +1,28 @@
+{
+  "parent": "itzbreadloaf:bread_winner",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "itzbreadloaf:loaf_bread",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.little_loaf.title",
+      "fallback": "Little Loaf"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.little_loaf.description",
+      "fallback": "Have a baby with ItzBreadLoaf and Madison"
+    },
+    "frame": "challenge"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

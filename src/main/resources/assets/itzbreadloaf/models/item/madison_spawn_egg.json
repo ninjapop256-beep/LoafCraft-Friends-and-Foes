@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "itzbreadloaf:item/madison_spawn_egg"
+  }
+}

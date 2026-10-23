@@ -1,0 +1,41 @@
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "found": {
+      "trigger": "minecraft:location",
+      "conditions": {
+        "player": [
+          {
+            "condition": "minecraft:entity_properties",
+            "entity": "this",
+            "predicate": {
+              "location": {
+                "structures": "itzbreadloaf:village"
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:bell",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.welcome_to_loaftown.title",
+      "fallback": "Welcome to Loaftown"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.welcome_to_loaftown.description",
+      "fallback": "Visit a LoafCraft Village"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "found"
+    ]
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "parent": "itzbreadloaf:structure_hunter",
+  "criteria": {
+    "found": {
+      "trigger": "minecraft:location",
+      "conditions": {
+        "player": [
+          {
+            "condition": "minecraft:entity_properties",
+            "entity": "this",
+            "predicate": {
+              "location": {
+                "structures": "itzbreadloaf:giant_loaf"
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "itzbreadloaf:loaf_bread",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.loaf_legend.title",
+      "fallback": "Loaf Legend"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.loaf_legend.description",
+      "fallback": "Find the legendary Giant Loaf"
+    },
+    "frame": "challenge",
+    "hidden": true
+  },
+  "requirements": [
+    [
+      "found"
+    ]
+  ]
+}

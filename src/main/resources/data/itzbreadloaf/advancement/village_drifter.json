@@ -1,0 +1,28 @@
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:bell",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.village_drifter.title",
+      "fallback": "Village Drifter"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.village_drifter.description",
+      "fallback": "Find FelixSyn hanging around a village"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

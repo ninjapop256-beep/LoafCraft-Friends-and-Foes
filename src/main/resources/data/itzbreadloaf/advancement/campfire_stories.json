@@ -1,0 +1,28 @@
+{
+  "parent": "itzbreadloaf:village_drifter",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:campfire",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.campfire_stories.title",
+      "fallback": "Campfire Stories"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.campfire_stories.description",
+      "fallback": "Find FelixSyn and Harley's campsite at the edge of a village"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "found": {
+      "trigger": "minecraft:location",
+      "conditions": {
+        "player": [
+          {
+            "condition": "minecraft:entity_properties",
+            "entity": "this",
+            "predicate": {
+              "location": {
+                "structures": "itzbreadloaf:sky_arena"
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:elytra",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.sky_high.title",
+      "fallback": "Sky High"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.sky_high.description",
+      "fallback": "Find Master BreadLoaf's Sky Arena"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "found"
+    ]
+  ]
+}

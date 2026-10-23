@@ -1,0 +1,28 @@
+{
+  "parent": "itzbreadloaf:structure_hunter",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:wheat",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.mill_worker.title",
+      "fallback": "Mill Worker"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.mill_worker.description",
+      "fallback": "Visit the Bread Mill or a Riverside Mill"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:bread",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.bread_winner.title",
+      "fallback": "Bread Winner"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.bread_winner.description",
+      "fallback": "Tame an ItzBreadLoaf with steak"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

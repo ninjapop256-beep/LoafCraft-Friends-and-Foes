@@ -1,0 +1,28 @@
+{
+  "parent": "itzbreadloaf:grounded",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:gold_block",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.throne_room_crasher.title",
+      "fallback": "Throne Room Crasher"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.throne_room_crasher.description",
+      "fallback": "Barge into Master BreadLoaf's throne room in a bastion"
+    },
+    "frame": "challenge"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "parent": "itzbreadloaf:village_drifter",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "itzbreadloaf:harleys_blade",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.untouchable.title",
+      "fallback": "Untouchable"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.untouchable.description",
+      "fallback": "Defeat a wild Harley and take her blade"
+    },
+    "frame": "challenge"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

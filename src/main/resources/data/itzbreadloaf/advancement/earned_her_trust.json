@@ -1,0 +1,28 @@
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:pink_tulip",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.earned_her_trust.title",
+      "fallback": "Earned Her Trust"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.earned_her_trust.description",
+      "fallback": "Befriend ImLilyLol with five gifts"
+    },
+    "frame": "goal"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

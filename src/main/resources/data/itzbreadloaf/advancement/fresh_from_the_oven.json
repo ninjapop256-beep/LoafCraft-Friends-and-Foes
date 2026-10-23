@@ -1,0 +1,28 @@
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "itzbreadloaf:loaf_bread",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.fresh_from_the_oven.title",
+      "fallback": "Fresh From the Oven"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.fresh_from_the_oven.description",
+      "fallback": "Buy something from Baker Madison"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

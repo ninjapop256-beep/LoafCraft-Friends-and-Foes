@@ -1,0 +1,29 @@
+{
+  "parent": "itzbreadloaf:grounded",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:wind_charge",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.mace_master.title",
+      "fallback": "Mace Master"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.mace_master.description",
+      "fallback": "Defeat Master BreadLoaf without taking any fall damage"
+    },
+    "frame": "challenge",
+    "hidden": true
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

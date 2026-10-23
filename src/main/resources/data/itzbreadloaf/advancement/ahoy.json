@@ -1,0 +1,41 @@
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "found": {
+      "trigger": "minecraft:location",
+      "conditions": {
+        "player": [
+          {
+            "condition": "minecraft:entity_properties",
+            "entity": "this",
+            "predicate": {
+              "location": {
+                "structures": "itzbreadloaf:pirate_ship"
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:trident",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.ahoy.title",
+      "fallback": "Ahoy!"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.ahoy.description",
+      "fallback": "Find a pirate ship"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "found"
+    ]
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:pumpkin_pie",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.hands_off_the_pantry.title",
+      "fallback": "Hands Off the Pantry"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.hands_off_the_pantry.description",
+      "fallback": "Make Madison mad by taking food from her pantry"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

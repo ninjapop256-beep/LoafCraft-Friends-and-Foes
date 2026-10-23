@@ -1,0 +1,8 @@
+{
+  "type": "itzbreadloaf:home",
+  "kind": "lily_reading_cabin",
+  "biomes": "#itzbreadloaf:has_structure/lily_reading_cabin",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}

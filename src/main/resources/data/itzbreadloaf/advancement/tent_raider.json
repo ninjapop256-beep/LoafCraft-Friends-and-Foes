@@ -1,0 +1,41 @@
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "tent": {
+      "trigger": "minecraft:location",
+      "conditions": {
+        "player": [
+          {
+            "condition": "minecraft:entity_properties",
+            "entity": "this",
+            "predicate": {
+              "location": {
+                "structures": "itzbreadloaf:tent"
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:white_wool",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.tent_raider.title",
+      "fallback": "Tent Raider"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.tent_raider.description",
+      "fallback": "Find an ItzBreadLoaf tent"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "tent"
+    ]
+  ]
+}

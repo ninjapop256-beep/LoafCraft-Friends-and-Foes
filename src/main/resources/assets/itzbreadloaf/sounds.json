@@ -1,0 +1,368 @@
+{
+  "itzbreadloaf.meow": {
+    "subtitle": "subtitles.itzbreadloaf.meow",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:meow",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "itzbreadloaf.ambient": {
+    "subtitle": "subtitles.itzbreadloaf.ambient",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:breadloaf/idle_1",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/idle_2",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/idle_3",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/idle_4",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/idle_5",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/idle_6",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/idle_7",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/idle_8",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/idle_9",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/idle_10",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/idle_11",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/idle_12",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/idle_13",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/idle_14",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "itzbreadloaf.hurt": {
+    "subtitle": "subtitles.itzbreadloaf.hurt",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:breadloaf/hurt_1",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/hurt_2",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/hurt_3",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/hurt_4",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/hurt_5",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/hurt_6",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/hurt_7",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "itzbreadloaf.death": {
+    "subtitle": "subtitles.itzbreadloaf.death",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:breadloaf/death_1",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/death_2",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/death_3",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/death_4",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/death_5",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "itzbreadloaf.taunt": {
+    "subtitle": "subtitles.itzbreadloaf.taunt",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:breadloaf/spots_player_1",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/spots_player_2",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/spots_player_3",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/spots_player_4",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/spots_player_5",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/spots_player_6",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/spots_player_7",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/spots_player_8",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/spots_player_9",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/spots_player_10",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/spots_player_11",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/spots_player_12",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/spots_player_13",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/spots_player_14",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/spots_player_15",
+        "attenuation_distance": 24
+      }
+    ]
+  },
+  "itzbreadloaf.tamed": {
+    "subtitle": "subtitles.itzbreadloaf.tamed",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:breadloaf/tamed_1",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/tamed_2",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/tamed_3",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/tamed_4",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/tamed_5",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "imlilylol.voice": {
+    "subtitle": "subtitles.itzbreadloaf.imlilylol_voice",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:imlilylol_voice",
+        "attenuation_distance": 12
+      }
+    ]
+  },
+  "madison.voice": {
+    "subtitle": "subtitles.itzbreadloaf.madison_voice",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:madison_voice",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "itzbreadloaf.crit": {
+    "subtitle": "subtitles.itzbreadloaf.crit",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:breadloaf/crit_1",
+        "attenuation_distance": 20
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/crit_2",
+        "attenuation_distance": 20
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/crit_3",
+        "attenuation_distance": 20
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/crit_4",
+        "attenuation_distance": 20
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/crit_5",
+        "attenuation_distance": 20
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/crit_6",
+        "attenuation_distance": 20
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/crit_7",
+        "attenuation_distance": 20
+      }
+    ]
+  },
+  "itzbreadloaf.start_duel": {
+    "subtitle": "subtitles.itzbreadloaf.start_duel",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:breadloaf/start_duel_1",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/start_duel_2",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/start_duel_3",
+        "attenuation_distance": 24
+      }
+    ]
+  },
+  "itzbreadloaf.end_duel": {
+    "subtitle": "subtitles.itzbreadloaf.end_duel",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:breadloaf/end_duel_1",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/end_duel_2",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/end_duel_3",
+        "attenuation_distance": 24
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/end_duel_4",
+        "attenuation_distance": 24
+      }
+    ]
+  },
+  "itzbreadloaf.gives_gift": {
+    "subtitle": "subtitles.itzbreadloaf.gives_gift",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:breadloaf/gives_gift_1",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/gives_gift_2",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/gives_gift_3",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "itzbreadloaf.given_gift": {
+    "subtitle": "subtitles.itzbreadloaf.given_gift",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:breadloaf/given_gift_1",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/given_gift_2",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/given_gift_3",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/given_gift_4",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/given_gift_5",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "itzbreadloaf.daily_mission": {
+    "subtitle": "subtitles.itzbreadloaf.daily_mission",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:breadloaf/daily_mission_1",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/daily_mission_2",
+        "attenuation_distance": 16
+      },
+      {
+        "name": "itzbreadloaf:breadloaf/daily_mission_3",
+        "attenuation_distance": 16
+      }
+    ]
+  }
+}

@@ -1,0 +1,24 @@
+{
+	"required": true,
+	"minVersion": "0.8",
+	"package": "com.itzbreadloaf.mixin",
+	"compatibilityLevel": "JAVA_21",
+	"mixins": [
+		"AvatarAccessor",
+		"EntityAccessor",
+		"EntityPlayerMPFakeMixin",
+		"ExperienceOrbMixin",
+		"FishingHookAccessor",
+		"ItemEntityMixin",
+		"LivingEntityMixin",
+		"PlayerAdvancementsMixin",
+		"PlayerListMixin",
+		"PlayerMixin",
+		"ServerGamePacketListenerImplAccessor",
+		"ServerGamePacketListenerImplMixin",
+		"SleepStatusMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}
