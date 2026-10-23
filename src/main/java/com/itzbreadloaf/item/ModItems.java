@@ -47,6 +47,10 @@ public final class ModItems {
 	public static final Item MASTER_LOAF_TROPHY = register("master_loaf_trophy",
 			properties -> new BlockItem(ModBlocks.MASTER_LOAF_TROPHY, properties.useBlockDescriptionPrefix().rarity(Rarity.EPIC)));
 
+	/** Gives every one of Lily's books (creative tab). */
+	public static final Item LILYS_COLLECTED_WORKS = register("lilys_collected_works",
+			properties -> new CollectedWorksItem(properties.stacksTo(1).rarity(Rarity.RARE)));
+
 	public static final ResourceKey<CreativeModeTab> LOAFCRAFT_TAB_KEY =
 			ResourceKey.create(Registries.CREATIVE_MODE_TAB, ItzBreadLoaf.id("loafcraft"));
 	public static final CreativeModeTab LOAFCRAFT_TAB = Registry.register(BuiltInRegistries.CREATIVE_MODE_TAB, LOAFCRAFT_TAB_KEY,
@@ -63,6 +67,8 @@ public final class ModItems {
 						output.accept(harleysBlade(parameters.holders()));
 						output.accept(LOAF_BREAD);
 						output.accept(MASTER_LOAF_TROPHY);
+						output.accept(LILYS_COLLECTED_WORKS);
+						LilyBooks.all().keySet().forEach(id -> output.accept(LilyBooks.stack(id)));
 					})
 					.build());
 

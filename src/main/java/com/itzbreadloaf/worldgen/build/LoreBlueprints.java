@@ -73,7 +73,7 @@ final class LoreBlueprints {
 		}
 		b.set(3, 3, 3, Blocks.COBWEB);
 		b.set(7, 3, 7, Blocks.COBWEB);
-		b.set(4, 1, 7, Blocks.LECTERN);
+		b.lectern(4, 1, 7, "why_i_write");
 		b.set(5, 1, 7, Pieces.topSlab(p.slab()));
 		b.set(6, 1, 7, Pieces.topSlab(p.slab()));
 		b.set(5, 2, 7, candles(Blocks.WHITE_CANDLE, 1));
@@ -109,7 +109,7 @@ final class LoreBlueprints {
 		b.set(9, 1, 3, Blocks.HAY_BLOCK);
 		b.set(9, 2, 3, Blocks.ORANGE_TERRACOTTA);
 		b.set(8, 1, 2, Blocks.HAY_BLOCK);
-		b.set(4, 1, 7, Blocks.LECTERN);
+		b.lectern(4, 1, 7, "first_oven");
 		b.chest(9, 1, 7, "chests/first_bakery_ruins");
 		b.floor(4, 5, 8, 6, 1, "ruins");
 	}
@@ -132,7 +132,7 @@ final class LoreBlueprints {
 		b.fill(6, 0, 6, 8, 0, 8, Blocks.POLISHED_ANDESITE);
 		b.fill(7, 1, 8, 7, 2, 8, Blocks.POLISHED_ANDESITE);
 		b.set(7, 3, 8, candles(Blocks.WHITE_CANDLE, 3));
-		b.set(7, 1, 6, Blocks.LECTERN);
+		b.lectern(7, 1, 6, "for_those_we_miss");
 		b.chest(8, 1, 8, "chests/memorial_grove");
 		b.set(4, 1, 7, Pieces.stairs(p.stairs(), Direction.WEST));
 		b.set(10, 1, 7, Pieces.stairs(p.stairs(), Direction.EAST));
@@ -172,7 +172,7 @@ final class LoreBlueprints {
 		b.fill(14, 1, 6, 14, 3, 6, p.fence());
 		b.set(14, 4, 6, Blocks.BLUE_BANNER);
 		b.set(8, 1, 11, Blocks.CRACKED_STONE_BRICKS);
-		b.set(8, 1, 10, Blocks.LECTERN);
+		b.lectern(8, 1, 10, "how_it_began");
 		b.chest(9, 1, 11, "chests/rivalry_battle_site");
 		b.floor(6, 6, 8, 7, 1, "battlefield");
 	}
@@ -208,8 +208,8 @@ final class LoreBlueprints {
 		b.fill(3, 1, 4, 3, 3, 10, Blocks.BOOKSHELF);
 		b.fill(9, 1, 4, 9, 3, 10, Blocks.BOOKSHELF);
 		b.fill(4, 1, 10, 8, 2, 10, Blocks.BOOKSHELF);
-		b.set(5, 1, 9, Blocks.LECTERN);
-		b.set(7, 1, 9, Blocks.LECTERN);
+		b.lectern(5, 1, 9, "library_secret");
+		b.lectern(7, 1, 9, "notes_end");
 		b.chest(6, 1, 9, "chests/sealed_library");
 		b.set(6, 1, 4, candles(Blocks.WHITE_CANDLE, 2));
 		Pieces.lantern(b, 6, 6, 7, true);
@@ -236,7 +236,7 @@ final class LoreBlueprints {
 			}
 		}
 		b.set(3, 1, 7, Blocks.CARTOGRAPHY_TABLE);
-		b.set(9, 1, 7, Blocks.LECTERN);
+		b.lectern(9, 1, 7, "map_notes");
 		b.set(2, 1, 8, Blocks.BARREL);
 		b.set(10, 1, 8, Blocks.BARREL);
 		b.chest(9, 1, 3, "chests/cartographers_tent");
@@ -254,7 +254,7 @@ final class LoreBlueprints {
 		b.set(6, 1, 7, Pieces.stairs(p.stairs(), Direction.SOUTH));
 		b.set(5, 1, 7, Blocks.GOLD_BLOCK);
 		b.set(7, 1, 7, Blocks.GOLD_BLOCK);
-		b.set(3, 1, 4, Blocks.LECTERN);
+		b.lectern(3, 1, 4, "boy_who_trained");
 		b.fill(3, 1, 6, 3, 2, 7, Blocks.BOOKSHELF);
 		b.chest(9, 1, 7, "chests/masters_old_home");
 		// Sketches on the back wall: a Nether portal and the End.
@@ -305,8 +305,8 @@ final class LoreBlueprints {
 		int y = floor + 1;
 		b.fill(4, y, 5, 4, y + 1, 8, Blocks.BOOKSHELF);
 		b.fill(10, y, 5, 10, y + 1, 8, Blocks.BOOKSHELF);
-		b.set(6, y, 8, Blocks.LECTERN);
-		b.set(8, y, 8, Blocks.LECTERN);
+		b.lectern(6, y, 8, "under_the_loaf");
+		b.lectern(8, y, 8, "archive_index");
 		b.chest(7, y, 8, "chests/old_loaf_archive");
 		b.chest(5, y, 5, "chests/old_loaf_archive");
 		b.set(9, y, 5, candles(Blocks.YELLOW_CANDLE, 3));
@@ -362,7 +362,7 @@ final class LoreBlueprints {
 			b.set(s[0], 0, s[1], Blocks.COAL_BLOCK);
 		}
 		b.chest(7, 1, 9, "chests/drifters_rest");
-		b.set(8, 1, 9, Blocks.LECTERN);
+		b.lectern(8, 1, 9, "two_drifters");
 		b.floor(2, 6, 8, 6, 1, "camp");
 	}
 
@@ -381,7 +381,7 @@ final class LoreBlueprints {
 		b.set(8, 2, 4, Blocks.POTTED_CACTUS);
 		b.set(9, 2, 4, Blocks.CREEPER_HEAD);
 		b.set(10, 2, 4, Blocks.POTTED_FERN);
-		b.set(9, 1, 6, Blocks.LECTERN);
+		b.lectern(9, 1, 6, "notes_creatures");
 		b.set(12, 1, 7, p.fence());
 		b.set(12, 2, 7, Blocks.WHITE_WOOL);
 		b.set(8, 1, 8, coldCampfire());
@@ -413,7 +413,7 @@ final class LoreBlueprints {
 		for (int z = 4; z <= 6; z++) {
 			b.set(6, 0, z, Blocks.CRACKED_STONE_BRICKS);
 		}
-		b.set(11, 1, 5, Blocks.LECTERN);
+		b.lectern(11, 1, 5, "why_he_left");
 		b.chest(3, 1, 11, "chests/masters_departure");
 		b.floor(10, 6, 11, 8, 1, "platform");
 	}
@@ -436,7 +436,7 @@ final class LoreBlueprints {
 		}
 		b.set(6, 1, 6, Blocks.CHISELED_STONE_BRICKS);
 		b.set(6, 2, 6, candles(Blocks.WHITE_CANDLE, 4));
-		b.set(6, 1, 4, Blocks.LECTERN);
+		b.lectern(6, 1, 4, "strange_note");
 		b.chest(6, 1, 8, "chests/whispering_stones");
 		b.floor(4, 5, 5, 7, 1, "circle");
 	}
@@ -459,7 +459,7 @@ final class LoreBlueprints {
 		b.set(8, 1, 2, Pieces.stairs(p.stairs(), Direction.EAST));
 		lampPost(b, 3, 3);
 		lampPost(b, 7, 7);
-		b.set(2, 1, 8, Blocks.LECTERN);
+		b.lectern(2, 1, 8, "which_way");
 	}
 
 	/** The Lost Loaf Wagon: the giant wagon that once hauled the Giant Loaf, broken down, its cargo spilled. */
@@ -489,7 +489,7 @@ final class LoreBlueprints {
 		}
 		b.set(3, 3, 3, Blocks.BARREL);
 		b.chest(2, 1, 9, "chests/lost_loaf_wagon");
-		b.set(1, 1, 9, Blocks.LECTERN);
+		b.lectern(1, 1, 9, "giant_loaf_story");
 		b.floor(1, 1, 13, 1, 1, "road");
 	}
 }

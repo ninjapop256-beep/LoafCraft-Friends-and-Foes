@@ -90,6 +90,37 @@
           ]
         }
       ]
+    },
+    {
+      "rolls": 1,
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:written_book",
+          "functions": [
+            {
+              "function": "minecraft:set_book_cover",
+              "title": "Lily's Notes: Friendly Animals",
+              "author": "ImLilyLol",
+              "generation": 0
+            },
+            {
+              "function": "minecraft:set_written_book_pages",
+              "pages": [
+                "Sheep: soft. Excellent listeners.\nCows: Madison names every single one.\nChickens: chaos.",
+                "Axolotls: the cutest thing I have ever seen. I sat by a lush cave pond for an hour just watching one.",
+                "Foxes: they stole my sandwich. I'm still a little upset, but they're too cute to stay mad at."
+              ],
+              "mode": "replace_all"
+            },
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{lily_book:\"notes_animals\"}"
+            }
+          ]
+        }
+      ]
     }
   ]
 }

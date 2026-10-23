@@ -1,0 +1,28 @@
+{
+  "parent": "itzbreadloaf:bookworm",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:bricks",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.the_first_bakery.title",
+      "fallback": "The First Bakery"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.the_first_bakery.description",
+      "fallback": "Find the Ruins of the First Bakery"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

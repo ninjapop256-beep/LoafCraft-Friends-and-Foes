@@ -1,0 +1,28 @@
+{
+  "parent": "itzbreadloaf:explorer_i",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:filled_map",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.explorer_ii.title",
+      "fallback": "Explorer II"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.explorer_ii.description",
+      "fallback": "Find 50 different LoafCraft structures"
+    },
+    "frame": "goal"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

@@ -29,6 +29,7 @@ public final class Blueprint {
 	final Map<Long, BlockState> blocks = new HashMap<>();
 	final List<Container> containers = new ArrayList<>();
 	final List<Bed> beds = new ArrayList<>();
+	final List<Lectern> lecterns = new ArrayList<>();
 	final List<Resident> residents = new ArrayList<>();
 	final List<Floor> floors = new ArrayList<>();
 	final List<Mob> mobs = new ArrayList<>();
@@ -48,6 +49,10 @@ public final class Blueprint {
 	}
 
 	public record Bed(int x, int y, int z, Block block) {
+	}
+
+	/** A lectern holding one of Lily's books (an id from LilyBooks). */
+	public record Lectern(int x, int y, int z, String book) {
 	}
 
 	public record Resident(CharacterVariant variant, int x, int y, int z, int homeX, int homeZ, int radius,
@@ -140,6 +145,12 @@ public final class Blueprint {
 	public void chest(int x, int y, int z, String loot) {
 		this.set(x, y, z, Blocks.CHEST);
 		this.containers.add(new Container(x, y, z, loot, false));
+	}
+
+	/** A lectern with one of Lily's books open on it (book = a LilyBooks id). */
+	public void lectern(int x, int y, int z, String book) {
+		this.set(x, y, z, Blocks.LECTERN.defaultBlockState().setValue(net.minecraft.world.level.block.LecternBlock.HAS_BOOK, true));
+		this.lecterns.add(new Lectern(x, y, z, book));
 	}
 
 	public void barrel(int x, int y, int z, String loot) {

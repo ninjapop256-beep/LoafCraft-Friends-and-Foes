@@ -1,0 +1,28 @@
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:cooked_porkchop",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.wild_card.title",
+      "fallback": "Wild Card"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.wild_card.description",
+      "fallback": "Tame a wild FelixSyn with cooked porkchops"
+    },
+    "frame": "goal"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

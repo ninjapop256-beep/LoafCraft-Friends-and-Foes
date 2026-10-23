@@ -90,6 +90,37 @@
           ]
         }
       ]
+    },
+    {
+      "rolls": 1,
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:written_book",
+          "functions": [
+            {
+              "function": "minecraft:set_book_cover",
+              "title": "Sketches of Other Worlds",
+              "author": "ImLilyLol",
+              "generation": 0
+            },
+            {
+              "function": "minecraft:set_written_book_pages",
+              "pages": [
+                "These are copies of drawings I found in Master BreadLoaf's old home.\n\nDrawing 1: a frame of obsidian with purple light inside.",
+                "Drawing 2: a pale island floating in black sky, with tall dark towers.\n\nDrawing 3: a mace, but huge. Underneath he wrote: 'stronger'.",
+                "I don't think he was scared of those places. I think he was excited."
+              ],
+              "mode": "replace_all"
+            },
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{lily_book:\"sketches_other_worlds\"}"
+            }
+          ]
+        }
+      ]
     }
   ]
 }

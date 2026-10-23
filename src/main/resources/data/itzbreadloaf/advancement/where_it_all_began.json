@@ -1,0 +1,28 @@
+{
+  "parent": "itzbreadloaf:bookworm",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:iron_sword",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.where_it_all_began.title",
+      "fallback": "Where It All Began"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.where_it_all_began.description",
+      "fallback": "Find the Old Battle Site where the rivalry started"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "parent": "itzbreadloaf:structure_hunter",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:map",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.explorer_i.title",
+      "fallback": "Explorer I"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.explorer_i.description",
+      "fallback": "Find 25 different LoafCraft structures"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

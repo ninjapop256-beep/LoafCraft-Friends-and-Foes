@@ -233,6 +233,12 @@ public class BlueprintPiece extends ScatteredFeaturePiece {
 				this.createChest(level, box, random, x, container.y(), z, loot);
 			}
 		}
+		for (Blueprint.Lectern lectern : b.lecterns) {
+			BlockPos at = this.getWorldPos(lectern.x() + MARGIN, lectern.y(), lectern.z() + MARGIN);
+			if (box.isInside(at) && level.getBlockEntity(at) instanceof net.minecraft.world.level.block.entity.LecternBlockEntity entity) {
+				entity.setBook(com.itzbreadloaf.item.LilyBooks.stack(lectern.book()));
+			}
+		}
 		for (Blueprint.Bed bed : b.beds) {
 			// Point the bed from foot to head in real world positions, so both halves match however it's rotated.
 			BlockPos foot = this.getWorldPos(bed.x() + MARGIN, bed.y(), bed.z() + MARGIN);

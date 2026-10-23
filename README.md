@@ -29,7 +29,7 @@ A Fabric mod for Minecraft **1.21.11** that fills your world with ItzBreadLoaf, 
 - **Taming:** ItzBreadLoaf with steak and Harley with golden apples. Tamed characters follow you through portals, protect you, and sit or follow when you right-click.
 - **Families:** babies with their parents' traits.
 - **60 structures** across the Overworld, Nether and End, each with residents and its own loot. See [STRUCTURES.md](STRUCTURES.md) for where each one spawns and its `/locate` command.
-- **29 advancements** in their own LoafCraft tab, plus a LoafCraft creative tab.
+- **39 advancements** in their own LoafCraft tab, plus a LoafCraft creative tab.
 
 ## Commands
 

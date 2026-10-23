@@ -90,6 +90,37 @@
           ]
         }
       ]
+    },
+    {
+      "rolls": 1,
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:written_book",
+          "functions": [
+            {
+              "function": "minecraft:set_book_cover",
+              "title": "Lily's Notes: The Nether",
+              "author": "ImLilyLol",
+              "generation": 0
+            },
+            {
+              "function": "minecraft:set_written_book_pages",
+              "pages": [
+                "Hot. Very hot. Bring fire resistance. Also bring a friend who isn't scared, because I was.",
+                "Striders: they walk on lava and they look grumpy all the time. Pull them on a warped fungus and they cheer up a little.",
+                "Piglins love gold. If you aren't wearing any, they get grumpy too. Everything in the Nether is grumpy, I think."
+              ],
+              "mode": "replace_all"
+            },
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{lily_book:\"notes_nether\"}"
+            }
+          ]
+        }
+      ]
     }
   ]
 }

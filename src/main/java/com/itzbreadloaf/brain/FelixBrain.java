@@ -555,6 +555,7 @@ public class FelixBrain extends LoafBrain {
 				Inv.give(this.player, food);
 				if (this.random.nextInt(Math.max(1, com.itzbreadloaf.config.ModConfig.get().felixTameChance)) == 0) {
 					this.setOwner(clicker);
+					ModAdvancements.award(clicker, ModAdvancements.WILD_CARD);
 					this.setTarget(null);
 					this.particles(net.minecraft.core.particles.ParticleTypes.HEART, 8);
 					this.say(clicker, "alright, alright. you're cool. I'm with you now");

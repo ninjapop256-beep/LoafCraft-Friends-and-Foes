@@ -95,6 +95,37 @@
           ]
         }
       ]
+    },
+    {
+      "rolls": 1,
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:written_book",
+          "functions": [
+            {
+              "function": "minecraft:set_book_cover",
+              "title": "The Bread Argument",
+              "author": "ImLilyLol",
+              "generation": 0
+            },
+            {
+              "function": "minecraft:set_written_book_pages",
+              "pages": [
+                "Things they have argued about, in order:\n1. The loaf.\n2. Whose fault the loaf was.\n3. Whether maces are fair.\n4. Whether bread is better toasted.",
+                "5. Who won the last fight.\n6. Who won the fight before that.\n7. Whether it counts if you fall off a tower by yourself.",
+                "Madison says I should stop keeping this list. But it keeps getting longer, so somebody has to."
+              ],
+              "mode": "replace_all"
+            },
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{lily_book:\"bread_argument\"}"
+            }
+          ]
+        }
+      ]
     }
   ]
 }

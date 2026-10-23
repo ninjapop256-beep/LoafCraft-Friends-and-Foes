@@ -90,6 +90,68 @@
           ]
         }
       ]
+    },
+    {
+      "rolls": 1,
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:written_book",
+          "functions": [
+            {
+              "function": "minecraft:set_book_cover",
+              "title": "Growing Up With Madison",
+              "author": "ImLilyLol",
+              "generation": 0
+            },
+            {
+              "function": "minecraft:set_written_book_pages",
+              "pages": [
+                "Madison is my cousin. She is louder than me, braver than me, and much better at farming. I am better at reading. We decided that was fair.",
+                "When we were little, we built a treehouse in a giant tree. We each had a tiny bed, mine pink and hers yellow. We hung our banners on the wall.",
+                "Madison played the note block until everyone in the forest knew where we were. I read stories out loud until she fell asleep.",
+                "We don't fit in the little beds anymore. But sometimes we still go up there. Just to sit."
+              ],
+              "mode": "replace_all"
+            },
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{lily_book:\"growing_up\"}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "rolls": 1,
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:written_book",
+          "functions": [
+            {
+              "function": "minecraft:set_book_cover",
+              "title": "Height Marks",
+              "author": "ImLilyLol",
+              "generation": 0
+            },
+            {
+              "function": "minecraft:set_written_book_pages",
+              "pages": [
+                "On the trunk of our treehouse tree there are two marks. Pink wool is me. Yellow wool is Madison.",
+                "Madison's mark is higher. She says it's because she's taller. I say it's because she stood on her toes. We will never agree on this."
+              ],
+              "mode": "replace_all"
+            },
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{lily_book:\"height_marks\"}"
+            }
+          ]
+        }
+      ]
     }
   ]
 }

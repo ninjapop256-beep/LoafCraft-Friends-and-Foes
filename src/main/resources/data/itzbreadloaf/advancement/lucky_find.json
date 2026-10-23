@@ -1,0 +1,37 @@
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {
+        "items": [
+          {
+            "predicates": {
+              "minecraft:custom_data": "{loafcraft_rarity:\"legendary\"}"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:nether_star",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.lucky_find.title",
+      "fallback": "Lucky Find"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.lucky_find.description",
+      "fallback": "Find a Legendary item in LoafCraft loot"
+    },
+    "frame": "challenge"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:book",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.bookworm.title",
+      "fallback": "Bookworm"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.bookworm.description",
+      "fallback": "Read 5 of Lily's books"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

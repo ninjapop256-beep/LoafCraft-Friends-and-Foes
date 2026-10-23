@@ -1,0 +1,28 @@
+{
+  "parent": "itzbreadloaf:bookworm",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:writable_book",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.lore_keeper.title",
+      "fallback": "Lore Keeper"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.lore_keeper.description",
+      "fallback": "Visit all 15 lore places from Lily's books"
+    },
+    "frame": "challenge"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

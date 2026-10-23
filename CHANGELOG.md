@@ -6,6 +6,23 @@ Newest changes first. Existing worlds keep working; new structures only appear i
 
 ---
 
+## 2.0.0: Update 2 complete
+
+### Part 10: advancements
+
+- 10 new advancements: Wild Card (tame a wild FelixSyn), Wind Tower Climber, Bookworm (read 5 of Lily's books), Lore Keeper (visit all 15 lore places), The First Bakery, Where It All Began, Explorer I/II/III (25/50/100 structures) and Lucky Find (get a Legendary item).
+- A book counts as read when it's in your inventory or you open the lectern it's on.
+- Legendary loot is now tagged so Lucky Find can spot it (it won't stack with the plain version of the same item).
+- Lily's Collected Works: a creative item that gives you every one of Lily's books. Each book is also in the LoafCraft creative tab.
+- New lang keys for all of the above, plus the found-a-structure, lore and book messages.
+
+### Part 9: Lily's books
+
+- 26 books written and signed by ImLilyLol (2-5 pages each), about how the rivalry began, Master BreadLoaf, the Giant Loaf, Lily and Madison growing up, FelixSyn and Harley's drifting, Lily's notes on creatures and places, and some mysterious notes.
+- 16 of them sit open on the lore structures' lecterns; 10 more are in the lore chests (the cousins' treehouse chest has two).
+- The books point to each other's places like a treasure hunt: the Strange Note leads to the Sealed Library, which leads to the Archive Under the Old Loaf, whose Archive Index lists all 15 lore places; the Cartographer's Notes lead to the Crossroads Signpost.
+- Every book carries a hidden `lily_book` tag so part 10's advancements can tell them apart.
+
 ## 1.1.0-alpha.5
 
 - Structures are much more common: old structures spawn about 40% closer together, new ones 40-60 chunks apart (were 64-128).

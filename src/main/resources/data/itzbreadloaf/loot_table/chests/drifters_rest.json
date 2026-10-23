@@ -90,6 +90,37 @@
           ]
         }
       ]
+    },
+    {
+      "rolls": 1,
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:written_book",
+          "functions": [
+            {
+              "function": "minecraft:set_book_cover",
+              "title": "A Note About Harley's Blade",
+              "author": "ImLilyLol",
+              "generation": 0
+            },
+            {
+              "function": "minecraft:set_written_book_pages",
+              "pages": [
+                "Harley's blade is special. She never lets anyone else hold it. Not even Felix.",
+                "I asked her where it came from. She smiled and said, 'A long way from here.' Then she walked off. That was the whole conversation.",
+                "So now I really want to know."
+              ],
+              "mode": "replace_all"
+            },
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{lily_book:\"harleys_blade_note\"}"
+            }
+          ]
+        }
+      ]
     }
   ]
 }

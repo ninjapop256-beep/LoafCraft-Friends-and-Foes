@@ -1,0 +1,28 @@
+{
+  "parent": "itzbreadloaf:explorer_ii",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:recovery_compass",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.explorer_iii.title",
+      "fallback": "Explorer III"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.explorer_iii.description",
+      "fallback": "Find 100 different LoafCraft structures"
+    },
+    "frame": "challenge"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

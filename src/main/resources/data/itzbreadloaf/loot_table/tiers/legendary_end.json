@@ -8,12 +8,24 @@
         {
           "type": "minecraft:item",
           "name": "minecraft:enchanted_golden_apple",
-          "weight": 4
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{loafcraft_rarity:\"legendary\"}"
+            }
+          ]
         },
         {
           "type": "minecraft:item",
           "name": "minecraft:netherite_ingot",
-          "weight": 4
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{loafcraft_rarity:\"legendary\"}"
+            }
+          ]
         },
         {
           "type": "minecraft:item",
@@ -27,6 +39,10 @@
                 "min": 20,
                 "max": 30
               }
+            },
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{loafcraft_rarity:\"legendary\"}"
             }
           ]
         },
@@ -42,23 +58,45 @@
                 "min": 20,
                 "max": 30
               }
+            },
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{loafcraft_rarity:\"legendary\"}"
             }
           ]
         },
         {
           "type": "minecraft:item",
           "name": "minecraft:netherite_pickaxe",
-          "weight": 1
+          "weight": 1,
+          "functions": [
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{loafcraft_rarity:\"legendary\"}"
+            }
+          ]
         },
         {
           "type": "minecraft:item",
           "name": "itzbreadloaf:master_loaf_trophy",
-          "weight": 1
+          "weight": 1,
+          "functions": [
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{loafcraft_rarity:\"legendary\"}"
+            }
+          ]
         },
         {
           "type": "minecraft:item",
           "name": "minecraft:elytra",
-          "weight": 3
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{loafcraft_rarity:\"legendary\"}"
+            }
+          ]
         }
       ]
     }

@@ -90,6 +90,36 @@
           ]
         }
       ]
+    },
+    {
+      "rolls": 1,
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:written_book",
+          "functions": [
+            {
+              "function": "minecraft:set_book_cover",
+              "title": "Recipe Card, Torn",
+              "author": "ImLilyLol",
+              "generation": 0
+            },
+            {
+              "function": "minecraft:set_written_book_pages",
+              "pages": [
+                "Bread's very first recipe, copied as well as I could. The card was half torn.\n\n3 wheat\n1 pinch of patience\n...\nbake until golden (NOT black)",
+                "The bottom half is missing. Bread says the secret ingredient was on it. Madison says the secret ingredient is just more wheat. I don't know who to believe."
+              ],
+              "mode": "replace_all"
+            },
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{lily_book:\"torn_recipe\"}"
+            }
+          ]
+        }
+      ]
     }
   ]
 }

@@ -1,0 +1,28 @@
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:wind_charge",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.wind_tower_climber.title",
+      "fallback": "Wind Tower Climber"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.wind_tower_climber.description",
+      "fallback": "Climb to the top of a Wind Tower"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}

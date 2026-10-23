@@ -49,6 +49,27 @@ public final class ModAdvancements {
 	public static final Identifier PEAK_PERFORMANCE = ItzBreadLoaf.id("peak_performance");
 	/** Find FelixSyn and Harley's campsite at a village. */
 	public static final Identifier CAMPFIRE_STORIES = ItzBreadLoaf.id("campfire_stories");
+	// ---- update 2
+	/** Tame a wild FelixSyn with cooked porkchops. */
+	public static final Identifier WILD_CARD = ItzBreadLoaf.id("wild_card");
+	/** Climb to the top of a Wind Tower. */
+	public static final Identifier WIND_TOWER_CLIMBER = ItzBreadLoaf.id("wind_tower_climber");
+	/** Read 5 of Lily's books. */
+	public static final Identifier BOOKWORM = ItzBreadLoaf.id("bookworm");
+	/** Visit all 15 lore places from Lily's books. */
+	public static final Identifier LORE_KEEPER = ItzBreadLoaf.id("lore_keeper");
+	/** Find the Ruins of the First Bakery. */
+	public static final Identifier THE_FIRST_BAKERY = ItzBreadLoaf.id("the_first_bakery");
+	/** Find the Old Battle Site where the rivalry started. */
+	public static final Identifier WHERE_IT_ALL_BEGAN = ItzBreadLoaf.id("where_it_all_began");
+	/** Find 25 different LoafCraft structures. */
+	public static final Identifier EXPLORER_I = ItzBreadLoaf.id("explorer_i");
+	/** Find 50 different LoafCraft structures. */
+	public static final Identifier EXPLORER_II = ItzBreadLoaf.id("explorer_ii");
+	/** Find 100 different LoafCraft structures. */
+	public static final Identifier EXPLORER_III = ItzBreadLoaf.id("explorer_iii");
+	/** Find a Legendary item in LoafCraft loot. */
+	public static final Identifier LUCKY_FIND = ItzBreadLoaf.id("lucky_find");
 
 	private ModAdvancements() {
 	}

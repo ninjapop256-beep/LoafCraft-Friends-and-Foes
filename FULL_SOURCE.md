@@ -1036,6 +1036,27 @@ public final class ModAdvancements {
 	public static final Identifier PEAK_PERFORMANCE = ItzBreadLoaf.id("peak_performance");
 	/** Find FelixSyn and Harley's campsite at a village. */
 	public static final Identifier CAMPFIRE_STORIES = ItzBreadLoaf.id("campfire_stories");
+	// ---- update 2
+	/** Tame a wild FelixSyn with cooked porkchops. */
+	public static final Identifier WILD_CARD = ItzBreadLoaf.id("wild_card");
+	/** Climb to the top of a Wind Tower. */
+	public static final Identifier WIND_TOWER_CLIMBER = ItzBreadLoaf.id("wind_tower_climber");
+	/** Read 5 of Lily's books. */
+	public static final Identifier BOOKWORM = ItzBreadLoaf.id("bookworm");
+	/** Visit all 15 lore places from Lily's books. */
+	public static final Identifier LORE_KEEPER = ItzBreadLoaf.id("lore_keeper");
+	/** Find the Ruins of the First Bakery. */
+	public static final Identifier THE_FIRST_BAKERY = ItzBreadLoaf.id("the_first_bakery");
+	/** Find the Old Battle Site where the rivalry started. */
+	public static final Identifier WHERE_IT_ALL_BEGAN = ItzBreadLoaf.id("where_it_all_began");
+	/** Find 25 different LoafCraft structures. */
+	public static final Identifier EXPLORER_I = ItzBreadLoaf.id("explorer_i");
+	/** Find 50 different LoafCraft structures. */
+	public static final Identifier EXPLORER_II = ItzBreadLoaf.id("explorer_ii");
+	/** Find 100 different LoafCraft structures. */
+	public static final Identifier EXPLORER_III = ItzBreadLoaf.id("explorer_iii");
+	/** Find a Legendary item in LoafCraft loot. */
+	public static final Identifier LUCKY_FIND = ItzBreadLoaf.id("lucky_find");
 
 	private ModAdvancements() {
 	}
@@ -3947,6 +3968,7 @@ public class FelixBrain extends LoafBrain {
 				Inv.give(this.player, food);
 				if (this.random.nextInt(Math.max(1, com.itzbreadloaf.config.ModConfig.get().felixTameChance)) == 0) {
 					this.setOwner(clicker);
+					ModAdvancements.award(clicker, ModAdvancements.WILD_CARD);
 					this.setTarget(null);
 					this.particles(net.minecraft.core.particles.ParticleTypes.HEART, 8);
 					this.say(clicker, "alright, alright. you're cool. I'm with you now");
@@ -11373,6 +11395,13 @@ public final class StructureTracker {
 	public static final Set<String> LILY_HOMES = Set.of("lily_house", "lily_meadow_cottage", "lily_flower_cottage",
 			"lily_reading_cabin", "lily_snowy_cabin", "lily_mushroom_house", "floating_island_cottage", "treetop_library");
 
+	public static final int BOOKWORM_GOAL = 5;
+	static final String BOOK_PREFIX = "book:";
+	/** The 15 lore places Lily's books talk about ("Lore Keeper" needs all of them). */
+	public static final Set<String> LORE_PLACES = Set.of("lily_writing_cabin", "first_bakery_ruins", "memorial_grove", "rivalry_battle_site",
+			"sealed_library", "cartographers_tent", "masters_old_home", "old_loaf_archive", "cousins_old_treehouse", "drifters_rest",
+			"naturalist_camp", "masters_departure", "whispering_stones", "crossroads_signpost", "lost_loaf_wagon");
+
 	private StructureTracker() {
 	}
 
@@ -11403,21 +11432,43 @@ public final class StructureTracker {
 					}
 				}
 			}
+			Data data = server.overworld().getDataStorage().computeIfAbsent(Data.TYPE);
+			Set<String> found = data.found.computeIfAbsent(player.getUUID(), uuid -> new LinkedHashSet<>());
+			trackBooks(player, data, found);
 			if (kind == null) {
 				continue;
 			}
 			awardFor(player, kind);
-			Data data = server.overworld().getDataStorage().computeIfAbsent(Data.TYPE);
-			Set<String> found = data.found.computeIfAbsent(player.getUUID(), uuid -> new LinkedHashSet<>());
+			if (kind.equals("wind_tower") && start.isValid() && player.getY() >= start.getBoundingBox().maxY() - 6) {
+				ModAdvancements.award(player, ModAdvancements.WIND_TOWER_CLIMBER);
+			}
 			if (!found.add(kind)) {
 				continue;
 			}
 			data.setDirty();
 			long lilyHomes = found.stream().filter(LILY_HOMES::contains).count();
-			player.displayClientMessage(Component.literal("Found a new LoafCraft structure! (" + Math.min(found.size(), HUNTER_GOAL) + "/" + HUNTER_GOAL + ")")
-					.withStyle(ChatFormatting.GOLD), true);
-			if (found.size() >= HUNTER_GOAL) {
+			long structures = found.stream().filter(k -> !k.startsWith(BOOK_PREFIX)).count();
+			long lore = found.stream().filter(LORE_PLACES::contains).count();
+			if (LORE_PLACES.contains(kind)) {
+				player.displayClientMessage(Component.translatable("message.itzbreadloaf.lore_found", lore, LORE_PLACES.size())
+						.withStyle(ChatFormatting.LIGHT_PURPLE), true);
+			} else {
+				player.displayClientMessage(Component.translatable("message.itzbreadloaf.structures_found", structures).withStyle(ChatFormatting.GOLD), true);
+			}
+			if (structures >= HUNTER_GOAL) {
 				ModAdvancements.award(player, ModAdvancements.STRUCTURE_HUNTER);
+			}
+			if (structures >= 25) {
+				ModAdvancements.award(player, ModAdvancements.EXPLORER_I);
+			}
+			if (structures >= 50) {
+				ModAdvancements.award(player, ModAdvancements.EXPLORER_II);
+			}
+			if (structures >= 100) {
+				ModAdvancements.award(player, ModAdvancements.EXPLORER_III);
+			}
+			if (lore >= LORE_PLACES.size()) {
+				ModAdvancements.award(player, ModAdvancements.LORE_KEEPER);
 			}
 			if (lilyHomes >= LILY_GOAL) {
 				ModAdvancements.award(player, ModAdvancements.LILYS_TRAVELS);
@@ -11425,9 +11476,59 @@ public final class StructureTracker {
 		}
 	}
 
+	/**
+	 * Lily's books count as read when the player holds one (in the inventory) or has a lectern open with one nearby.
+	 * Read books are kept in the same saved set as "book:<id>".
+	 */
+	private static void trackBooks(ServerPlayer player, Data data, Set<String> found) {
+		List<String> books = new ArrayList<>();
+		for (net.minecraft.world.item.ItemStack stack : player.getInventory()) {
+			String id = bookId(stack);
+			if (id != null) {
+				books.add(id);
+			}
+		}
+		if (player.containerMenu instanceof net.minecraft.world.inventory.LecternMenu) {
+			net.minecraft.core.BlockPos center = player.blockPosition();
+			for (net.minecraft.core.BlockPos pos : net.minecraft.core.BlockPos.betweenClosed(center.offset(-5, -3, -5), center.offset(5, 3, 5))) {
+				if (player.level().getBlockEntity(pos) instanceof net.minecraft.world.level.block.entity.LecternBlockEntity lectern) {
+					String id = bookId(lectern.getBook());
+					if (id != null) {
+						books.add(id);
+					}
+				}
+			}
+		}
+		boolean added = false;
+		for (String id : books) {
+			added |= found.add(BOOK_PREFIX + id);
+		}
+		if (!added) {
+			return;
+		}
+		data.setDirty();
+		long read = found.stream().filter(k -> k.startsWith(BOOK_PREFIX)).count();
+		player.displayClientMessage(Component.translatable("message.itzbreadloaf.lily_book_read", read, com.itzbreadloaf.item.LilyBooks.all().size())
+				.withStyle(ChatFormatting.LIGHT_PURPLE), true);
+		if (read >= BOOKWORM_GOAL) {
+			ModAdvancements.award(player, ModAdvancements.BOOKWORM);
+		}
+	}
+
+	private static String bookId(net.minecraft.world.item.ItemStack stack) {
+		net.minecraft.world.item.component.CustomData custom = stack.get(net.minecraft.core.component.DataComponents.CUSTOM_DATA);
+		if (custom == null) {
+			return null;
+		}
+		String id = custom.copyTag().getStringOr("lily_book", "");
+		return id.isEmpty() ? null : id;
+	}
+
 	/** Advancements for walking into one particular structure. */
 	private static void awardFor(ServerPlayer player, String kind) {
 		Identifier advancement = switch (kind) {
+			case "first_bakery_ruins" -> ModAdvancements.THE_FIRST_BAKERY;
+			case "rivalry_battle_site" -> ModAdvancements.WHERE_IT_ALL_BEGAN;
 			case "windmill", "riverside_mill" -> ModAdvancements.MILL_WORKER;
 			case "floating_island_cottage" -> ModAdvancements.SKY_COTTAGE;
 			case "friendship_festival" -> ModAdvancements.FESTIVAL_GOER;
@@ -11803,6 +11904,131 @@ public final class ModConfig {
 }
 ```
 
+## src/main/java/com/itzbreadloaf/item/CollectedWorksItem.java
+
+```java
+package com.itzbreadloaf.item;
+
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.Level;
+
+/** "Lily's Collected Works" (creative tab): use it to get every one of Lily's books. */
+public class CollectedWorksItem extends Item {
+	public CollectedWorksItem(Properties properties) {
+		super(properties);
+	}
+
+	@Override
+	public InteractionResult use(Level level, Player player, InteractionHand hand) {
+		if (!level.isClientSide()) {
+			for (String id : LilyBooks.all().keySet()) {
+				ItemStack book = LilyBooks.stack(id);
+				if (!player.getInventory().add(book)) {
+					player.drop(book, false);
+				}
+			}
+			player.displayClientMessage(Component.translatable("item.itzbreadloaf.lilys_collected_works.used", LilyBooks.all().size()), true);
+			if (!player.getAbilities().instabuild) {
+				player.getItemInHand(hand).shrink(1);
+			}
+		}
+		return InteractionResult.SUCCESS;
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/item/LilyBooks.java
+
+```java
+package com.itzbreadloaf.item;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.network.Filterable;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.component.CustomData;
+import net.minecraft.world.item.component.WrittenBookContent;
+
+/** Lily's books (update 2, part 9), all signed by ImLilyLol. Written by tools/lily_books.py: edit the text there. */
+public final class LilyBooks {
+	public static final String AUTHOR = "ImLilyLol";
+	private static final Map<String, Book> BOOKS = new LinkedHashMap<>();
+
+	public record Book(String id, String title, List<String> pages) {
+	}
+
+	private LilyBooks() {
+	}
+
+	private static void book(String id, String title, String... pages) {
+		BOOKS.put(id, new Book(id, title, List.of(pages)));
+	}
+
+	static {
+		book("how_it_began", "How It All Began", "Everyone asks me how ItzBreadLoaf and FelixSyn started fighting. I was there, sort of. I was hiding behind a hay bale.", "It was a sunny day in a field not far from the first bakery. Bread had baked a loaf for the whole village. FelixSyn had just found his first mace.", "He wanted to test it. He jumped really high, came down really hard... and landed right on the loaf. There were crumbs everywhere. Even in my hair.", "Bread said it was on purpose. Felix said it was an accident. They have been arguing about it ever since. I think they both kind of enjoy it now.", "If you stand where it happened, you can still see the craters. Somebody left their old swords there, and the two banners. Red for Bread, blue for Felix.");
+		book("bread_argument", "The Bread Argument", "Things they have argued about, in order:\n1. The loaf.\n2. Whose fault the loaf was.\n3. Whether maces are fair.\n4. Whether bread is better toasted.", "5. Who won the last fight.\n6. Who won the fight before that.\n7. Whether it counts if you fall off a tower by yourself.", "Madison says I should stop keeping this list. But it keeps getting longer, so somebody has to.");
+		book("first_oven", "The First Oven", "Before the villages had big bakeries, ItzBreadLoaf had one little brick oven, a counter, and a lot of hay.", "He baked from sunrise to sunset. When he burned a loaf, he ate it himself so nobody would know. Everybody knew. The smoke was very obvious.", "The roof is gone now and the walls are falling down. But the oven is still there, cold, against the back wall. I sat next to it to write this.", "If you find the ruins, please don't break the oven. It's kind of important to us.");
+		book("torn_recipe", "Recipe Card, Torn", "Bread's very first recipe, copied as well as I could. The card was half torn.\n\n3 wheat\n1 pinch of patience\n...\nbake until golden (NOT black)", "The bottom half is missing. Bread says the secret ingredient was on it. Madison says the secret ingredient is just more wheat. I don't know who to believe.");
+		book("boy_who_trained", "The One Who Trained Too Hard", "Before he was Master BreadLoaf, he was just a BreadLoaf who couldn't stop training. Every morning he hit the same old dummy in his yard.", "He trained so much that nobody in the overworld could beat him anymore. Not even FelixSyn. That made him a little sad, I think.", "His old home is still standing. It's dusty. There is gold trim on his favorite chair, and drawings of a purple portal and a strange pale land on the wall.", "He left his books behind. He left the dummy too. I think he wanted somebody else to keep practicing.");
+		book("sketches_other_worlds", "Sketches of Other Worlds", "These are copies of drawings I found in Master BreadLoaf's old home.\n\nDrawing 1: a frame of obsidian with purple light inside.", "Drawing 2: a pale island floating in black sky, with tall dark towers.\n\nDrawing 3: a mace, but huge. Underneath he wrote: 'stronger'.", "I don't think he was scared of those places. I think he was excited.");
+		book("why_he_left", "Why He Left", "Master BreadLoaf left from a stone platform with a broken portal and a ring of strange frames. I found it by following his footprints and a lot of guessing.", "He left a note on a lectern. It said he needed someone stronger to fight. The overworld wasn't enough.", "So he went to the Nether, where everything is hot and loud. Then he went to the End, where everything is quiet and very, very far down.", "People say he waits there in an arena for anyone brave enough. I hope he isn't lonely. If you see him, maybe say hi before the fight starts.");
+		book("giant_loaf_story", "The Story of the Giant Loaf", "Once, ItzBreadLoaf decided to bake the biggest loaf in the world. Everybody helped. Madison brought wheat. I brought... moral support.", "It was so big it wouldn't fit in any oven, so they baked it outside with lots and lots of campfires. It took all week.", "Then they built a giant wagon to move it. The wagon broke. One wheel fell right off. The loaf rolled the rest of the way by itself.", "Where it stopped is where it stayed. The broken wagon is still out there on an old road, with hay spilled everywhere.", "Some people say it wasn't the first giant loaf. There was an older one, smaller, that crumbled. I think there is something under it.");
+		book("under_the_loaf", "What's Under the Old Loaf", "The old loaf is mostly crust now. You can walk inside it. It smells like bread, which is nice.", "There is a red carpet in the middle. That's weird, right? Why would a loaf have a carpet?", "I lifted it up. There was a trapdoor and a ladder going down, down, down. At the bottom is a whole archive. Bookshelves, candles, and this lectern.", "I think the bakers kept their records here. I've started keeping mine here too. You're reading one of them!");
+		book("archive_index", "Archive Index", "Index of places, for anyone who wants to find them all:\n\n- The Old Battle Site\n- Ruins of the First Bakery\n- Master's Old Home", "- Master's Departure Point\n- The Lost Loaf Wagon\n- This archive, under the old loaf\n- The Memorial Grove\n- The Sealed Library", "- The Cartographer's Tent\n- The Crossroads Signpost\n- The Whispering Stones\n- The Drifters' Rest\n- My naturalist camp", "- The cousins' old treehouse\n- My old writing cabin\n\nThat's fifteen. If you visit all of them, you'll know everything I know.");
+		book("growing_up", "Growing Up With Madison", "Madison is my cousin. She is louder than me, braver than me, and much better at farming. I am better at reading. We decided that was fair.", "When we were little, we built a treehouse in a giant tree. We each had a tiny bed, mine pink and hers yellow. We hung our banners on the wall.", "Madison played the note block until everyone in the forest knew where we were. I read stories out loud until she fell asleep.", "We don't fit in the little beds anymore. But sometimes we still go up there. Just to sit.");
+		book("height_marks", "Height Marks", "On the trunk of our treehouse tree there are two marks. Pink wool is me. Yellow wool is Madison.", "Madison's mark is higher. She says it's because she's taller. I say it's because she stood on her toes. We will never agree on this.");
+		book("two_drifters", "Two Drifters", "FelixSyn and Harley don't really have a home. They drift from village to village, wherever the road goes.", "Harley is Felix's best friend. She is quiet, quick, and always has her blade. Felix talks enough for both of them.", "When they stop for the night they make a little camp: two bedrolls, a campfire, and their banners on an old stump.", "I found one of their old camps by a road. The campfire was cold. There were scorch marks where Felix practiced wind charges. Of course there were.", "I think drifting sounds lonely. But they're never alone, so maybe it isn't.");
+		book("harleys_blade_note", "A Note About Harley's Blade", "Harley's blade is special. She never lets anyone else hold it. Not even Felix.", "I asked her where it came from. She smiled and said, 'A long way from here.' Then she walked off. That was the whole conversation.", "So now I really want to know.");
+		book("notes_creatures", "Lily's Notes: Creatures", "Creepers: they don't want to hug you, no matter how close they get. Do not hug back.", "Endermen: don't look at them. I looked once by accident and said sorry. It did not accept my apology.", "Bees: very polite if you are polite. Madison has a whole cottage full of them.", "Breezes: they live in trial chambers and bounce around. FelixSyn loves them because they drop wind charges. I find them a bit rude.");
+		book("notes_animals", "Lily's Notes: Friendly Animals", "Sheep: soft. Excellent listeners.\nCows: Madison names every single one.\nChickens: chaos.", "Axolotls: the cutest thing I have ever seen. I sat by a lush cave pond for an hour just watching one.", "Foxes: they stole my sandwich. I'm still a little upset, but they're too cute to stay mad at.");
+		book("notes_nether", "Lily's Notes: The Nether", "Hot. Very hot. Bring fire resistance. Also bring a friend who isn't scared, because I was.", "Striders: they walk on lava and they look grumpy all the time. Pull them on a warped fungus and they cheer up a little.", "Piglins love gold. If you aren't wearing any, they get grumpy too. Everything in the Nether is grumpy, I think.");
+		book("notes_end", "Lily's Notes: The End", "The End is very quiet. The sky is black, and the ground is pale and a little soft-looking but not soft.", "Chorus plants grow there. Eating the fruit teleports you a few blocks. I tried it and ended up behind a pillar. I stayed there a while to calm down.", "Master BreadLoaf is out there somewhere. I could hear the sound of a mace, far away.");
+		book("map_notes", "The Cartographer's Notes", "Whoever lived in this tent made a map of the world on the floor out of carpet. Green for forests. Blue for water. Yellow for... maybe deserts? Or bread.", "There's an X on a carpet near a road crossing. I think it means the crossroads signpost. Go there and look at the banners.");
+		book("which_way", "Which Way?", "Four banners, four ways.\n\nRed points to where the battle was.\nBlue points to where Felix rests.\nPink points to where I used to live.\nYellow points to Madison.", "Well, that's what they meant when somebody put them up. The signpost has turned a lot since then. You'll have to explore to find out.");
+		book("strange_note", "A Strange Note", "I found this circle of mossy stones in a dark forest. There is a candle in the middle that never seems to go out.", "Somebody had already left a note here. It said: 'The library has no door. Look at the bushes.'", "I don't know who wrote it. The handwriting looks a little like mine, but I don't remember writing it. That's... a little spooky.");
+		book("library_secret", "The Library's Secret", "If you're reading this, you found the way in! Through the bush, down the hatch, under the wall and up through the floor. Good job.", "This library has no door because whoever built it really didn't want visitors. Sorry, whoever built it.", "Most of these books are about the old days. The best ones I moved to the archive under the old loaf. Go look if you can find it.");
+		book("why_i_write", "Why I Write", "I'm not very good at talking. When there are a lot of people, my words get stuck somewhere.", "But when I write, they come out fine. So I write everything down. Things I see, things people say, things I wish I had said.", "This was my cabin when I wrote most of these books. It's old now. The door is gone and moss is everywhere. I still visit.", "If you've found some of my books, thank you for reading them. That means a lot. More than I could say out loud.");
+		book("shy_diary", "Diary (Please Do Not Read)", "Okay, you're reading it anyway. That's fine. I knew someone would.", "Today Madison made me say hi to a whole village. I said hi to one villager. It went 'hmm.' I'm counting that as a success.", "Tomorrow I'm going to try two villagers.");
+		book("for_those_we_miss", "For Those We Miss", "This grove is for everyone who used to be here and isn't anymore. Old friends who moved far away. Pets who wandered off. The old baker's cat.", "We planted the blossom trees in a circle so it would feel like a hug. The lilies of the valley were Madison's idea.", "If you sit on the bench and stay quiet, it feels peaceful. You can light a candle if you want to. I usually do.");
+		book("letters_never_sent", "Letters I Never Sent", "Dear Master BreadLoaf,\nI hope the End isn't too cold. Come visit sometime. Bread misses you, even though he won't say it.", "Dear FelixSyn,\nPlease stop landing on things.", "Dear Madison,\nThank you for always talking first, so I don't have to.\n\n- Lily");
+	}
+
+	public static Map<String, Book> all() {
+		return Collections.unmodifiableMap(BOOKS);
+	}
+
+	/** The signed book, tagged with {lily_book: id} so advancements can tell which one it is. */
+	public static ItemStack stack(String id) {
+		Book book = BOOKS.get(id);
+		if (book == null) {
+			throw new IllegalArgumentException("No Lily book " + id);
+		}
+		List<Filterable<Component>> pages = new ArrayList<>();
+		for (String page : book.pages()) {
+			pages.add(Filterable.passThrough(Component.literal(page)));
+		}
+		ItemStack stack = new ItemStack(Items.WRITTEN_BOOK);
+		stack.set(DataComponents.WRITTEN_BOOK_CONTENT, new WrittenBookContent(Filterable.passThrough(book.title()), AUTHOR, 0, pages, true));
+		CompoundTag tag = new CompoundTag();
+		tag.putString("lily_book", id);
+		stack.set(DataComponents.CUSTOM_DATA, CustomData.of(tag));
+		return stack;
+	}
+}
+```
+
 ## src/main/java/com/itzbreadloaf/item/LoafSpawnEggItem.java
 
 ```java
@@ -11914,6 +12140,10 @@ public final class ModItems {
 	public static final Item MASTER_LOAF_TROPHY = register("master_loaf_trophy",
 			properties -> new BlockItem(ModBlocks.MASTER_LOAF_TROPHY, properties.useBlockDescriptionPrefix().rarity(Rarity.EPIC)));
 
+	/** Gives every one of Lily's books (creative tab). */
+	public static final Item LILYS_COLLECTED_WORKS = register("lilys_collected_works",
+			properties -> new CollectedWorksItem(properties.stacksTo(1).rarity(Rarity.RARE)));
+
 	public static final ResourceKey<CreativeModeTab> LOAFCRAFT_TAB_KEY =
 			ResourceKey.create(Registries.CREATIVE_MODE_TAB, ItzBreadLoaf.id("loafcraft"));
 	public static final CreativeModeTab LOAFCRAFT_TAB = Registry.register(BuiltInRegistries.CREATIVE_MODE_TAB, LOAFCRAFT_TAB_KEY,
@@ -11930,6 +12160,8 @@ public final class ModItems {
 						output.accept(harleysBlade(parameters.holders()));
 						output.accept(LOAF_BREAD);
 						output.accept(MASTER_LOAF_TROPHY);
+						output.accept(LILYS_COLLECTED_WORKS);
+						LilyBooks.all().keySet().forEach(id -> output.accept(LilyBooks.stack(id)));
 					})
 					.build());
 
@@ -16597,6 +16829,7 @@ public final class Blueprint {
 	final Map<Long, BlockState> blocks = new HashMap<>();
 	final List<Container> containers = new ArrayList<>();
 	final List<Bed> beds = new ArrayList<>();
+	final List<Lectern> lecterns = new ArrayList<>();
 	final List<Resident> residents = new ArrayList<>();
 	final List<Floor> floors = new ArrayList<>();
 	final List<Mob> mobs = new ArrayList<>();
@@ -16616,6 +16849,10 @@ public final class Blueprint {
 	}
 
 	public record Bed(int x, int y, int z, Block block) {
+	}
+
+	/** A lectern holding one of Lily's books (an id from LilyBooks). */
+	public record Lectern(int x, int y, int z, String book) {
 	}
 
 	public record Resident(CharacterVariant variant, int x, int y, int z, int homeX, int homeZ, int radius,
@@ -16708,6 +16945,12 @@ public final class Blueprint {
 	public void chest(int x, int y, int z, String loot) {
 		this.set(x, y, z, Blocks.CHEST);
 		this.containers.add(new Container(x, y, z, loot, false));
+	}
+
+	/** A lectern with one of Lily's books open on it (book = a LilyBooks id). */
+	public void lectern(int x, int y, int z, String book) {
+		this.set(x, y, z, Blocks.LECTERN.defaultBlockState().setValue(net.minecraft.world.level.block.LecternBlock.HAS_BOOK, true));
+		this.lecterns.add(new Lectern(x, y, z, book));
 	}
 
 	public void barrel(int x, int y, int z, String loot) {
@@ -17014,6 +17257,12 @@ public class BlueprintPiece extends ScatteredFeaturePiece {
 				}
 			} else {
 				this.createChest(level, box, random, x, container.y(), z, loot);
+			}
+		}
+		for (Blueprint.Lectern lectern : b.lecterns) {
+			BlockPos at = this.getWorldPos(lectern.x() + MARGIN, lectern.y(), lectern.z() + MARGIN);
+			if (box.isInside(at) && level.getBlockEntity(at) instanceof net.minecraft.world.level.block.entity.LecternBlockEntity entity) {
+				entity.setBook(com.itzbreadloaf.item.LilyBooks.stack(lectern.book()));
 			}
 		}
 		for (Blueprint.Bed bed : b.beds) {
@@ -19479,7 +19728,7 @@ final class LoreBlueprints {
 		}
 		b.set(3, 3, 3, Blocks.COBWEB);
 		b.set(7, 3, 7, Blocks.COBWEB);
-		b.set(4, 1, 7, Blocks.LECTERN);
+		b.lectern(4, 1, 7, "why_i_write");
 		b.set(5, 1, 7, Pieces.topSlab(p.slab()));
 		b.set(6, 1, 7, Pieces.topSlab(p.slab()));
 		b.set(5, 2, 7, candles(Blocks.WHITE_CANDLE, 1));
@@ -19515,7 +19764,7 @@ final class LoreBlueprints {
 		b.set(9, 1, 3, Blocks.HAY_BLOCK);
 		b.set(9, 2, 3, Blocks.ORANGE_TERRACOTTA);
 		b.set(8, 1, 2, Blocks.HAY_BLOCK);
-		b.set(4, 1, 7, Blocks.LECTERN);
+		b.lectern(4, 1, 7, "first_oven");
 		b.chest(9, 1, 7, "chests/first_bakery_ruins");
 		b.floor(4, 5, 8, 6, 1, "ruins");
 	}
@@ -19538,7 +19787,7 @@ final class LoreBlueprints {
 		b.fill(6, 0, 6, 8, 0, 8, Blocks.POLISHED_ANDESITE);
 		b.fill(7, 1, 8, 7, 2, 8, Blocks.POLISHED_ANDESITE);
 		b.set(7, 3, 8, candles(Blocks.WHITE_CANDLE, 3));
-		b.set(7, 1, 6, Blocks.LECTERN);
+		b.lectern(7, 1, 6, "for_those_we_miss");
 		b.chest(8, 1, 8, "chests/memorial_grove");
 		b.set(4, 1, 7, Pieces.stairs(p.stairs(), Direction.WEST));
 		b.set(10, 1, 7, Pieces.stairs(p.stairs(), Direction.EAST));
@@ -19578,7 +19827,7 @@ final class LoreBlueprints {
 		b.fill(14, 1, 6, 14, 3, 6, p.fence());
 		b.set(14, 4, 6, Blocks.BLUE_BANNER);
 		b.set(8, 1, 11, Blocks.CRACKED_STONE_BRICKS);
-		b.set(8, 1, 10, Blocks.LECTERN);
+		b.lectern(8, 1, 10, "how_it_began");
 		b.chest(9, 1, 11, "chests/rivalry_battle_site");
 		b.floor(6, 6, 8, 7, 1, "battlefield");
 	}
@@ -19614,8 +19863,8 @@ final class LoreBlueprints {
 		b.fill(3, 1, 4, 3, 3, 10, Blocks.BOOKSHELF);
 		b.fill(9, 1, 4, 9, 3, 10, Blocks.BOOKSHELF);
 		b.fill(4, 1, 10, 8, 2, 10, Blocks.BOOKSHELF);
-		b.set(5, 1, 9, Blocks.LECTERN);
-		b.set(7, 1, 9, Blocks.LECTERN);
+		b.lectern(5, 1, 9, "library_secret");
+		b.lectern(7, 1, 9, "notes_end");
 		b.chest(6, 1, 9, "chests/sealed_library");
 		b.set(6, 1, 4, candles(Blocks.WHITE_CANDLE, 2));
 		Pieces.lantern(b, 6, 6, 7, true);
@@ -19642,7 +19891,7 @@ final class LoreBlueprints {
 			}
 		}
 		b.set(3, 1, 7, Blocks.CARTOGRAPHY_TABLE);
-		b.set(9, 1, 7, Blocks.LECTERN);
+		b.lectern(9, 1, 7, "map_notes");
 		b.set(2, 1, 8, Blocks.BARREL);
 		b.set(10, 1, 8, Blocks.BARREL);
 		b.chest(9, 1, 3, "chests/cartographers_tent");
@@ -19660,7 +19909,7 @@ final class LoreBlueprints {
 		b.set(6, 1, 7, Pieces.stairs(p.stairs(), Direction.SOUTH));
 		b.set(5, 1, 7, Blocks.GOLD_BLOCK);
 		b.set(7, 1, 7, Blocks.GOLD_BLOCK);
-		b.set(3, 1, 4, Blocks.LECTERN);
+		b.lectern(3, 1, 4, "boy_who_trained");
 		b.fill(3, 1, 6, 3, 2, 7, Blocks.BOOKSHELF);
 		b.chest(9, 1, 7, "chests/masters_old_home");
 		// Sketches on the back wall: a Nether portal and the End.
@@ -19711,8 +19960,8 @@ final class LoreBlueprints {
 		int y = floor + 1;
 		b.fill(4, y, 5, 4, y + 1, 8, Blocks.BOOKSHELF);
 		b.fill(10, y, 5, 10, y + 1, 8, Blocks.BOOKSHELF);
-		b.set(6, y, 8, Blocks.LECTERN);
-		b.set(8, y, 8, Blocks.LECTERN);
+		b.lectern(6, y, 8, "under_the_loaf");
+		b.lectern(8, y, 8, "archive_index");
 		b.chest(7, y, 8, "chests/old_loaf_archive");
 		b.chest(5, y, 5, "chests/old_loaf_archive");
 		b.set(9, y, 5, candles(Blocks.YELLOW_CANDLE, 3));
@@ -19768,7 +20017,7 @@ final class LoreBlueprints {
 			b.set(s[0], 0, s[1], Blocks.COAL_BLOCK);
 		}
 		b.chest(7, 1, 9, "chests/drifters_rest");
-		b.set(8, 1, 9, Blocks.LECTERN);
+		b.lectern(8, 1, 9, "two_drifters");
 		b.floor(2, 6, 8, 6, 1, "camp");
 	}
 
@@ -19787,7 +20036,7 @@ final class LoreBlueprints {
 		b.set(8, 2, 4, Blocks.POTTED_CACTUS);
 		b.set(9, 2, 4, Blocks.CREEPER_HEAD);
 		b.set(10, 2, 4, Blocks.POTTED_FERN);
-		b.set(9, 1, 6, Blocks.LECTERN);
+		b.lectern(9, 1, 6, "notes_creatures");
 		b.set(12, 1, 7, p.fence());
 		b.set(12, 2, 7, Blocks.WHITE_WOOL);
 		b.set(8, 1, 8, coldCampfire());
@@ -19819,7 +20068,7 @@ final class LoreBlueprints {
 		for (int z = 4; z <= 6; z++) {
 			b.set(6, 0, z, Blocks.CRACKED_STONE_BRICKS);
 		}
-		b.set(11, 1, 5, Blocks.LECTERN);
+		b.lectern(11, 1, 5, "why_he_left");
 		b.chest(3, 1, 11, "chests/masters_departure");
 		b.floor(10, 6, 11, 8, 1, "platform");
 	}
@@ -19842,7 +20091,7 @@ final class LoreBlueprints {
 		}
 		b.set(6, 1, 6, Blocks.CHISELED_STONE_BRICKS);
 		b.set(6, 2, 6, candles(Blocks.WHITE_CANDLE, 4));
-		b.set(6, 1, 4, Blocks.LECTERN);
+		b.lectern(6, 1, 4, "strange_note");
 		b.chest(6, 1, 8, "chests/whispering_stones");
 		b.floor(4, 5, 5, 7, 1, "circle");
 	}
@@ -19865,7 +20114,7 @@ final class LoreBlueprints {
 		b.set(8, 1, 2, Pieces.stairs(p.stairs(), Direction.EAST));
 		lampPost(b, 3, 3);
 		lampPost(b, 7, 7);
-		b.set(2, 1, 8, Blocks.LECTERN);
+		b.lectern(2, 1, 8, "which_way");
 	}
 
 	/** The Lost Loaf Wagon: the giant wagon that once hauled the Giant Loaf, broken down, its cargo spilled. */
@@ -19895,7 +20144,7 @@ final class LoreBlueprints {
 		}
 		b.set(3, 3, 3, Blocks.BARREL);
 		b.chest(2, 1, 9, "chests/lost_loaf_wagon");
-		b.set(1, 1, 9, Blocks.LECTERN);
+		b.lectern(1, 1, 9, "giant_loaf_story");
 		b.floor(1, 1, 13, 1, 1, "road");
 	}
 }
@@ -25598,6 +25847,17 @@ final class UndergroundBlueprints {
 }
 ```
 
+## src/main/resources/assets/itzbreadloaf/items/lilys_collected_works.json
+
+```json
+{
+  "model": {
+    "type": "minecraft:model",
+    "model": "itzbreadloaf:item/lilys_collected_works"
+  }
+}
+```
+
 ## src/main/resources/assets/itzbreadloaf/items/loaf_bread.json
 
 ```json
@@ -25748,7 +26008,32 @@ final class UndergroundBlueprints {
   "subtitles.itzbreadloaf.felixsyn.village": "FelixSyn greets the village",
   "subtitles.itzbreadloaf.felixsyn.win": "FelixSyn celebrates",
   "subtitles.itzbreadloaf.felixsyn.see_harley": "FelixSyn greets Harley",
-  "subtitles.itzbreadloaf.felixsyn.spot_player": "FelixSyn spots you"
+  "subtitles.itzbreadloaf.felixsyn.spot_player": "FelixSyn spots you",
+  "advancements.itzbreadloaf.wild_card.title": "Wild Card",
+  "advancements.itzbreadloaf.wild_card.description": "Tame a wild FelixSyn with cooked porkchops",
+  "advancements.itzbreadloaf.wind_tower_climber.title": "Wind Tower Climber",
+  "advancements.itzbreadloaf.wind_tower_climber.description": "Climb to the top of a Wind Tower",
+  "advancements.itzbreadloaf.bookworm.title": "Bookworm",
+  "advancements.itzbreadloaf.bookworm.description": "Read 5 of Lily's books",
+  "advancements.itzbreadloaf.lore_keeper.title": "Lore Keeper",
+  "advancements.itzbreadloaf.lore_keeper.description": "Visit all 15 lore places from Lily's books",
+  "advancements.itzbreadloaf.the_first_bakery.title": "The First Bakery",
+  "advancements.itzbreadloaf.the_first_bakery.description": "Find the Ruins of the First Bakery",
+  "advancements.itzbreadloaf.where_it_all_began.title": "Where It All Began",
+  "advancements.itzbreadloaf.where_it_all_began.description": "Find the Old Battle Site where the rivalry started",
+  "advancements.itzbreadloaf.explorer_i.title": "Explorer I",
+  "advancements.itzbreadloaf.explorer_i.description": "Find 25 different LoafCraft structures",
+  "advancements.itzbreadloaf.explorer_ii.title": "Explorer II",
+  "advancements.itzbreadloaf.explorer_ii.description": "Find 50 different LoafCraft structures",
+  "advancements.itzbreadloaf.explorer_iii.title": "Explorer III",
+  "advancements.itzbreadloaf.explorer_iii.description": "Find 100 different LoafCraft structures",
+  "advancements.itzbreadloaf.lucky_find.title": "Lucky Find",
+  "advancements.itzbreadloaf.lucky_find.description": "Find a Legendary item in LoafCraft loot",
+  "item.itzbreadloaf.lilys_collected_works": "Lily's Collected Works",
+  "item.itzbreadloaf.lilys_collected_works.used": "You got all %s of Lily's books",
+  "message.itzbreadloaf.structures_found": "Found a new LoafCraft structure! (%s found)",
+  "message.itzbreadloaf.lily_book_read": "Read one of Lily's books (%s/%s)",
+  "message.itzbreadloaf.lore_found": "Found a lore place (%s/%s)"
 }
 ```
 
@@ -25946,6 +26231,17 @@ final class UndergroundBlueprints {
   "parent": "minecraft:item/generated",
   "textures": {
     "layer0": "itzbreadloaf:item/itzbreadloaf_spawn_egg"
+  }
+}
+```
+
+## src/main/resources/assets/itzbreadloaf/models/item/lilys_collected_works.json
+
+```json
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "minecraft:item/enchanted_book"
   }
 }
 ```
@@ -26924,6 +27220,39 @@ final class UndergroundBlueprints {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/advancement/bookworm.json
+
+```json
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:book",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.bookworm.title",
+      "fallback": "Bookworm"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.bookworm.description",
+      "fallback": "Read 5 of Lily's books"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/advancement/bread_winner.json
 
 ```json
@@ -27053,6 +27382,105 @@ final class UndergroundBlueprints {
       "fallback": "Befriend ImLilyLol with five gifts"
     },
     "frame": "goal"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/explorer_i.json
+
+```json
+{
+  "parent": "itzbreadloaf:structure_hunter",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:map",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.explorer_i.title",
+      "fallback": "Explorer I"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.explorer_i.description",
+      "fallback": "Find 25 different LoafCraft structures"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/explorer_ii.json
+
+```json
+{
+  "parent": "itzbreadloaf:explorer_i",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:filled_map",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.explorer_ii.title",
+      "fallback": "Explorer II"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.explorer_ii.description",
+      "fallback": "Find 50 different LoafCraft structures"
+    },
+    "frame": "goal"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/explorer_iii.json
+
+```json
+{
+  "parent": "itzbreadloaf:explorer_ii",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:recovery_compass",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.explorer_iii.title",
+      "fallback": "Explorer III"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.explorer_iii.description",
+      "fallback": "Find 100 different LoafCraft structures"
+    },
+    "frame": "challenge"
   },
   "requirements": [
     [
@@ -27335,6 +27763,81 @@ final class UndergroundBlueprints {
   "requirements": [
     [
       "found"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/lore_keeper.json
+
+```json
+{
+  "parent": "itzbreadloaf:bookworm",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:writable_book",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.lore_keeper.title",
+      "fallback": "Lore Keeper"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.lore_keeper.description",
+      "fallback": "Visit all 15 lore places from Lily's books"
+    },
+    "frame": "challenge"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/lucky_find.json
+
+```json
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {
+        "items": [
+          {
+            "predicates": {
+              "minecraft:custom_data": "{loafcraft_rarity:\"legendary\"}"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:nether_star",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.lucky_find.title",
+      "fallback": "Lucky Find"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.lucky_find.description",
+      "fallback": "Find a Legendary item in LoafCraft loot"
+    },
+    "frame": "challenge"
+  },
+  "requirements": [
+    [
+      "done"
     ]
   ]
 }
@@ -27764,6 +28267,39 @@ final class UndergroundBlueprints {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/advancement/the_first_bakery.json
+
+```json
+{
+  "parent": "itzbreadloaf:bookworm",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:bricks",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.the_first_bakery.title",
+      "fallback": "The First Bakery"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.the_first_bakery.description",
+      "fallback": "Find the Ruins of the First Bakery"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/advancement/throne_room_crasher.json
 
 ```json
@@ -27950,6 +28486,105 @@ final class UndergroundBlueprints {
   "requirements": [
     [
       "found"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/where_it_all_began.json
+
+```json
+{
+  "parent": "itzbreadloaf:bookworm",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:iron_sword",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.where_it_all_began.title",
+      "fallback": "Where It All Began"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.where_it_all_began.description",
+      "fallback": "Find the Old Battle Site where the rivalry started"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/wild_card.json
+
+```json
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:cooked_porkchop",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.wild_card.title",
+      "fallback": "Wild Card"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.wild_card.description",
+      "fallback": "Tame a wild FelixSyn with cooked porkchops"
+    },
+    "frame": "goal"
+  },
+  "requirements": [
+    [
+      "done"
+    ]
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/advancement/wind_tower_climber.json
+
+```json
+{
+  "parent": "itzbreadloaf:root",
+  "criteria": {
+    "done": {
+      "trigger": "minecraft:impossible"
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:wind_charge",
+      "count": 1
+    },
+    "title": {
+      "translate": "advancements.itzbreadloaf.wind_tower_climber.title",
+      "fallback": "Wind Tower Climber"
+    },
+    "description": {
+      "translate": "advancements.itzbreadloaf.wind_tower_climber.description",
+      "fallback": "Climb to the top of a Wind Tower"
+    },
+    "frame": "task"
+  },
+  "requirements": [
+    [
+      "done"
     ]
   ]
 }
@@ -32829,6 +33464,68 @@ final class UndergroundBlueprints {
           ]
         }
       ]
+    },
+    {
+      "rolls": 1,
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:written_book",
+          "functions": [
+            {
+              "function": "minecraft:set_book_cover",
+              "title": "Growing Up With Madison",
+              "author": "ImLilyLol",
+              "generation": 0
+            },
+            {
+              "function": "minecraft:set_written_book_pages",
+              "pages": [
+                "Madison is my cousin. She is louder than me, braver than me, and much better at farming. I am better at reading. We decided that was fair.",
+                "When we were little, we built a treehouse in a giant tree. We each had a tiny bed, mine pink and hers yellow. We hung our banners on the wall.",
+                "Madison played the note block until everyone in the forest knew where we were. I read stories out loud until she fell asleep.",
+                "We don't fit in the little beds anymore. But sometimes we still go up there. Just to sit."
+              ],
+              "mode": "replace_all"
+            },
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{lily_book:\"growing_up\"}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "rolls": 1,
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:written_book",
+          "functions": [
+            {
+              "function": "minecraft:set_book_cover",
+              "title": "Height Marks",
+              "author": "ImLilyLol",
+              "generation": 0
+            },
+            {
+              "function": "minecraft:set_written_book_pages",
+              "pages": [
+                "On the trunk of our treehouse tree there are two marks. Pink wool is me. Yellow wool is Madison.",
+                "Madison's mark is higher. She says it's because she's taller. I say it's because she stood on her toes. We will never agree on this."
+              ],
+              "mode": "replace_all"
+            },
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{lily_book:\"height_marks\"}"
+            }
+          ]
+        }
+      ]
     }
   ]
 }
@@ -34034,6 +34731,37 @@ final class UndergroundBlueprints {
           ]
         }
       ]
+    },
+    {
+      "rolls": 1,
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:written_book",
+          "functions": [
+            {
+              "function": "minecraft:set_book_cover",
+              "title": "A Note About Harley's Blade",
+              "author": "ImLilyLol",
+              "generation": 0
+            },
+            {
+              "function": "minecraft:set_written_book_pages",
+              "pages": [
+                "Harley's blade is special. She never lets anyone else hold it. Not even Felix.",
+                "I asked her where it came from. She smiled and said, 'A long way from here.' Then she walked off. That was the whole conversation.",
+                "So now I really want to know."
+              ],
+              "mode": "replace_all"
+            },
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{lily_book:\"harleys_blade_note\"}"
+            }
+          ]
+        }
+      ]
     }
   ]
 }
@@ -35019,6 +35747,36 @@ final class UndergroundBlueprints {
                 "max": 8
               },
               "add": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "rolls": 1,
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:written_book",
+          "functions": [
+            {
+              "function": "minecraft:set_book_cover",
+              "title": "Recipe Card, Torn",
+              "author": "ImLilyLol",
+              "generation": 0
+            },
+            {
+              "function": "minecraft:set_written_book_pages",
+              "pages": [
+                "Bread's very first recipe, copied as well as I could. The card was half torn.\n\n3 wheat\n1 pinch of patience\n...\nbake until golden (NOT black)",
+                "The bottom half is missing. Bread says the secret ingredient was on it. Madison says the secret ingredient is just more wheat. I don't know who to believe."
+              ],
+              "mode": "replace_all"
+            },
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{lily_book:\"torn_recipe\"}"
             }
           ]
         }
@@ -40005,6 +40763,37 @@ final class UndergroundBlueprints {
           ]
         }
       ]
+    },
+    {
+      "rolls": 1,
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:written_book",
+          "functions": [
+            {
+              "function": "minecraft:set_book_cover",
+              "title": "Diary (Please Do Not Read)",
+              "author": "ImLilyLol",
+              "generation": 0
+            },
+            {
+              "function": "minecraft:set_written_book_pages",
+              "pages": [
+                "Okay, you're reading it anyway. That's fine. I knew someone would.",
+                "Today Madison made me say hi to a whole village. I said hi to one villager. It went 'hmm.' I'm counting that as a success.",
+                "Tomorrow I'm going to try two villagers."
+              ],
+              "mode": "replace_all"
+            },
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{lily_book:\"shy_diary\"}"
+            }
+          ]
+        }
+      ]
     }
   ]
 }
@@ -41223,6 +42012,37 @@ final class UndergroundBlueprints {
           ]
         }
       ]
+    },
+    {
+      "rolls": 1,
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:written_book",
+          "functions": [
+            {
+              "function": "minecraft:set_book_cover",
+              "title": "Sketches of Other Worlds",
+              "author": "ImLilyLol",
+              "generation": 0
+            },
+            {
+              "function": "minecraft:set_written_book_pages",
+              "pages": [
+                "These are copies of drawings I found in Master BreadLoaf's old home.\n\nDrawing 1: a frame of obsidian with purple light inside.",
+                "Drawing 2: a pale island floating in black sky, with tall dark towers.\n\nDrawing 3: a mace, but huge. Underneath he wrote: 'stronger'.",
+                "I don't think he was scared of those places. I think he was excited."
+              ],
+              "mode": "replace_all"
+            },
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{lily_book:\"sketches_other_worlds\"}"
+            }
+          ]
+        }
+      ]
     }
   ]
 }
@@ -41435,6 +42255,37 @@ final class UndergroundBlueprints {
                 "max": 4
               },
               "add": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "rolls": 1,
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:written_book",
+          "functions": [
+            {
+              "function": "minecraft:set_book_cover",
+              "title": "Letters I Never Sent",
+              "author": "ImLilyLol",
+              "generation": 0
+            },
+            {
+              "function": "minecraft:set_written_book_pages",
+              "pages": [
+                "Dear Master BreadLoaf,\nI hope the End isn't too cold. Come visit sometime. Bread misses you, even though he won't say it.",
+                "Dear FelixSyn,\nPlease stop landing on things.",
+                "Dear Madison,\nThank you for always talking first, so I don't have to.\n\n- Lily"
+              ],
+              "mode": "replace_all"
+            },
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{lily_book:\"letters_never_sent\"}"
             }
           ]
         }
@@ -42721,6 +43572,37 @@ final class UndergroundBlueprints {
                 "max": 2
               },
               "add": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "rolls": 1,
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:written_book",
+          "functions": [
+            {
+              "function": "minecraft:set_book_cover",
+              "title": "Lily's Notes: Friendly Animals",
+              "author": "ImLilyLol",
+              "generation": 0
+            },
+            {
+              "function": "minecraft:set_written_book_pages",
+              "pages": [
+                "Sheep: soft. Excellent listeners.\nCows: Madison names every single one.\nChickens: chaos.",
+                "Axolotls: the cutest thing I have ever seen. I sat by a lush cave pond for an hour just watching one.",
+                "Foxes: they stole my sandwich. I'm still a little upset, but they're too cute to stay mad at."
+              ],
+              "mode": "replace_all"
+            },
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{lily_book:\"notes_animals\"}"
             }
           ]
         }
@@ -44384,6 +45266,37 @@ final class UndergroundBlueprints {
           ]
         }
       ]
+    },
+    {
+      "rolls": 1,
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:written_book",
+          "functions": [
+            {
+              "function": "minecraft:set_book_cover",
+              "title": "The Bread Argument",
+              "author": "ImLilyLol",
+              "generation": 0
+            },
+            {
+              "function": "minecraft:set_written_book_pages",
+              "pages": [
+                "Things they have argued about, in order:\n1. The loaf.\n2. Whose fault the loaf was.\n3. Whether maces are fair.\n4. Whether bread is better toasted.",
+                "5. Who won the last fight.\n6. Who won the fight before that.\n7. Whether it counts if you fall off a tower by yourself.",
+                "Madison says I should stop keeping this list. But it keeps getting longer, so somebody has to."
+              ],
+              "mode": "replace_all"
+            },
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{lily_book:\"bread_argument\"}"
+            }
+          ]
+        }
+      ]
     }
   ]
 }
@@ -45302,6 +46215,37 @@ final class UndergroundBlueprints {
                 "max": 4
               },
               "add": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "rolls": 1,
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:written_book",
+          "functions": [
+            {
+              "function": "minecraft:set_book_cover",
+              "title": "Lily's Notes: The Nether",
+              "author": "ImLilyLol",
+              "generation": 0
+            },
+            {
+              "function": "minecraft:set_written_book_pages",
+              "pages": [
+                "Hot. Very hot. Bring fire resistance. Also bring a friend who isn't scared, because I was.",
+                "Striders: they walk on lava and they look grumpy all the time. Pull them on a warped fungus and they cheer up a little.",
+                "Piglins love gold. If you aren't wearing any, they get grumpy too. Everything in the Nether is grumpy, I think."
+              ],
+              "mode": "replace_all"
+            },
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{lily_book:\"notes_nether\"}"
             }
           ]
         }
@@ -50689,12 +51633,24 @@ final class UndergroundBlueprints {
         {
           "type": "minecraft:item",
           "name": "minecraft:enchanted_golden_apple",
-          "weight": 4
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{loafcraft_rarity:\"legendary\"}"
+            }
+          ]
         },
         {
           "type": "minecraft:item",
           "name": "minecraft:netherite_ingot",
-          "weight": 4
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{loafcraft_rarity:\"legendary\"}"
+            }
+          ]
         },
         {
           "type": "minecraft:item",
@@ -50708,6 +51664,10 @@ final class UndergroundBlueprints {
                 "min": 20,
                 "max": 30
               }
+            },
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{loafcraft_rarity:\"legendary\"}"
             }
           ]
         },
@@ -50723,18 +51683,34 @@ final class UndergroundBlueprints {
                 "min": 20,
                 "max": 30
               }
+            },
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{loafcraft_rarity:\"legendary\"}"
             }
           ]
         },
         {
           "type": "minecraft:item",
           "name": "minecraft:netherite_pickaxe",
-          "weight": 1
+          "weight": 1,
+          "functions": [
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{loafcraft_rarity:\"legendary\"}"
+            }
+          ]
         },
         {
           "type": "minecraft:item",
           "name": "itzbreadloaf:master_loaf_trophy",
-          "weight": 1
+          "weight": 1,
+          "functions": [
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{loafcraft_rarity:\"legendary\"}"
+            }
+          ]
         }
       ]
     }
@@ -50755,12 +51731,24 @@ final class UndergroundBlueprints {
         {
           "type": "minecraft:item",
           "name": "minecraft:enchanted_golden_apple",
-          "weight": 4
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{loafcraft_rarity:\"legendary\"}"
+            }
+          ]
         },
         {
           "type": "minecraft:item",
           "name": "minecraft:netherite_ingot",
-          "weight": 4
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{loafcraft_rarity:\"legendary\"}"
+            }
+          ]
         },
         {
           "type": "minecraft:item",
@@ -50774,6 +51762,10 @@ final class UndergroundBlueprints {
                 "min": 20,
                 "max": 30
               }
+            },
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{loafcraft_rarity:\"legendary\"}"
             }
           ]
         },
@@ -50789,23 +51781,45 @@ final class UndergroundBlueprints {
                 "min": 20,
                 "max": 30
               }
+            },
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{loafcraft_rarity:\"legendary\"}"
             }
           ]
         },
         {
           "type": "minecraft:item",
           "name": "minecraft:netherite_pickaxe",
-          "weight": 1
+          "weight": 1,
+          "functions": [
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{loafcraft_rarity:\"legendary\"}"
+            }
+          ]
         },
         {
           "type": "minecraft:item",
           "name": "itzbreadloaf:master_loaf_trophy",
-          "weight": 1
+          "weight": 1,
+          "functions": [
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{loafcraft_rarity:\"legendary\"}"
+            }
+          ]
         },
         {
           "type": "minecraft:item",
           "name": "minecraft:elytra",
-          "weight": 3
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_custom_data",
+              "tag": "{loafcraft_rarity:\"legendary\"}"
+            }
+          ]
         }
       ]
     }
