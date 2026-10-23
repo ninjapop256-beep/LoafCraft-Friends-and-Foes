@@ -1,8 +1,8 @@
 {
-  "type": "itzbreadloaf:home",
-  "kind": "jungle_treehouse",
+  "type": "itzbreadloaf:blueprint",
+  "id": "jungle_treehouse",
   "biomes": "#itzbreadloaf:has_structure/jungle_treehouse",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }

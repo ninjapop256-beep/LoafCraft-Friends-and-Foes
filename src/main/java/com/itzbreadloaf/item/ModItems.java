@@ -36,7 +36,7 @@ public final class ModItems {
 
 	/** Harley's netherite sword. Dropped (always) by a wild Harley, enchanted Sharpness V and Unbreaking III. */
 	public static final Item HARLEYS_BLADE = register("harleys_blade", properties -> new Item(properties
-			.sword(net.minecraft.world.item.ToolMaterial.NETHERITE, 3.0F, -2.4F).rarity(Rarity.EPIC).fireResistant()));
+			.sword(net.minecraft.world.item.ToolMaterial.DIAMOND, 3.0F, -2.4F).rarity(Rarity.UNCOMMON)));
 
 	/** Food you can always eat (even full, like a golden apple): Saturation and Speed I for 10 seconds. Sold by Baker Madison. */
 	public static final Item LOAF_BREAD = register("loaf_bread", properties -> new Item(properties
@@ -82,8 +82,8 @@ public final class ModItems {
 	public static ItemStack harleysBlade(net.minecraft.core.HolderLookup.Provider registries) {
 		ItemStack blade = new ItemStack(HARLEYS_BLADE);
 		var enchantments = registries.lookupOrThrow(Registries.ENCHANTMENT);
-		blade.enchant(enchantments.getOrThrow(net.minecraft.world.item.enchantment.Enchantments.SHARPNESS), 5);
-		blade.enchant(enchantments.getOrThrow(net.minecraft.world.item.enchantment.Enchantments.UNBREAKING), 3);
+		// A diamond sword with Sharpness II, nothing else. Its name is "Harley's Blade".
+		blade.enchant(enchantments.getOrThrow(net.minecraft.world.item.enchantment.Enchantments.SHARPNESS), 2);
 		return blade;
 	}
 

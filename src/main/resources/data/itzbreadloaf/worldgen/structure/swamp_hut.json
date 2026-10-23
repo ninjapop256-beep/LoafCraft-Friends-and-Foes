@@ -1,8 +1,8 @@
 {
-  "type": "itzbreadloaf:home",
-  "kind": "swamp_hut",
+  "type": "itzbreadloaf:blueprint",
+  "id": "swamp_hut",
   "biomes": "#itzbreadloaf:has_structure/swamp_hut",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }

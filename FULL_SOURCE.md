@@ -95,6 +95,25 @@ publishing {
 		// retrieving dependencies.
 	}
 }
+
+// Writes the worldgen JSON (structure, structure set, biome tag) for every structure in StructureCatalog.
+tasks.register('exportStructures', JavaExec) {
+	group = 'loafcraft'
+	description = 'Writes worldgen JSON for every StructureCatalog entry into src/main/resources.'
+	dependsOn 'compileJava'
+	classpath = files(sourceSets.main.java.destinationDirectory)
+	mainClass = 'com.itzbreadloaf.worldgen.build.StructureCatalogExport'
+	args file('src/main/resources').absolutePath
+}
+
+// Builds every blueprint outside the game and fails if any floor, chest, bed or resident can't be reached.
+tasks.register('checkStructures', JavaExec) {
+	group = 'loafcraft'
+	description = 'Runs the blueprint reachability check without starting the game.'
+	dependsOn 'classes'
+	classpath = sourceSets.main.runtimeClasspath
+	mainClass = 'com.itzbreadloaf.worldgen.build.StructureCheckMain'
+}
 ```
 
 ## gradle.properties
@@ -613,6 +632,8 @@ public class ItzBreadLoaf implements ModInitializer {
 	public void onInitialize() {
 		ModConfig.load();
 		ModSounds.register();
+		com.itzbreadloaf.sound.FelixVoices.register();
+		com.itzbreadloaf.loot.LootRarity.register();
 		ModBlocks.register();
 		ModItems.register();
 		ModStructures.register();
@@ -723,6 +744,12 @@ public final class LoafCraftCommands {
 								.then(Commands.literal("pause").executes(c -> pause(c, true)))
 								.then(Commands.literal("resume").executes(c -> pause(c, false)))))
 						.then(Commands.literal("action").then(actions(name())))
+						.then(Commands.literal("checkstructures").executes(c -> {
+							for (String line : com.itzbreadloaf.worldgen.build.StructureCheck.run(c.getSource().getServer())) {
+								c.getSource().sendSuccess(() -> Component.literal(line), false);
+							}
+							return 1;
+						}))
 						.then(Commands.literal("boss")
 								.executes(c -> boss(c, c.getSource().getPosition()))
 								.then(Commands.argument("pos", Vec3Argument.vec3()).executes(c -> boss(c, Vec3Argument.getVec3(c, "pos")))))
@@ -762,6 +789,8 @@ public final class LoafCraftCommands {
 		CommandSourceStack source = context.getSource();
 		LoafCharacter character = kind.kind == CharacterKind.MASTER
 				? BossSpawner.spawnBoss(source.getLevel(), BlockPos.containing(pos))
+				: kind == CharacterVariant.WILD_FELIX
+				? com.itzbreadloaf.brain.FelixBrain.spawnWild(source.getLevel(), pos, BlockPos.containing(pos), 12, null)
 				: kind.kind == CharacterKind.FELIXSYN
 				? com.itzbreadloaf.brain.FelixBrain.spawnDuo(source.getLevel(), pos, BlockPos.containing(pos))
 				: CharacterManager.create(source.getLevel(), kind, pos, source.getRotation().y, null);
@@ -1271,8 +1300,11 @@ public class ResidentMarkerBlockEntity extends BlockEntity {
 					madison.setPantryPos(pantry);
 				}
 			};
-			if (variant.kind == CharacterKind.FELIXSYN) {
-				// FelixSyn never comes alone: Harley is with him.
+			if (variant == CharacterVariant.WILD_FELIX) {
+				// A wild FelixSyn at his own home (Harley sometimes).
+				com.itzbreadloaf.brain.FelixBrain.spawnWild(serverLevel, Vec3.atBottomCenterOf(spawn), home, radius, bed);
+			} else if (variant.kind == CharacterKind.FELIXSYN) {
+				// The village drifter never comes alone: Harley is with him.
 				com.itzbreadloaf.brain.FelixBrain.spawnDuo(serverLevel, Vec3.atBottomCenterOf(spawn), home);
 			} else if (variant.kind == CharacterKind.MASTER) {
 				// The boss makes an entrance (sound and message).
@@ -3398,12 +3430,50 @@ public class FelixBrain extends LoafBrain {
 	private int hangoutTicks;
 	private int nextRivalMessage;
 	private int nextDrifterCheck;
+	// Voice lines (see FelixVoices for which recording plays when).
+	private int nextIdleVoice = 200;
+	private int nextSpotVoice;
+	private int nextVillageVoice;
+	private int harleyApartSince;
+	private boolean wasRetreating;
+	private boolean sleepVoiced;
+	/** The ItzBreadLoaf he's fighting, to celebrate when it goes down. */
+	private @Nullable LivingEntity rivalTarget;
 
 	public FelixBrain(LoafCharacter character) {
 		super(character);
 		this.maceJump = new MaceJump(this.player, this.controls, this.combat);
 		this.combat.critChance = 0.6F;
 		this.combat.retreatBelow = (float) com.itzbreadloaf.config.ModConfig.get().felixRetreatHealth;
+	}
+
+	/**
+	 * A wild FelixSyn (natural spawns and his own homes): rolled gear, and Harley only comes along sometimes
+	 * (wildFelixHarleyChance, 30%).
+	 */
+	public static @Nullable LoafCharacter spawnWild(ServerLevel level, Vec3 pos, @Nullable BlockPos home, int radius, @Nullable BlockPos bed) {
+		LoafCharacter felix = CharacterManager.create(level, CharacterVariant.WILD_FELIX, pos, level.getRandom().nextFloat() * 360.0F,
+				brain -> {
+					if (home != null) {
+						brain.setupHome(home, radius, bed);
+					}
+				});
+		if (felix != null && level.getRandom().nextFloat() < com.itzbreadloaf.config.ModConfig.get().wildFelixHarleyChance) {
+			UUID felixId = felix.player.getUUID();
+			CharacterManager.create(level, CharacterVariant.HARLEY, pos.add(1.0, 0.0, 0.0), level.getRandom().nextFloat() * 360.0F, brain -> {
+				if (home != null) {
+					brain.setupHome(home, radius, null);
+				}
+				if (brain instanceof HarleyBrain harley) {
+					harley.setPartner(felixId);
+				}
+			});
+		}
+		return felix;
+	}
+
+	public boolean isWild() {
+		return this.variant == CharacterVariant.WILD_FELIX;
 	}
 
 	/** FelixSyn spawns with Harley at his side (villages, the spawn egg, /loafcraft spawn felixsyn). */
@@ -3443,7 +3513,12 @@ public class FelixBrain extends LoafBrain {
 
 	@Override
 	protected void rollGear() {
-		Kits.felixSyn(this.player, this.player.level(), this.random);
+		if (this.isWild()) {
+			Gear.rollWildFelix(this.player, this.player.level(), this.random,
+					this.player.level().getCurrentDifficultyAt(this.player.blockPosition()));
+		} else {
+			Kits.felixSyn(this.player, this.player.level(), this.random);
+		}
 	}
 
 	@Override
@@ -3453,6 +3528,77 @@ public class FelixBrain extends LoafBrain {
 		}
 		if (Inv.count(this.player, stack -> stack.is(Items.WIND_CHARGE)) < 8) {
 			Inv.give(this.player, new ItemStack(Items.WIND_CHARGE, 16));
+		}
+	}
+
+	// ---------------------------------------------------------------- voice
+
+	private void voice(com.itzbreadloaf.sound.FelixVoices.Moment moment) {
+		net.minecraft.sounds.SoundEvent sound = com.itzbreadloaf.sound.FelixVoices.random(moment, this.random);
+		if (sound != null) {
+			this.playSound(sound, (float) com.itzbreadloaf.config.ModConfig.get().felixVoiceVolume, 1.0F);
+		}
+	}
+
+	@Override
+	public @Nullable net.minecraft.sounds.SoundEvent hurtSound() {
+		return com.itzbreadloaf.sound.FelixVoices.random(com.itzbreadloaf.sound.FelixVoices.Moment.HURT, this.random);
+	}
+
+	@Override
+	public net.minecraft.sounds.SoundEvent deathSound() {
+		net.minecraft.sounds.SoundEvent sound = com.itzbreadloaf.sound.FelixVoices.random(com.itzbreadloaf.sound.FelixVoices.Moment.DEATH, this.random);
+		return sound != null ? sound : super.deathSound();
+	}
+
+	/** Lines that react to what's going on: spotting a player, Harley showing up, backing off, beating a rival. */
+	private void tickVoice() {
+		boolean retreating = this.combat.isRetreating();
+		if (retreating && !this.wasRetreating) {
+			this.voice(com.itzbreadloaf.sound.FelixVoices.Moment.RETREAT);
+		}
+		this.wasRetreating = retreating;
+		if (this.rivalTarget != null && (!this.rivalTarget.isAlive() || this.rivalTarget.isRemoved())) {
+			if (this.rivalTarget.isDeadOrDying() && this.rivalTarget.distanceTo(this.player) < 32.0) {
+				this.voice(com.itzbreadloaf.sound.FelixVoices.Moment.WIN);
+			}
+			this.rivalTarget = null;
+		}
+		if (this.ticks % 20 != 0) {
+			return;
+		}
+		HarleyBrain harley = this.partnerBrain();
+		if (harley != null && harley.player.level() == this.player.level()) {
+			double apart = harley.player.distanceTo(this.player);
+			if (apart > 16.0) {
+				this.harleyApartSince = this.harleyApartSince == 0 ? this.ticks : this.harleyApartSince;
+			} else if (apart < 6.0 && this.harleyApartSince != 0 && this.ticks - this.harleyApartSince > 1200) {
+				this.voice(com.itzbreadloaf.sound.FelixVoices.Moment.SEE_HARLEY);
+				this.harleyApartSince = 0;
+			} else if (apart < 6.0) {
+				this.harleyApartSince = 0;
+			}
+		}
+		if (this.target == null && this.ticks >= this.nextSpotVoice) {
+			for (ServerPlayer viewer : this.player.level().players()) {
+				if (LoafIds.isRealPlayer(viewer) && viewer.distanceTo(this.player) < 10.0 && this.player.hasLineOfSight(viewer)) {
+					this.voice(com.itzbreadloaf.sound.FelixVoices.Moment.SPOT_PLAYER);
+					this.nextSpotVoice = this.ticks + 2400;
+					this.nextIdleVoice = Math.max(this.nextIdleVoice, this.ticks + 200);
+					break;
+				}
+			}
+		}
+	}
+
+	/** Targets someone and says the line for it (only when it's a new target). */
+	private void targetWithVoice(LivingEntity target, com.itzbreadloaf.sound.FelixVoices.Moment moment) {
+		if (target == this.target) {
+			return;
+		}
+		this.setTarget(target);
+		if (this.target == target) {
+			this.voice(moment);
 		}
 	}
 
@@ -3477,7 +3623,8 @@ public class FelixBrain extends LoafBrain {
 	@Override
 	protected void tickBehavior() {
 		this.maceJump.tickCooldown();
-		if (this.ticks >= this.nextDrifterCheck) {
+		this.tickVoice();
+		if (!this.isWild() && this.ticks >= this.nextDrifterCheck) {
 			this.nextDrifterCheck = this.ticks + 40;
 			for (ServerPlayer viewer : this.player.level().players()) {
 				if (LoafIds.isRealPlayer(viewer) && viewer.distanceTo(this.player) < 12.0) {
@@ -3497,10 +3644,21 @@ public class FelixBrain extends LoafBrain {
 			return;
 		}
 		if (this.player.level().isDarkOutside()) {
+			// Wild ones have a bed at home; the drifter sleeps rough.
+			if (this.goToBed()) {
+				return;
+			}
 			this.sleepRough();
 			return;
 		}
 		this.controls.setSneaking(false);
+		this.sleepVoiced = false;
+		if (this.ticks >= this.nextIdleVoice) {
+			int min = Math.max(5, com.itzbreadloaf.config.ModConfig.get().felixIdleVoiceMinSeconds);
+			int max = Math.max(min, com.itzbreadloaf.config.ModConfig.get().felixIdleVoiceMaxSeconds);
+			this.nextIdleVoice = this.ticks + 20 * (min + this.random.nextInt(max - min + 1));
+			this.voice(com.itzbreadloaf.sound.FelixVoices.Moment.IDLE);
+		}
 		if (this.returnHome()) {
 			return;
 		}
@@ -3522,21 +3680,24 @@ public class FelixBrain extends LoafBrain {
 		HarleyBrain harley = this.partnerBrain();
 		if (harley != null && harley.lastAttacker != null && harley.lastAttacker.isAlive() && harley.ticks - harley.lastHurtTick < 200
 				&& harley.lastAttacker != this.player) {
-			this.setTarget(harley.lastAttacker);
+			this.targetWithVoice(harley.lastAttacker, com.itzbreadloaf.sound.FelixVoices.Moment.DEFEND);
 			return;
 		}
 		// Players who attack villagers.
 		for (AbstractVillager villager : this.player.level().getEntitiesOfClass(AbstractVillager.class, this.player.getBoundingBox().inflate(16.0))) {
 			if (villager.getLastHurtByMob() instanceof Player bully && LoafIds.isRealPlayer(bully) && !bully.isCreative()
 					&& villager.tickCount - villager.getLastHurtByMobTimestamp() < 100) {
-				this.setTarget(bully);
+				this.targetWithVoice(bully, com.itzbreadloaf.sound.FelixVoices.Moment.DEFEND);
 				return;
 			}
 		}
 		// Sworn rivals: any ItzBreadLoaf he can see within 24 blocks (but not a tamed one sitting on its owner's orders).
 		LivingEntity rival = findRival(this.player, CharacterKind.BREADLOAF);
 		if (rival != null) {
-			this.setTarget(rival);
+			this.targetWithVoice(rival, com.itzbreadloaf.sound.FelixVoices.Moment.SPOT_RIVAL);
+			if (this.target == rival) {
+				this.rivalTarget = rival;
+			}
 		}
 	}
 
@@ -3587,6 +3748,7 @@ public class FelixBrain extends LoafBrain {
 		double distance = this.player.distanceTo(target);
 		if (distance < 6.0 && distance > 1.5 && this.maceJump.canStart() && this.random.nextInt(4) == 0) {
 			this.maceJump.start(100 + this.random.nextInt(60));
+			this.voice(com.itzbreadloaf.sound.FelixVoices.Moment.MACE);
 			this.maceJump.tick(target, 6.0F);
 			return;
 		}
@@ -3605,9 +3767,16 @@ public class FelixBrain extends LoafBrain {
 			BlockPos center = this.home != null ? this.home : this.player.blockPosition();
 			this.hangoutSpot = switch (this.random.nextInt(3)) {
 				case 0 -> this.findBlock(center, 24, 8, state -> state.is(Blocks.BELL));
-				case 1 -> this.findBlock(center, 24, 6, state -> state.getFluidState().isSource() && state.is(Blocks.WATER));
+				case 1 -> this.dryBesideWater(center);
 				default -> null;
 			};
+		}
+		// Greets the village when he gets to the bell.
+		if (this.hangoutSpot != null && this.ticks >= this.nextVillageVoice
+				&& this.player.level().getBlockState(this.hangoutSpot).is(Blocks.BELL)
+				&& this.player.position().distanceTo(Vec3.atCenterOf(this.hangoutSpot)) <= 3.5) {
+			this.voice(com.itzbreadloaf.sound.FelixVoices.Moment.VILLAGE);
+			this.nextVillageVoice = this.ticks + 3600;
 		}
 		if (this.hangoutSpot != null && this.player.position().distanceTo(Vec3.atCenterOf(this.hangoutSpot)) > 3.0) {
 			this.nav.moveTo(this.hangoutSpot, 2.5, Navigator.Speed.WALK);
@@ -3616,8 +3785,43 @@ public class FelixBrain extends LoafBrain {
 		this.wander(HOME_RADIUS * 0.6);
 	}
 
+	/**
+	 * A dry spot right beside water (the well, a pond) to hang out at. It used to walk to the water block itself,
+	 * which is how FelixSyn and Harley ended up stuck in village wells.
+	 */
+	private @Nullable BlockPos dryBesideWater(BlockPos center) {
+		BlockPos water = this.findBlock(center, 24, 6, state -> state.getFluidState().isSource() && state.is(Blocks.WATER));
+		if (water == null) {
+			return null;
+		}
+		ServerLevel level = this.player.level();
+		for (int radius = 2; radius <= 4; radius++) {
+			for (int dx = -radius; dx <= radius; dx++) {
+				for (int dz = -radius; dz <= radius; dz++) {
+					if (Math.max(Math.abs(dx), Math.abs(dz)) != radius) {
+						continue;
+					}
+					for (int dy = -1; dy <= 2; dy++) {
+						BlockPos feet = water.offset(dx, dy, dz);
+						BlockPos below = feet.below();
+						if (level.getFluidState(feet).isEmpty() && level.getFluidState(below).isEmpty()
+								&& level.getBlockState(feet).isAir() && level.getBlockState(feet.above()).isAir()
+								&& level.getBlockState(below).isFaceSturdy(level, below, net.minecraft.core.Direction.UP)) {
+							return feet;
+						}
+					}
+				}
+			}
+		}
+		return null;
+	}
+
 	/** Night: no bed, so he curls up on a hay bale if there is one nearby, otherwise right where he is. */
 	private void sleepRough() {
+		if (!this.sleepVoiced) {
+			this.sleepVoiced = true;
+			this.voice(com.itzbreadloaf.sound.FelixVoices.Moment.SLEEP);
+		}
 		BlockPos center = this.home != null ? this.home : this.player.blockPosition();
 		BlockPos hay = this.findBlock(center, 20, 6, state -> state.is(Blocks.HAY_BLOCK));
 		if (hay != null && this.player.position().distanceTo(Vec3.atBottomCenterOf(hay.above())) > 1.2) {
@@ -3655,17 +3859,20 @@ public class FelixBrain extends LoafBrain {
 			harley.onPartnerKilled(killer);
 		}
 		ServerLevel level = this.player.level();
+		// Loot rarity system: his drop table + tier rolls, armor 8.5% each. Sometimes some of his wind charges
+		// (25%), rarely his own mace (5%).
+		com.itzbreadloaf.loot.LootRarity.dropCharacterLoot(this, this.player, source);
+		com.itzbreadloaf.loot.LootRarity.dropGear(this.player, this.random, false);
+		boolean windCharges = this.random.nextFloat() < 0.25F;
+		boolean mace = this.random.nextFloat() < 0.05F;
 		for (int i = 0; i < 36; i++) {
 			ItemStack stack = this.player.getInventory().getItem(i);
-			boolean drop = stack.is(Items.MACE) && this.random.nextFloat() < 0.4F
-					|| stack.is(Items.WIND_CHARGE) || stack.is(Items.GOLDEN_APPLE) && this.random.nextBoolean();
-			if (drop) {
+			if (windCharges && stack.is(Items.WIND_CHARGE)) {
+				this.player.spawnAtLocation(level, stack.copyWithCount(Math.max(1, stack.getCount() / 2)));
+				windCharges = false;
+			} else if (mace && stack.is(Items.MACE)) {
 				this.player.spawnAtLocation(level, stack.copy());
-			}
-		}
-		for (EquipmentSlot slot : new EquipmentSlot[]{EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET}) {
-			if (this.random.nextFloat() < 0.25F) {
-				this.player.spawnAtLocation(level, this.player.getItemBySlot(slot).copy());
+				mace = false;
 			}
 		}
 		this.player.getInventory().clearContent();
@@ -4051,10 +4258,16 @@ public final class Gear {
 	}
 
 	private static void rollArmor(Player player, ServerLevel level, RandomSource random, Theme theme) {
+		rollArmor(player, level, random, theme, false);
+	}
+
+	/** {@code better}: one tier up on average, more pieces and more full sets (wild FelixSyn). */
+	private static void rollArmor(Player player, ServerLevel level, RandomSource random, Theme theme, boolean better) {
 		float fullSet = random.nextFloat();
-		if (fullSet < FULL_SET_CHANCE) {
+		float fullSetChance = better ? FULL_SET_CHANCE * 2.0F : FULL_SET_CHANCE;
+		if (fullSet < fullSetChance) {
 			// Rare full set anywhere: diamond 3 times out of 4, otherwise netherite.
-			Material material = fullSet < FULL_SET_CHANCE * 0.75F ? Material.DIAMOND : Material.NETHERITE;
+			Material material = fullSet < fullSetChance * 0.75F ? Material.DIAMOND : Material.NETHERITE;
 			for (EquipmentSlot slot : ARMOR_SLOTS) {
 				ItemStack stack = new ItemStack(armorItem(material, slot));
 				maybeTrim(stack, level, random, theme);
@@ -4063,10 +4276,13 @@ public final class Gear {
 			return;
 		}
 		for (EquipmentSlot slot : ARMOR_SLOTS) {
-			if (random.nextFloat() >= ARMOR_PIECE_CHANCE) {
+			if (random.nextFloat() >= (better ? ARMOR_PIECE_CHANCE + 0.15F : ARMOR_PIECE_CHANCE)) {
 				continue;
 			}
 			Material material = theme.picks[pickPick(random, theme.picks)].material();
+			if (better) {
+				material = upgrade(material, random);
+			}
 			if (theme == Theme.OCEAN && slot == EquipmentSlot.HEAD && random.nextFloat() < TURTLE_HELMET_CHANCE) {
 				material = Material.TURTLE;
 			}
@@ -4076,6 +4292,58 @@ public final class Gear {
 			}
 			maybeTrim(stack, level, random, theme);
 			player.setItemSlot(slot, stack);
+		}
+	}
+
+	/** One tier better: leather to chainmail, chainmail or gold to iron, iron to diamond half the time... */
+	private static Material upgrade(Material material, RandomSource random) {
+		return switch (material) {
+			case LEATHER -> Material.CHAINMAIL;
+			case CHAINMAIL, GOLDEN -> Material.IRON;
+			case IRON -> random.nextBoolean() ? Material.DIAMOND : Material.IRON;
+			case DIAMOND -> random.nextFloat() < 0.15F ? Material.NETHERITE : Material.DIAMOND;
+			default -> material;
+		};
+	}
+
+	// Wild FelixSyn's weapon tiers (wooden, stone, iron, golden, diamond, netherite): skewed higher than ItzBreadLoaf's.
+	private static final int[] FELIX_TIER_WEIGHTS = {4, 12, 34, 8, 32, 10};
+
+	/**
+	 * Wild FelixSyn's kit, always a bit better than ItzBreadLoaf's: mace 60% (sometimes with Density or Wind Burst),
+	 * sword 25%, axe 10%, spear 5%, with higher tiers; biome armor one tier better; a few wind charges; one golden apple.
+	 */
+	public static void rollWildFelix(Player player, ServerLevel level, RandomSource random, DifficultyInstance difficulty) {
+		for (EquipmentSlot slot : ARMOR_SLOTS) {
+			player.setItemSlot(slot, ItemStack.EMPTY);
+		}
+		player.setItemSlot(EquipmentSlot.OFFHAND, ItemStack.EMPTY);
+		Holder<Biome> biome = level.getBiome(player.blockPosition());
+		int roll = random.nextInt(100);
+		ItemStack weapon;
+		if (roll < 60) {
+			int enchant = random.nextInt(100);
+			weapon = enchant < 15 ? enchanted(level, Items.MACE, net.minecraft.world.item.enchantment.Enchantments.DENSITY, 1 + random.nextInt(3))
+					: enchant < 22 ? enchanted(level, Items.MACE, net.minecraft.world.item.enchantment.Enchantments.WIND_BURST, 1)
+					: new ItemStack(Items.MACE);
+		} else if (roll < 85) {
+			weapon = new ItemStack(SWORDS[pickIndex(random, FELIX_TIER_WEIGHTS)]);
+		} else if (roll < 95) {
+			weapon = new ItemStack(AXES[pickIndex(random, FELIX_TIER_WEIGHTS)]);
+		} else {
+			weapon = new ItemStack(SPEARS[pickIndex(random, FELIX_TIER_WEIGHTS)]);
+		}
+		player.getInventory().setItem(Combat.MELEE_SLOT, weapon);
+		player.getInventory().setSelectedSlot(Combat.MELEE_SLOT);
+		player.getInventory().setItem(4, new ItemStack(Items.WIND_CHARGE, 8 + random.nextInt(9)));
+		player.getInventory().setItem(6, new ItemStack(Items.GOLDEN_APPLE));
+		if (!weapon.is(Items.MACE) && random.nextFloat() < 0.3F) {
+			player.setItemSlot(EquipmentSlot.OFFHAND, new ItemStack(Items.SHIELD));
+		}
+		rollArmor(player, level, random, themeFor(biome), true);
+		maybeEnchant(weapon, level, random, difficulty);
+		for (EquipmentSlot slot : ARMOR_SLOTS) {
+			maybeEnchant(player.getItemBySlot(slot), level, random, difficulty);
 		}
 	}
 
@@ -4178,6 +4446,9 @@ import org.jetbrains.annotations.Nullable;
 /**
  * Harley: FelixSyn's duo partner and the best fighter in the mod outside Master BreadLoaf.
  *
+ * Rebalanced: full diamond (Protection II), Harley's Blade is a diamond sword with Sharpness II, 26 health on Normal,
+ * good timing and some strafing but no ender pearls and only one golden apple per fight.
+ *
  * Wild: follows FelixSyn everywhere and fights whatever he fights. If he's killed she goes after his killer for
  * 60 seconds, then wanders off alone. Tame her with golden apples (1 in 5, only while she isn't fighting): then she
  * follows you (through portals too), fights whatever attacks you or whatever you attack, and sits/follows on an
@@ -4200,7 +4471,8 @@ public class HarleyBrain extends LoafBrain {
 	private @Nullable UUID partner;
 	private @Nullable UUID vengeance;
 	private int vengeanceTicks;
-	private int pearlCooldown;
+	/** Only one golden apple per fight. */
+	private boolean ateApple;
 	private boolean buffed;
 	private int fightTicks;
 	private int nextGiftTick = 200;
@@ -4251,14 +4523,11 @@ public class HarleyBrain extends LoafBrain {
 		if (Inv.count(this.player, Inv::isFood) < 4) {
 			Inv.give(this.player, new ItemStack(Items.COOKED_BEEF, 8));
 		}
-		if (Inv.count(this.player, stack -> stack.is(Items.ENDER_PEARL)) < 4) {
-			Inv.give(this.player, new ItemStack(Items.ENDER_PEARL, 8));
+		if (Inv.count(this.player, stack -> stack.is(Items.WIND_CHARGE)) < 4) {
+			Inv.give(this.player, new ItemStack(Items.WIND_CHARGE, 8));
 		}
-		if (Inv.count(this.player, stack -> stack.is(Items.WIND_CHARGE)) < 8) {
-			Inv.give(this.player, new ItemStack(Items.WIND_CHARGE, 16));
-		}
-		if (Inv.count(this.player, stack -> stack.is(Items.GOLDEN_APPLE)) < 2) {
-			Inv.give(this.player, new ItemStack(Items.GOLDEN_APPLE, 3));
+		if (Inv.count(this.player, stack -> stack.is(Items.GOLDEN_APPLE)) < 1) {
+			Inv.give(this.player, new ItemStack(Items.GOLDEN_APPLE, 1));
 		}
 	}
 
@@ -4330,9 +4599,6 @@ public class HarleyBrain extends LoafBrain {
 	@Override
 	protected void tickBehavior() {
 		this.maceJump.tickCooldown();
-		if (this.pearlCooldown > 0) {
-			this.pearlCooldown--;
-		}
 		if (this.vengeanceTicks > 0 && --this.vengeanceTicks == 0) {
 			this.vengeance = null;
 			this.setTarget(null);
@@ -4346,6 +4612,7 @@ public class HarleyBrain extends LoafBrain {
 		}
 		this.fightTicks = 0;
 		this.buffed = false;
+		this.ateApple = false;
 		this.maceJump.cancel();
 		if (this.tryEat() || this.tickLove()) {
 			return;
@@ -4445,25 +4712,14 @@ public class HarleyBrain extends LoafBrain {
 			}
 			this.buffed = true;
 		}
-		if (this.player.getHealth() < this.player.getMaxHealth() * 0.45F && distance > 3.0
+		if (!this.ateApple && this.player.getHealth() < this.player.getMaxHealth() * 0.4F && distance > 3.0
 				&& this.eatNow(stack -> stack.is(Items.GOLDEN_APPLE))) {
+			this.ateApple = true;
 			return;
 		}
-		// Pearl in when they're far or running.
-		if (distance > 12.0 && this.pearlCooldown <= 0) {
-			int pearl = Inv.ready(this.player, stack -> stack.is(Items.ENDER_PEARL), 5);
-			if (pearl >= 0) {
-				this.combat.stop();
-				this.controls.selectSlot(pearl);
-				this.combat.aimProjectile(target, 1.5, 0.03);
-				this.controls.useOnce();
-				this.pearlCooldown = preset().pearlCooldown;
-				return;
-			}
-		}
 		// Mace smash when they're close and armored, or now and then to mix it up.
-		boolean armored = target.getArmorValue() >= 12;
-		if (distance < 5.5 && distance > 1.5 && this.maceJump.canStart() && (armored || this.random.nextInt(6) == 0)) {
+		boolean armored = target.getArmorValue() >= 15;
+		if (distance < 5.5 && distance > 1.5 && this.maceJump.canStart() && (armored || this.random.nextInt(10) == 0)) {
 			this.maceJump.start(armored ? 60 : 120);
 			this.maceJump.tick(target, 6.0F);
 			return;
@@ -4624,24 +4880,25 @@ public class HarleyBrain extends LoafBrain {
 
 	// ---------------------------------------------------------------- death and loot
 
-	/** Each armor piece 10%, and Harley's Blade guaranteed when she was wild. Untouchable for whoever beat her. */
+	/** Each armor piece 8.5% (like normal mobs), Harley's Blade 25% when she was wild. Untouchable for whoever beat her. */
 	@Override
 	public boolean onDeath(DamageSource source) {
 		ServerLevel level = this.player.level();
 		for (EquipmentSlot slot : new EquipmentSlot[]{EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET}) {
-			if (this.random.nextFloat() < 0.10F) {
+			if (this.random.nextFloat() < com.itzbreadloaf.config.ModConfig.get().characterArmorDropChance) {
 				this.player.spawnAtLocation(level, this.player.getItemBySlot(slot).copy());
 			}
 		}
 		if (!this.isTame()) {
-			this.player.spawnAtLocation(level, ModItems.harleysBlade(level.registryAccess()));
+			if (this.random.nextFloat() < 0.25F) {
+				this.player.spawnAtLocation(level, ModItems.harleysBlade(level.registryAccess()));
+			}
 			if (source.getEntity() instanceof ServerPlayer killer && LoafIds.isRealPlayer(killer)) {
 				ModAdvancements.award(killer, ModAdvancements.UNTOUCHABLE);
 			}
 		}
-		if (this.random.nextBoolean()) {
-			this.player.spawnAtLocation(level, new ItemStack(Items.GOLDEN_APPLE, 1 + this.random.nextInt(2)));
-		}
+		// Everything else comes from her drop table and its tier rolls (loot rarity system).
+		com.itzbreadloaf.loot.LootRarity.dropCharacterLoot(this, this.player, source);
 		this.player.getInventory().clearContent();
 		return false;
 	}
@@ -5067,24 +5324,19 @@ public final class Kits {
 	 * Wind Burst mace, a shield, ender pearls, golden apples, wind charges, Strength II and Swiftness II potions.
 	 */
 	public static void harley(Player player, ServerLevel level, RandomSource random) {
-		Item[] armor = {Items.NETHERITE_HELMET, Items.NETHERITE_CHESTPLATE, Items.NETHERITE_LEGGINGS, Items.NETHERITE_BOOTS};
+		// Full diamond with Protection II (no netherite), a shield, Harley's Blade and a plain mace. No pearls,
+		// no potions, and one golden apple.
+		Item[] armor = {Items.DIAMOND_HELMET, Items.DIAMOND_CHESTPLATE, Items.DIAMOND_LEGGINGS, Items.DIAMOND_BOOTS};
 		EquipmentSlot[] slots = {EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET};
 		for (int i = 0; i < 4; i++) {
-			ItemStack piece = enchant(level, new ItemStack(armor[i]), Enchantments.PROTECTION, 4);
-			player.setItemSlot(slots[i], enchant(level, piece, Enchantments.UNBREAKING, 3));
+			player.setItemSlot(slots[i], enchant(level, new ItemStack(armor[i]), Enchantments.PROTECTION, 2));
 		}
-		player.setItemSlot(EquipmentSlot.OFFHAND, enchant(level, new ItemStack(Items.SHIELD), Enchantments.UNBREAKING, 3));
+		player.setItemSlot(EquipmentSlot.OFFHAND, new ItemStack(Items.SHIELD));
 		Inventory inventory = player.getInventory();
 		inventory.setItem(0, ModItems.harleysBlade(level.registryAccess()));
-		ItemStack mace = enchant(level, new ItemStack(Items.MACE), Enchantments.BREACH, 3);
-		inventory.setItem(2, enchant(level, mace, Enchantments.WIND_BURST, 1));
-		inventory.setItem(4, new ItemStack(Items.WIND_CHARGE, 32));
-		inventory.setItem(5, new ItemStack(Items.ENDER_PEARL, 12));
-		inventory.setItem(6, new ItemStack(Items.GOLDEN_APPLE, 6));
-		inventory.setItem(9, LoafBrain.potion(Items.POTION, Potions.STRONG_STRENGTH));
-		inventory.setItem(10, LoafBrain.potion(Items.POTION, Potions.STRONG_SWIFTNESS));
-		inventory.setItem(11, LoafBrain.potion(Items.POTION, Potions.STRONG_STRENGTH));
-		inventory.setItem(12, LoafBrain.potion(Items.POTION, Potions.STRONG_SWIFTNESS));
+		inventory.setItem(2, new ItemStack(Items.MACE));
+		inventory.setItem(4, new ItemStack(Items.WIND_CHARGE, 8));
+		inventory.setItem(6, new ItemStack(Items.GOLDEN_APPLE, 1));
 		inventory.setSelectedSlot(0);
 	}
 
@@ -5703,6 +5955,9 @@ public abstract class LoafBrain {
 	protected int lastHurtTick = -1000;
 	protected @Nullable LivingEntity lastAttacker;
 	private int nextChatterTick = 600;
+	/** Stuck-in-water rescue: where it was and for how long it hasn't got anywhere. */
+	private @Nullable Vec3 waterStuckFrom;
+	private int waterStuckTicks;
 	/** How long the way home has been blocked (to retry, and teleport home if nobody is watching). */
 	private int homeFailTicks;
 	private int eatTicks;
@@ -5887,6 +6142,7 @@ public abstract class LoafBrain {
 		} else {
 			this.controls.setSneaking(false);
 			this.tickChatter();
+			this.tickWaterRescue();
 			this.tickBehavior();
 			this.nav.tick();
 		}
@@ -5992,7 +6248,18 @@ public abstract class LoafBrain {
 
 	/** Called when they die. Return true to drop the whole inventory like a player. */
 	public boolean onDeath(DamageSource source) {
-		return !this.baby;
+		if (this.baby) {
+			return false;
+		}
+		if (this.isTame()) {
+			// A tamed character's inventory is mostly what its owner gave it: all of it drops.
+			return true;
+		}
+		// Wild: its own drop table with tier rolls (loot rarity system), plus armor and weapon like a normal mob.
+		com.itzbreadloaf.loot.LootRarity.dropCharacterLoot(this, this.player, source);
+		com.itzbreadloaf.loot.LootRarity.dropGear(this.player, this.random, true);
+		this.player.getInventory().clearContent();
+		return false;
 	}
 
 	// ================================================================ owner and sitting
@@ -6223,6 +6490,65 @@ public abstract class LoafBrain {
 			}
 		}
 		return false;
+	}
+
+	// ================================================================ water rescue
+
+	/**
+	 * Fell into a well or a pit full of water: swim up the whole time, and after 5 seconds without getting anywhere,
+	 * step out onto the nearest dry block.
+	 */
+	private void tickWaterRescue() {
+		if (!this.player.isInWater()) {
+			this.waterStuckFrom = null;
+			this.waterStuckTicks = 0;
+			return;
+		}
+		if (this.waterStuckFrom == null || this.player.position().distanceToSqr(this.waterStuckFrom) > 4.0) {
+			this.waterStuckFrom = this.player.position();
+			this.waterStuckTicks = 0;
+			return;
+		}
+		if (!this.nav.isMoving()) {
+			this.controls.holdJump(true);
+		}
+		if (++this.waterStuckTicks < 100) {
+			return;
+		}
+		this.waterStuckTicks = 0;
+		this.waterStuckFrom = null;
+		BlockPos dry = this.findDrySpot(this.player.blockPosition(), 6);
+		if (dry != null) {
+			this.player.teleportTo(dry.getX() + 0.5, dry.getY(), dry.getZ() + 0.5);
+			this.nav.stop();
+		}
+	}
+
+	/** The closest spot within the radius with solid ground, room for a player, and no water. */
+	private @Nullable BlockPos findDrySpot(BlockPos center, int radius) {
+		ServerLevel level = this.player.level();
+		BlockPos best = null;
+		double bestDistance = Double.MAX_VALUE;
+		for (int dx = -radius; dx <= radius; dx++) {
+			for (int dz = -radius; dz <= radius; dz++) {
+				for (int dy = -2; dy <= 4; dy++) {
+					BlockPos feet = center.offset(dx, dy, dz);
+					BlockPos below = feet.below();
+					if (!level.getFluidState(feet).isEmpty() || !level.getFluidState(below).isEmpty()
+							|| !level.getBlockState(feet).getCollisionShape(level, feet).isEmpty()
+							|| !level.getBlockState(feet.above()).getCollisionShape(level, feet.above()).isEmpty()
+							|| !level.getBlockState(below).isFaceSturdy(level, below, net.minecraft.core.Direction.UP)) {
+						continue;
+					}
+					double distance = feet.distSqr(center);
+					if (distance < bestDistance) {
+						bestDistance = distance;
+						best = feet;
+					}
+				}
+			}
+		}
+		return best;
 	}
 
 	// ================================================================ idle chatter
@@ -7840,14 +8166,10 @@ public class MasterBreadLoafBrain extends LoafBrain {
 				ModAdvancements.award(killer, ModAdvancements.MACE_MASTER);
 			}
 		}
-		// Guaranteed: his Wind Burst mace and the trophy. 35%: one of his other maces. Not his whole kit.
+		// Guaranteed: his Wind Burst mace and the trophy. Plus his drop table: extra Epic and Legendary rolls.
 		this.player.spawnAtLocation(level, Gear.enchanted(level, Items.MACE, Enchantments.WIND_BURST, 2));
 		this.player.spawnAtLocation(level, new ItemStack(ModItems.MASTER_LOAF_TROPHY));
-		if (this.random.nextFloat() < 0.35F) {
-			this.player.spawnAtLocation(level, this.random.nextBoolean()
-					? Gear.enchanted(level, Items.MACE, Enchantments.DENSITY, 5)
-					: Gear.enchanted(level, Items.MACE, Enchantments.BREACH, 4));
-		}
+		com.itzbreadloaf.loot.LootRarity.dropCharacterLoot(this, this.player, source);
 		this.player.getInventory().clearContent();
 		return false;
 	}
@@ -9086,6 +9408,9 @@ public final class Pathfinder {
 	private final Long2ByteOpenHashMap openCache = new Long2ByteOpenHashMap();
 	/** 0 = unknown, 1 = standable, 2 = not, 3 = swim. */
 	private final Long2ByteOpenHashMap standCache = new Long2ByteOpenHashMap();
+	/** Water spots already checked for being a trap (1 = trap, 2 = fine). */
+	private final Long2ByteOpenHashMap trapCache = new Long2ByteOpenHashMap();
+	private BlockPos goal = BlockPos.ZERO;
 
 	private Pathfinder(ServerLevel level) {
 		this.level = level;
@@ -9123,6 +9448,7 @@ public final class Pathfinder {
 	}
 
 	private @Nullable Path search(BlockPos start, BlockPos goal, double reach, int maxRange) {
+		this.goal = goal;
 		BlockPos begin = this.settle(start);
 		PriorityQueue<Node> open = new PriorityQueue<>();
 		Long2ObjectOpenHashMap<Node> best = new Long2ObjectOpenHashMap<>();
@@ -9270,6 +9596,66 @@ public final class Pathfinder {
 				out.add(move(down, 1.5));
 			}
 		}
+		// Never step or drop from land into a water trap (a village well, a flooded pit): a small pool with no
+		// edge low enough to climb back out. Already swimming is fine, so is a trap the goal itself is in.
+		if (!swimming) {
+			out.removeIf(next -> {
+				BlockPos to = BlockPos.of(next[0]);
+				return this.standable(to) == 3 && this.isWaterTrap(to);
+			});
+		}
+	}
+
+	/**
+	 * True for water you can't get out of: floods the pool's surface (up to 4 blocks out) looking for a bank you
+	 * could swim to and step onto (land no higher than one block above the water). A pool that runs past 4 blocks
+	 * is open water (a lake, a river), not a trap.
+	 */
+	private boolean isWaterTrap(BlockPos water) {
+		if (water.distManhattan(this.goal) <= 4) {
+			return false;
+		}
+		BlockPos surface = water;
+		for (int i = 0; i < 8 && this.isWater(surface.above()); i++) {
+			surface = surface.above();
+		}
+		long key = surface.asLong();
+		byte cached = this.trapCache.get(key);
+		if (cached != 0) {
+			return cached == 1;
+		}
+		boolean trap = true;
+		java.util.ArrayDeque<BlockPos> queue = new java.util.ArrayDeque<>();
+		java.util.Set<BlockPos> seen = new java.util.HashSet<>();
+		queue.add(surface);
+		seen.add(surface);
+		search:
+		while (!queue.isEmpty()) {
+			BlockPos at = queue.poll();
+			if (Math.abs(at.getX() - surface.getX()) > 4 || Math.abs(at.getZ() - surface.getZ()) > 4) {
+				trap = false;
+				break;
+			}
+			for (int[] dir : DIRECTIONS) {
+				if (dir[0] != 0 && dir[1] != 0) {
+					continue;
+				}
+				BlockPos side = at.offset(dir[0], 0, dir[1]);
+				if (this.isWater(side)) {
+					if (seen.add(side)) {
+						queue.add(side);
+					}
+					continue;
+				}
+				// A bank: stand at water level, or one block up (the jump you can make out of water).
+				if (this.standable(side) == 1 || this.standable(side.above()) == 1 && this.open(at.above()) == 1) {
+					trap = false;
+					break search;
+				}
+			}
+		}
+		this.trapCache.put(key, trap ? (byte) 1 : (byte) 2);
+		return trap;
 	}
 
 	private static long[] move(BlockPos pos, double cost) {
@@ -9453,7 +9839,7 @@ public final class BastionThrones {
 			}
 			BoundingBox area = bastion.getBoundingBox();
 			BlockPos center = area.getCenter();
-			int size = HomeKind.BASTION_THRONE_ROOM.width;
+			int size = com.itzbreadloaf.worldgen.build.StructureCatalog.get("bastion_throne_room").width();
 			int x0 = center.getX() - size / 2;
 			int z0 = center.getZ() - size / 2;
 			// Wait until the whole room's area is loaded.
@@ -9463,8 +9849,8 @@ public final class BastionThrones {
 			data.bastions.add(id);
 			data.setDirty();
 			int floor = findFloor(nether, center, area);
-			BoundingBox built = HomePiece.buildNow(nether, HomeKind.BASTION_THRONE_ROOM, x0, z0, floor, nether.getRandom());
-			RuntimeSites.add(nether, HomeKind.BASTION_THRONE_ROOM, built);
+			BoundingBox built = com.itzbreadloaf.worldgen.build.BlueprintPiece.buildNow(nether, "bastion_throne_room", x0, z0, floor, nether.getRandom());
+			RuntimeSites.add(nether, "bastion_throne_room", built);
 		}
 	}
 
@@ -10243,7 +10629,9 @@ public enum CharacterVariant {
 	HARLEY(CharacterKind.HARLEY, "harley", ""),
 	// Added later (kept at the end so older characters keep their type number)
 	FISHERMAN(CharacterKind.BREADLOAF, "fisherman", "Fisherman"),
-	MERCHANT(CharacterKind.MADISON, "merchant", "Merchant");
+	MERCHANT(CharacterKind.MADISON, "merchant", "Merchant"),
+	/** FelixSyn out in the wild with his own home and rolled gear (the village drifter is FELIXSYN). */
+	WILD_FELIX(CharacterKind.FELIXSYN, "wild_felixsyn", "Wild");
 
 	public final CharacterKind kind;
 	/** Command name (/loafcraft spawn knight). */
@@ -10669,6 +11057,23 @@ public final class NaturalSpawner {
 				CharacterManager.create(level, variant, Vec3.atBottomCenterOf(spot), random.nextFloat() * 360.0F, brain -> brain.setWild(true));
 			}
 		}
+		// Wild FelixSyns on the surface (rarer than ItzBreadLoafs; most live in their own homes).
+		int felixWeight = ModConfig.get().wildFelixSpawnWeight;
+		for (ServerPlayer player : felixWeight <= 0 ? java.util.List.<ServerPlayer>of() : CharacterManager.realPlayers(server)) {
+			ServerLevel level = player.level();
+			RandomSource random = level.getRandom();
+			if (level.dimension() != Level.OVERWORLD || level.getDifficulty() == Difficulty.PEACEFUL
+					|| random.nextFloat() >= felixWeight / 200.0F || isUnderground(level, player.blockPosition()) || nearbyFelixes(player) >= 1) {
+				continue;
+			}
+			BlockPos spot = findSpot(level, player.blockPosition(), random);
+			if (spot != null) {
+				LoafCharacter felix = com.itzbreadloaf.brain.FelixBrain.spawnWild(level, Vec3.atBottomCenterOf(spot), null, 0, null);
+				if (felix != null && felix.brain != null) {
+					felix.brain.setWild(true);
+				}
+			}
+		}
 	}
 
 	private static boolean isUnderground(Level level, BlockPos pos) {
@@ -10697,6 +11102,17 @@ public final class NaturalSpawner {
 			}
 		}
 		return null;
+	}
+
+	private static int nearbyFelixes(ServerPlayer player) {
+		int count = 0;
+		for (LoafCharacter character : CharacterManager.active()) {
+			if (character.kind() == CharacterKind.FELIXSYN && character.player.level() == player.level()
+					&& character.player.distanceTo(player) < 96.0) {
+				count++;
+			}
+		}
+		return count;
 	}
 
 	private static int nearbyBreads(ServerPlayer player) {
@@ -10945,8 +11361,7 @@ public final class VillageSpawner {
 
 	/** Builds a Village Campsite just outside one side of the village. True if it did. */
 	private static boolean buildCampsite(ServerLevel level, BoundingBox village, RandomSource random) {
-		com.itzbreadloaf.worldgen.HomeKind kind = com.itzbreadloaf.worldgen.HomeKind.VILLAGE_CAMPSITE;
-		int size = Math.max(kind.width, kind.depth);
+		int size = com.itzbreadloaf.worldgen.build.StructureCatalog.get("village_campsite").footprint();
 		BlockPos center = village.getCenter();
 		int[][] corners = {
 				{village.maxX() + 3, center.getZ() - size / 2},
@@ -10967,8 +11382,8 @@ public final class VillageSpawner {
 			if (!level.getFluidState(top).isEmpty() || !level.getBlockState(top).isFaceSturdy(level, top, Direction.UP)) {
 				continue;
 			}
-			BoundingBox built = com.itzbreadloaf.worldgen.HomePiece.buildNow(level, kind, x0, z0, ground, random);
-			com.itzbreadloaf.worldgen.RuntimeSites.add(level, kind, built);
+			BoundingBox built = com.itzbreadloaf.worldgen.build.BlueprintPiece.buildNow(level, "village_campsite", x0, z0, ground, random);
+			com.itzbreadloaf.worldgen.RuntimeSites.add(level, "village_campsite", built);
 			return true;
 		}
 		return false;
@@ -11048,6 +11463,10 @@ public final class ModConfig {
 	public String harleyDifficulty = "normal";
 	/** Chance (0-1) that a village gets FelixSyn (and Harley) the first time a player visits it. */
 	public double felixVillageChance = 0.4;
+	/** Wild FelixSyn's random natural spawn weight (like itzBreadLoafSpawnWeight). Most live in their own homes. */
+	public int wildFelixSpawnWeight = 2;
+	/** Chance (0-1) that Harley comes along with a wild FelixSyn (she's always with the village drifter). */
+	public double wildFelixHarleyChance = 0.3;
 	/** Harley's best friend: the one real player she adores and gives gifts to (matched by Minecraft name, any case). */
 	public String harleyBestFriend = "FelixSyn";
 	/** Share (0-1) of ItzBreadLoafs and FelixSyns wearing their main skin; the rest wear a random old skin (<name>_alt<N>.png). */
@@ -11055,6 +11474,13 @@ public final class ModConfig {
 	/** Seconds between Harley's gifts to her best friend (a random time between min and max). */
 	public int harleyGiftMinSeconds = 180;
 	public int harleyGiftMaxSeconds = 300;
+
+	// ---------------------------------------------------------------- FelixSyn's voice
+	/** Volume of FelixSyn's recorded voice lines (1.0 = normal). */
+	public double felixVoiceVolume = 1.0;
+	/** Seconds between his idle lines while he wanders (a random time between min and max). */
+	public int felixIdleVoiceMinSeconds = 20;
+	public int felixIdleVoiceMaxSeconds = 40;
 
 	// ---------------------------------------------------------------- taming and health
 	/** Taming chance: 1 in this many steaks for ItzBreadLoaf. */
@@ -11084,8 +11510,25 @@ public final class ModConfig {
 	/** Most path searches all characters together may run in one tick (the rest wait a tick or two). */
 	public int maxPathSearchesPerTick = 6;
 
+	// ---------------------------------------------------------------- loot rarity (see LOOT.md)
+	/**
+	 * Odds of each tier per tier roll, out of 1000. One row per loot level (1 basic, 2 standard, 3 hard,
+	 * 4 Master BreadLoaf), columns Common, Uncommon, Rare, Epic, Legendary.
+	 */
+	public int[][] lootTierWeights = {{700, 240, 50, 9, 1}, {600, 250, 100, 40, 10}, {480, 280, 160, 65, 15}, {350, 280, 220, 110, 40}};
+	/** Tier rolls per chest or character drop (min, max), one row per loot level. */
+	public int[][] lootTierRolls = {{1, 2}, {2, 3}, {2, 4}, {3, 5}};
+	/** Loot level (1-4) of each table, by path ("chests/house", "characters/felixsyn"...). Missing ones use the defaults. */
+	public java.util.Map<String, Integer> lootLevels = new java.util.LinkedHashMap<>(com.itzbreadloaf.loot.LootLevels.DEFAULTS);
+	/** Extra tier rolls per level of Looting when killing a character. */
+	public double lootingBonusRolls = 0.5;
+	/** Chance for each armor piece a character wears to drop (normal mobs: 0.085). */
+	public double characterArmorDropChance = 0.085;
+	/** Chance a character drops its weapon. */
+	public double characterWeaponDropChance = 0.15;
+
 	public enum HarleyPreset {
-		EASY(30.0, 0.8, 0.115, 0.5F, 200), NORMAL(40.0, 1.0, 0.125, 0.85F, 120), HARD(50.0, 1.25, 0.135, 1.0F, 80);
+		EASY(20.0, 0.85, 0.11, 0.25F), NORMAL(26.0, 1.0, 0.115, 0.4F), HARD(32.0, 1.15, 0.12, 0.6F);
 
 		public final double health;
 		public final double damageMultiplier;
@@ -11093,15 +11536,12 @@ public final class ModConfig {
 		public final double speed;
 		/** How often she jumps for a crit when the timing allows. */
 		public final float critChance;
-		/** Ticks between ender pearls. */
-		public final int pearlCooldown;
 
-		HarleyPreset(double health, double damageMultiplier, double speed, float critChance, int pearlCooldown) {
+		HarleyPreset(double health, double damageMultiplier, double speed, float critChance) {
 			this.health = health;
 			this.damageMultiplier = damageMultiplier;
 			this.speed = speed;
 			this.critChance = critChance;
-			this.pearlCooldown = pearlCooldown;
 		}
 	}
 
@@ -11262,7 +11702,7 @@ public final class ModItems {
 
 	/** Harley's netherite sword. Dropped (always) by a wild Harley, enchanted Sharpness V and Unbreaking III. */
 	public static final Item HARLEYS_BLADE = register("harleys_blade", properties -> new Item(properties
-			.sword(net.minecraft.world.item.ToolMaterial.NETHERITE, 3.0F, -2.4F).rarity(Rarity.EPIC).fireResistant()));
+			.sword(net.minecraft.world.item.ToolMaterial.DIAMOND, 3.0F, -2.4F).rarity(Rarity.UNCOMMON)));
 
 	/** Food you can always eat (even full, like a golden apple): Saturation and Speed I for 10 seconds. Sold by Baker Madison. */
 	public static final Item LOAF_BREAD = register("loaf_bread", properties -> new Item(properties
@@ -11308,8 +11748,8 @@ public final class ModItems {
 	public static ItemStack harleysBlade(net.minecraft.core.HolderLookup.Provider registries) {
 		ItemStack blade = new ItemStack(HARLEYS_BLADE);
 		var enchantments = registries.lookupOrThrow(Registries.ENCHANTMENT);
-		blade.enchant(enchantments.getOrThrow(net.minecraft.world.item.enchantment.Enchantments.SHARPNESS), 5);
-		blade.enchant(enchantments.getOrThrow(net.minecraft.world.item.enchantment.Enchantments.UNBREAKING), 3);
+		// A diamond sword with Sharpness II, nothing else. Its name is "Harley's Blade".
+		blade.enchant(enchantments.getOrThrow(net.minecraft.world.item.enchantment.Enchantments.SHARPNESS), 2);
 		return blade;
 	}
 
@@ -11323,6 +11763,255 @@ public final class ModItems {
 			entries.accept(FELIXSYN_SPAWN_EGG);
 			entries.accept(HARLEY_SPAWN_EGG);
 		});
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/loot/LootLevels.java
+
+```java
+package com.itzbreadloaf.loot;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
+
+/**
+ * Default loot level of every LoafCraft loot table: 1 basic (houses, tents, gardens), 2 standard (camps, towers,
+ * hideouts), 3 hard (forts, castles, the Giant Loaf), 4 Master BreadLoaf's places. Higher levels roll more often and
+ * from better tiers. The config's lootLevels overrides these. Generated by tools/loot_rarity.py.
+ */
+public final class LootLevels {
+	public static final Map<String, Integer> DEFAULTS = new LinkedHashMap<>();
+	/** These roll the End legendary tier (the only place elytras come from). */
+	public static final Set<String> END_TABLES = Set.of("chests/end_mace_tower", "chests/end_sky_platform");
+
+	static {
+		DEFAULTS.put("chests/badlands_saloon", 2);
+		DEFAULTS.put("chests/bakery", 1);
+		DEFAULTS.put("chests/bandit_camp", 2);
+		DEFAULTS.put("chests/barrel_supplies", 1);
+		DEFAULTS.put("chests/bastion_throne_room", 4);
+		DEFAULTS.put("chests/bee_sanctuary", 1);
+		DEFAULTS.put("chests/berry_cabin", 1);
+		DEFAULTS.put("chests/bread_bakery", 1);
+		DEFAULTS.put("chests/cliff_hut", 2);
+		DEFAULTS.put("chests/cliffside_base", 2);
+		DEFAULTS.put("chests/cousins_camp", 1);
+		DEFAULTS.put("chests/desert_bunker", 2);
+		DEFAULTS.put("chests/end_mace_tower", 4);
+		DEFAULTS.put("chests/end_sky_platform", 4);
+		DEFAULTS.put("chests/fishing_barrel", 1);
+		DEFAULTS.put("chests/fishing_dock", 1);
+		DEFAULTS.put("chests/floating_island_cottage", 2);
+		DEFAULTS.put("chests/flower_shrine", 1);
+		DEFAULTS.put("chests/fort", 3);
+		DEFAULTS.put("chests/friendship_festival", 1);
+		DEFAULTS.put("chests/giant_loaf", 3);
+		DEFAULTS.put("chests/greenhouse", 1);
+		DEFAULTS.put("chests/house", 1);
+		DEFAULTS.put("chests/igloo_hideout", 1);
+		DEFAULTS.put("chests/jungle_treehouse", 2);
+		DEFAULTS.put("chests/lakeside_gazebo", 1);
+		DEFAULTS.put("chests/lantern_garden", 1);
+		DEFAULTS.put("chests/lily_flower_cottage", 1);
+		DEFAULTS.put("chests/lily_house", 1);
+		DEFAULTS.put("chests/lily_meadow_cottage", 1);
+		DEFAULTS.put("chests/lily_mushroom_house", 1);
+		DEFAULTS.put("chests/lily_reading_cabin", 1);
+		DEFAULTS.put("chests/lily_snowy_cabin", 1);
+		DEFAULTS.put("chests/loaf_lighthouse", 1);
+		DEFAULTS.put("chests/lookout_tower", 2);
+		DEFAULTS.put("chests/mace_workshop", 2);
+		DEFAULTS.put("chests/madison_pantry", 1);
+		DEFAULTS.put("chests/market_stall", 1);
+		DEFAULTS.put("chests/mining_camp", 2);
+		DEFAULTS.put("chests/mountain_outpost", 2);
+		DEFAULTS.put("chests/nether_mace_arena", 4);
+		DEFAULTS.put("chests/nether_training_ground", 4);
+		DEFAULTS.put("chests/orchard", 1);
+		DEFAULTS.put("chests/pirate_ship", 2);
+		DEFAULTS.put("chests/pumpkin_patch", 1);
+		DEFAULTS.put("chests/pvp_arena", 2);
+		DEFAULTS.put("chests/rival_camp", 2);
+		DEFAULTS.put("chests/riverside_mill", 1);
+		DEFAULTS.put("chests/ruined_loaf_castle", 3);
+		DEFAULTS.put("chests/ruined_portal_hideout", 2);
+		DEFAULTS.put("chests/shipwreck_camp", 2);
+		DEFAULTS.put("chests/sky_arena", 4);
+		DEFAULTS.put("chests/smugglers_cove", 2);
+		DEFAULTS.put("chests/snowball_fort", 1);
+		DEFAULTS.put("chests/starwatch_observatory", 1);
+		DEFAULTS.put("chests/swamp_hut", 1);
+		DEFAULTS.put("chests/sweaty_dojo", 2);
+		DEFAULTS.put("chests/tent", 1);
+		DEFAULTS.put("chests/treehouse", 1);
+		DEFAULTS.put("chests/treetop_library", 1);
+		DEFAULTS.put("chests/village", 1);
+		DEFAULTS.put("chests/village_campsite", 2);
+		DEFAULTS.put("chests/watchtower", 2);
+		DEFAULTS.put("chests/wind_tower", 2);
+		DEFAULTS.put("chests/windmill", 1);
+		DEFAULTS.put("characters/itzbreadloaf", 1);
+		DEFAULTS.put("characters/imlilylol", 1);
+		DEFAULTS.put("characters/madison", 1);
+		DEFAULTS.put("characters/felixsyn", 2);
+		DEFAULTS.put("characters/harley", 2);
+		DEFAULTS.put("characters/master_breadloaf", 4);
+	}
+
+	private LootLevels() {
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/loot/LootRarity.java
+
+```java
+package com.itzbreadloaf.loot;
+
+import com.itzbreadloaf.ItzBreadLoaf;
+import com.itzbreadloaf.brain.LoafBrain;
+import com.itzbreadloaf.config.ModConfig;
+import net.fabricmc.fabric.api.loot.v3.LootTableEvents;
+import net.minecraft.core.Holder;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.tags.ItemTags;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.enchantment.Enchantment;
+import net.minecraft.world.item.enchantment.EnchantmentHelper;
+import net.minecraft.world.item.enchantment.Enchantments;
+import net.minecraft.world.level.storage.loot.LootParams;
+import net.minecraft.world.level.storage.loot.LootPool;
+import net.minecraft.world.level.storage.loot.LootTable;
+import net.minecraft.world.level.storage.loot.entries.NestedLootTable;
+import net.minecraft.world.level.storage.loot.parameters.LootContextParamSets;
+import net.minecraft.world.level.storage.loot.parameters.LootContextParams;
+import net.minecraft.world.level.storage.loot.providers.number.ConstantValue;
+import net.minecraft.world.level.storage.loot.providers.number.UniformGenerator;
+
+/**
+ * The shared loot rarity system. The item lists are plain loot tables (data/itzbreadloaf/loot_table/tiers/), and
+ * every LoafCraft chest table and character drop table gets one extra pool when the game loads loot tables: a few
+ * rolls that each pick a tier (Common, Uncommon, Rare, Epic, Legendary) with the odds for that table's loot level.
+ * That pool is added here in code only because its odds come from the config; everything else is JSON.
+ */
+public final class LootRarity {
+	private static final String[] TIERS = {"common", "uncommon", "rare", "epic", "legendary"};
+	private static final int[][] DEFAULT_WEIGHTS = {{700, 240, 50, 9, 1}, {600, 250, 100, 40, 10}, {480, 280, 160, 65, 15}, {350, 280, 220, 110, 40}};
+	private static final int[][] DEFAULT_ROLLS = {{1, 2}, {2, 3}, {2, 4}, {3, 5}};
+
+	private LootRarity() {
+	}
+
+	public static void register() {
+		LootTableEvents.MODIFY.register((key, tableBuilder, source, registries) -> {
+			if (!key.identifier().getNamespace().equals(ItzBreadLoaf.MOD_ID)) {
+				return;
+			}
+			String path = key.identifier().getPath();
+			if (path.startsWith("chests/") || path.startsWith("characters/")) {
+				tableBuilder.withPool(tierPool(path));
+			}
+		});
+	}
+
+	/** The loot level (1-4) of a table like "chests/house" or "characters/felixsyn". */
+	public static int levelOf(String path) {
+		Integer level = ModConfig.get().lootLevels == null ? null : ModConfig.get().lootLevels.get(path);
+		if (level == null && path.startsWith("chests/")) {
+			var def = com.itzbreadloaf.worldgen.build.StructureCatalog.get(path.substring("chests/".length()));
+			level = def == null ? null : def.lootLevel();
+		}
+		if (level == null) {
+			level = LootLevels.DEFAULTS.getOrDefault(path, 1);
+		}
+		return Math.clamp(level, 1, 4);
+	}
+
+	private static LootPool.Builder tierPool(String path) {
+		ModConfig config = ModConfig.get();
+		int level = levelOf(path) - 1;
+		int[] weights = row(config.lootTierWeights, level, DEFAULT_WEIGHTS, 5);
+		int[] rolls = row(config.lootTierRolls, level, DEFAULT_ROLLS, 2);
+		LootPool.Builder pool = LootPool.lootPool().setRolls(UniformGenerator.between(rolls[0], Math.max(rolls[0], rolls[1])));
+		if (path.startsWith("characters/")) {
+			// Looting: the killer's Looting level is passed in as luck, each level adds this many extra rolls.
+			pool.setBonusRolls(ConstantValue.exactly((float) config.lootingBonusRolls));
+		}
+		for (int tier = 0; tier < 5; tier++) {
+			if (weights[tier] <= 0) {
+				continue;
+			}
+			// Elytras only come from End structures' legendary rolls.
+			String name = tier == 4 && LootLevels.END_TABLES.contains(path) ? "legendary_end" : TIERS[tier];
+			pool.add(NestedLootTable.lootTableReference(ResourceKey.create(Registries.LOOT_TABLE, ItzBreadLoaf.id("tiers/" + name)))
+					.setWeight(weights[tier]));
+		}
+		return pool;
+	}
+
+	private static int[] row(int[][] table, int level, int[][] defaults, int size) {
+		int[] row = table != null && level < table.length && table[level] != null && table[level].length >= size ? table[level] : defaults[level];
+		return row;
+	}
+
+	// ---------------------------------------------------------------- character drops
+
+	/** Rolls the character's own drop table (characters/<name>): its themed items plus tier rolls, more with Looting. */
+	public static void dropCharacterLoot(LoafBrain brain, ServerPlayer self, DamageSource source) {
+		ServerLevel level = self.level();
+		ResourceKey<LootTable> key = ResourceKey.create(Registries.LOOT_TABLE, ItzBreadLoaf.id("characters/" + brain.kind().id));
+		LootTable table = level.getServer().reloadableRegistries().getLootTable(key);
+		Entity killer = source.getEntity();
+		float looting = 0.0F;
+		if (killer instanceof LivingEntity living) {
+			Holder<Enchantment> enchantment = level.registryAccess().lookupOrThrow(Registries.ENCHANTMENT).getOrThrow(Enchantments.LOOTING);
+			looting = EnchantmentHelper.getItemEnchantmentLevel(enchantment, living.getMainHandItem());
+		}
+		LootParams params = new LootParams.Builder(level)
+				.withParameter(LootContextParams.THIS_ENTITY, self)
+				.withParameter(LootContextParams.ORIGIN, self.position())
+				.withParameter(LootContextParams.DAMAGE_SOURCE, source)
+				.withOptionalParameter(LootContextParams.ATTACKING_ENTITY, killer)
+				.withOptionalParameter(LootContextParams.DIRECT_ATTACKING_ENTITY, source.getDirectEntity())
+				.withLuck(looting)
+				.create(LootContextParamSets.ENTITY);
+		for (ItemStack stack : table.getRandomItems(params)) {
+			self.spawnAtLocation(level, stack);
+		}
+	}
+
+	/** Like a normal mob: each armor piece 8.5%, and (if {@code weapon}) their weapon 15% (both in the config). */
+	public static void dropGear(ServerPlayer self, RandomSource random, boolean weapon) {
+		ServerLevel level = self.level();
+		ModConfig config = ModConfig.get();
+		for (EquipmentSlot slot : new EquipmentSlot[]{EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET}) {
+			ItemStack piece = self.getItemBySlot(slot);
+			if (!piece.isEmpty() && random.nextFloat() < config.characterArmorDropChance) {
+				self.spawnAtLocation(level, piece.copy());
+			}
+		}
+		if (!weapon || random.nextFloat() >= config.characterWeaponDropChance) {
+			return;
+		}
+		for (int slot = 0; slot < 9; slot++) {
+			ItemStack stack = self.getInventory().getItem(slot);
+			if (stack.is(ItemTags.SWORDS) || stack.is(ItemTags.AXES) || stack.is(Items.MACE) || stack.is(Items.BOW)
+					|| stack.is(Items.CROSSBOW) || stack.is(Items.TRIDENT)) {
+				self.spawnAtLocation(level, stack.copy());
+				return;
+			}
+		}
 	}
 }
 ```
@@ -11712,6 +12401,71 @@ public abstract class SleepStatusMixin {
 			}
 		}
 		return players;
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/sound/FelixVoices.java
+
+```java
+package com.itzbreadloaf.sound;
+
+import com.itzbreadloaf.ItzBreadLoaf;
+import java.util.ArrayList;
+import java.util.EnumMap;
+import java.util.List;
+import java.util.Map;
+import net.minecraft.core.Registry;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.sounds.SoundEvent;
+import net.minecraft.util.RandomSource;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * FelixSyn's recorded voice lines (assets/itzbreadloaf/sounds/felixsyn/*.ogg). Every recording is its own sound
+ * event, "itzbreadloaf:felixsyn.voice.<file name>", grouped by the moment it plays at. Generated by
+ * tools/felix_voices.py from the recording folders; re-run it after adding recordings.
+ */
+public final class FelixVoices {
+	public enum Moment { IDLE, SPOT_PLAYER, SPOT_RIVAL, MACE, HURT, DEATH, RETREAT, SLEEP, VILLAGE, SEE_HARLEY, WIN, DEFEND }
+
+	private static final Map<Moment, List<SoundEvent>> SOUNDS = new EnumMap<>(Moment.class);
+
+	static {
+		add(Moment.IDLE, "elijah", "idle_felixsyn", "voice_261023_084807", "voice_261023_084835", "voice_261023_084917", "voice_261023_084935", "voice_261023_084953", "voice_261023_085007", "voice_261023_085028", "voice_261023_085111", "voice_261023_085137", "voice_261023_085152", "voice_261023_085418", "voice_261023_085453", "voice_261023_085506", "voice_261023_085515");
+		add(Moment.SPOT_PLAYER, "see_sm1_felixsyn", "voice_261023_085524");
+		add(Moment.SPOT_RIVAL, "voice_261023_085438", "voice_261023_085544", "voice_261023_085607");
+		add(Moment.MACE, "mace_attack", "voice_261023_084900", "voice_261023_085947");
+		add(Moment.HURT, "being_hit_felixsym", "voice_261023_090121", "voice_261023_090127", "voice_261023_090134", "voice_261023_090143", "voice_261023_090149");
+		add(Moment.DEATH, "death_felixsyn", "felixsyn_itzbreadloaf", "voice_261023_090322", "voice_261023_090330", "voice_261023_090337");
+		add(Moment.RETREAT, "retreat_to_heal_felixsyn", "voice_261023_090217", "voice_261023_090244", "voice_261023_090251");
+		add(Moment.SLEEP, "sleeping", "voice_261023_091053");
+		add(Moment.VILLAGE, "village", "voice_261023_090953", "voice_261023_091002");
+		add(Moment.SEE_HARLEY, "harley_see", "voice_261023_090821", "voice_261023_090838", "voice_261023_090856");
+		add(Moment.WIN, "voice_261023_085557", "voice_261023_085806", "voice_261023_090028", "voice_261023_090043", "voice_261023_090049", "winning_against_itzbreadloaf");
+		add(Moment.DEFEND, "attack_village_or_harley", "voice_261023_085055", "voice_261023_091128", "voice_261023_091135");
+	}
+
+	private FelixVoices() {
+	}
+
+	private static void add(Moment moment, String... names) {
+		List<SoundEvent> list = SOUNDS.computeIfAbsent(moment, m -> new ArrayList<>());
+		for (String name : names) {
+			Identifier id = ItzBreadLoaf.id("felixsyn.voice." + name);
+			list.add(Registry.register(BuiltInRegistries.SOUND_EVENT, id, SoundEvent.createVariableRangeEvent(id)));
+		}
+	}
+
+	/** A random recording for that moment, or null if none were recorded for it. */
+	public static @Nullable SoundEvent random(Moment moment, RandomSource random) {
+		List<SoundEvent> list = SOUNDS.get(moment);
+		return list == null || list.isEmpty() ? null : list.get(random.nextInt(list.size()));
+	}
+
+	public static void register() {
+		// Loads the class so the sounds above get registered.
 	}
 }
 ```
@@ -12278,9 +13032,206 @@ final class ExtraHomes {
 			case BERRY_CABIN -> NewHomes.berryCabin(p, level, box, random);
 			case SHIPWRECK_CAMP -> NewHomes.shipwreckCamp(p, level, box, random);
 			case SNOWBALL_FORT -> NewHomes.snowballFort(p, level, box, random);
+			case MACE_WORKSHOP -> FelixHomes.maceWorkshop(p, level, box, random, HomePiece.Palette.forBiome(biome));
+			case CLIFF_HUT -> FelixHomes.cliffHut(p, level, box, random, HomePiece.Palette.forBiome(biome));
+			case WIND_TOWER -> FelixHomes.windTower(p, level, box, random, HomePiece.Palette.forBiome(biome));
+			case RIVAL_CAMP -> FelixHomes.rivalCamp(p, level, box, random, HomePiece.Palette.forBiome(biome));
 			default -> {
 			}
 		}
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/worldgen/FelixHomes.java
+
+```java
+package com.itzbreadloaf.worldgen;
+
+import static com.itzbreadloaf.worldgen.SpecialHomes.air;
+import static com.itzbreadloaf.worldgen.SpecialHomes.hanging;
+import static com.itzbreadloaf.worldgen.SpecialHomes.one;
+import static com.itzbreadloaf.worldgen.SpecialHomes.site;
+
+import com.itzbreadloaf.character.CharacterVariant;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.entity.EntitySpawnReason;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.decoration.ArmorStand;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.WorldGenLevel;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.LadderBlock;
+import net.minecraft.world.level.block.RotatedPillarBlock;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
+
+/**
+ * Wild FelixSyn's homes: Mace Workshop, Cliff Hut, Wind Tower and Rival Camp. Materials come from the biome's palette
+ * (planks, logs, slabs, door), with the stone-and-dark-oak look kept where the spec asks for it.
+ */
+final class FelixHomes {
+	private FelixHomes() {
+	}
+
+	private static BlockState ladder() {
+		return Blocks.LADDER.defaultBlockState().setValue(LadderBlock.FACING, Direction.NORTH);
+	}
+
+	/** An armor stand with arms, wearing a chestplate and holding an iron axe (a sparring dummy). */
+	private static void dummy(HomePiece p, WorldGenLevel level, BoundingBox box, int x, int y, int z) {
+		BlockPos at = p.pos(x, y, z);
+		if (!box.isInside(at)) {
+			return;
+		}
+		ArmorStand stand = EntityType.ARMOR_STAND.create(level.getLevel(), EntitySpawnReason.STRUCTURE);
+		if (stand != null) {
+			stand.snapTo(at.getX() + 0.5, at.getY(), at.getZ() + 0.5, level.getRandom().nextFloat() * 360.0F, 0.0F);
+			stand.setShowArms(true);
+			stand.setItemSlot(EquipmentSlot.CHEST, new ItemStack(Items.CHAINMAIL_CHESTPLATE));
+			stand.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(Items.IRON_AXE));
+			level.addFreshEntityWithPassengers(stand);
+		}
+	}
+
+	/**
+	 * A mace rack: maces on display, built from blocks (a fence handle under a heavy-looking head) so they look the
+	 * part without handing out free maces (maces are Rare loot).
+	 */
+	private static void maceRack(HomePiece p, WorldGenLevel level, BoundingBox box, int x0, int z, int count) {
+		for (int i = 0; i < count; i++) {
+			int x = x0 + i * 2;
+			p.put(level, box, Blocks.DARK_OAK_FENCE.defaultBlockState(), x, 1, z);
+			p.put(level, box, Blocks.POLISHED_DEEPSLATE_WALL.defaultBlockState(), x, 2, z);
+		}
+	}
+
+	/** Mace Workshop (plains, savanna): stone-and-dark-oak workshop with an anvil, smithing table and mace racks. */
+	static void maceWorkshop(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random, HomePiece.Palette palette) {
+		site(p, level, box, 12, 7, 10, palette.ground());
+		p.fill(level, box, 1, 0, 1, 11, 0, 9, Blocks.STONE_BRICKS.defaultBlockState());
+		p.walls(level, box, 1, 1, 11, 9, 1, 1, Blocks.STONE_BRICKS.defaultBlockState());
+		p.walls(level, box, 1, 1, 11, 9, 2, 4, Blocks.DARK_OAK_PLANKS.defaultBlockState());
+		for (int[] c : new int[][]{{1, 1}, {11, 1}, {1, 9}, {11, 9}, {6, 1}, {6, 9}}) {
+			p.fill(level, box, c[0], 1, c[1], c[0], 4, c[1], Blocks.DARK_OAK_LOG.defaultBlockState());
+		}
+		// Roof: a slab layer and a raised ridge, in the biome's slab.
+		p.fill(level, box, 0, 5, 0, 12, 5, 10, palette.slab());
+		p.fill(level, box, 2, 6, 2, 10, 6, 8, palette.slab());
+		p.door(level, box, 6, 1, 1, palette.door());
+		for (int x : new int[]{3, 9}) {
+			p.put(level, box, Blocks.GLASS_PANE.defaultBlockState(), x, 2, 1);
+			p.put(level, box, Blocks.GLASS_PANE.defaultBlockState(), x, 3, 9);
+		}
+		p.put(level, box, Blocks.GLASS_PANE.defaultBlockState(), 1, 3, 5);
+		p.put(level, box, Blocks.GLASS_PANE.defaultBlockState(), 11, 3, 5);
+		// Workbenches along the back.
+		p.put(level, box, Blocks.ANVIL.defaultBlockState(), 3, 1, 8);
+		p.put(level, box, Blocks.SMITHING_TABLE.defaultBlockState(), 4, 1, 8);
+		p.put(level, box, Blocks.GRINDSTONE.defaultBlockState(), 5, 1, 8);
+		p.put(level, box, Blocks.BLAST_FURNACE.defaultBlockState(), 7, 1, 8);
+		p.chest(level, box, random, 8, 1, 8, ModStructures.lootTable("chests/mace_workshop"));
+		p.barrel(level, box, random, 9, 1, 8, ModStructures.BARREL_LOOT);
+		maceRack(p, level, box, 2, 3, 3);
+		dummy(p, level, box, 9, 1, 3);
+		p.bed(level, box, 9, 1, 5, net.minecraft.world.level.block.Blocks.BLACK_BED);
+		p.put(level, box, hanging(), 4, 4, 5);
+		p.put(level, box, hanging(), 8, 4, 5);
+		// Front path.
+		p.fill(level, box, 5, 0, 0, 7, 0, 0, Blocks.DIRT_PATH.defaultBlockState());
+		one(p, level, box, CharacterVariant.WILD_FELIX, 6, 1, 4, 6, 5, 12, p.pos(9, 1, 5), null);
+	}
+
+	/** Cliff Hut (windswept hills, mountains): a little hut with a diving-board ledge for mace drops. */
+	static void cliffHut(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random, HomePiece.Palette palette) {
+		p.fill(level, box, 0, 1, 0, 10, 7, 10, air());
+		p.fill(level, box, 1, 0, 1, 7, 0, 7, palette.foundation());
+		p.foundation(level, box, 1, 1, 7, 7, palette.foundation());
+		p.walls(level, box, 2, 2, 6, 6, 1, 3, palette.planks());
+		for (int[] c : new int[][]{{2, 2}, {6, 2}, {2, 6}, {6, 6}}) {
+			p.fill(level, box, c[0], 1, c[1], c[0], 3, c[1], palette.corner());
+		}
+		p.fill(level, box, 1, 4, 1, 7, 4, 7, palette.slab());
+		p.door(level, box, 4, 1, 2, palette.door());
+		p.put(level, box, Blocks.GLASS_PANE.defaultBlockState(), 2, 2, 4);
+		p.put(level, box, Blocks.GLASS_PANE.defaultBlockState(), 6, 2, 4);
+		p.bed(level, box, 3, 1, 4, net.minecraft.world.level.block.Blocks.BLACK_BED);
+		p.chest(level, box, random, 5, 1, 5, ModStructures.lootTable("chests/cliff_hut"));
+		p.put(level, box, Blocks.LANTERN.defaultBlockState(), 5, 1, 3);
+		// The ledge: planks sticking out over the drop, with rails on the sides and the far end open.
+		p.fill(level, box, 4, 0, 8, 4, 0, 10, palette.planks());
+		p.put(level, box, palette.corner(), 4, -1, 8);
+		p.fill(level, box, 3, 1, 8, 3, 1, 9, Blocks.SPRUCE_FENCE.defaultBlockState());
+		p.fill(level, box, 5, 1, 8, 5, 1, 9, Blocks.SPRUCE_FENCE.defaultBlockState());
+		p.put(level, box, Blocks.TARGET.defaultBlockState(), 8, 1, 2);
+		one(p, level, box, CharacterVariant.WILD_FELIX, 4, 1, 1, 4, 4, 10, p.pos(3, 1, 4), null);
+	}
+
+	/**
+	 * Wind Tower (open biomes): a tall, thin tower he jumps off to train. A ladder runs all the way up the inside to
+	 * the lookout on top, with lanterns on the way; hay bales around the bottom for landings.
+	 */
+	static void windTower(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random, HomePiece.Palette palette) {
+		int top = 22;
+		site(p, level, box, 8, 26, 8, palette.ground());
+		p.fill(level, box, 2, 0, 2, 6, 0, 6, palette.foundation());
+		BlockState wall = Blocks.STONE_BRICKS.defaultBlockState();
+		p.walls(level, box, 2, 2, 6, 6, 1, top - 1, wall);
+		for (int[] c : new int[][]{{2, 2}, {6, 2}, {2, 6}, {6, 6}}) {
+			p.fill(level, box, c[0], 1, c[1], c[0], top - 1, c[1], palette.corner());
+		}
+		p.door(level, box, 4, 1, 2, palette.door());
+		// Ladder up the back wall, all the way through the lookout floor.
+		for (int y = 1; y <= top; y++) {
+			p.put(level, box, ladder(), 4, y, 5);
+		}
+		for (int y = 6; y < top; y += 5) {
+			p.put(level, box, Blocks.LANTERN.defaultBlockState().setValue(net.minecraft.world.level.block.LanternBlock.HANGING, true), 3, y, 3);
+			p.put(level, box, Blocks.GLASS_PANE.defaultBlockState(), 2, y, 4);
+			p.put(level, box, Blocks.GLASS_PANE.defaultBlockState(), 6, y, 4);
+		}
+		// Lookout: a wider floor with a fence, and an open gap in the fence to jump from.
+		p.fill(level, box, 1, top, 1, 7, top, 7, palette.planks());
+		p.put(level, box, ladder(), 4, top, 5);
+		p.walls(level, box, 1, 1, 7, 7, top + 1, top + 1, Blocks.SPRUCE_FENCE.defaultBlockState());
+		p.put(level, box, air(), 4, top + 1, 1);
+		for (int[] c : new int[][]{{1, 1}, {7, 1}, {1, 7}, {7, 7}}) {
+			p.put(level, box, Blocks.LANTERN.defaultBlockState(), c[0], top + 2, c[1]);
+		}
+		p.chest(level, box, random, 2, top + 1, 6, ModStructures.lootTable("chests/wind_tower"));
+		// Landing pad.
+		for (int x = 0; x <= 8; x++) {
+			for (int z = 0; z <= 1; z++) {
+				p.put(level, box, Blocks.HAY_BLOCK.defaultBlockState(), x, 0, z);
+			}
+		}
+		p.bed(level, box, 3, 1, 3, net.minecraft.world.level.block.Blocks.BLACK_BED);
+		p.barrel(level, box, random, 5, 1, 3, ModStructures.BARREL_LOOT);
+		one(p, level, box, CharacterVariant.WILD_FELIX, 4, 1, 0, 4, 4, 12, p.pos(3, 1, 3), null);
+	}
+
+	/** Rival Camp: set up within sight of an ItzBreadLoaf house, so the two of them fight all the time. */
+	static void rivalCamp(HomePiece p, WorldGenLevel level, BoundingBox box, RandomSource random, HomePiece.Palette palette) {
+		site(p, level, box, 10, 4, 8, palette.ground());
+		p.fill(level, box, 1, 0, 1, 9, 0, 7, Blocks.COARSE_DIRT.defaultBlockState());
+		p.smallTent(level, box, 1, 3, Blocks.BLACK_WOOL.defaultBlockState());
+		p.put(level, box, Blocks.CAMPFIRE.defaultBlockState(), 6, 1, 4);
+		p.put(level, box, palette.corner().hasProperty(RotatedPillarBlock.AXIS)
+				? palette.corner().setValue(RotatedPillarBlock.AXIS, Direction.Axis.X) : palette.corner(), 6, 1, 6);
+		p.put(level, box, Blocks.TARGET.defaultBlockState(), 9, 1, 2);
+		p.put(level, box, Blocks.TARGET.defaultBlockState(), 9, 1, 6);
+		p.fill(level, box, 8, 1, 4, 8, 2, 4, Blocks.HAY_BLOCK.defaultBlockState());
+		p.put(level, box, Blocks.CARVED_PUMPKIN.defaultBlockState(), 8, 3, 4);
+		// A "scoreboard": red and blue banners for FelixSyn vs ItzBreadLoaf.
+		p.put(level, box, Blocks.RED_BANNER.defaultBlockState(), 5, 1, 1);
+		p.put(level, box, Blocks.BLUE_BANNER.defaultBlockState(), 7, 1, 1);
+		p.chest(level, box, random, 5, 1, 7, ModStructures.lootTable("chests/rival_camp"));
+		dummy(p, level, box, 9, 1, 4);
+		one(p, level, box, CharacterVariant.WILD_FELIX, 6, 1, 3, 6, 4, 14, p.pos(2, 1, 4), null);
 	}
 }
 ```
@@ -12422,7 +13373,17 @@ public enum HomeKind implements StringRepresentable {
 	/** Shipwreck Camp (my idea): Pirates camping by half a ship. */
 	SHIPWRECK_CAMP("shipwreck_camp", 17, 11, 8),
 	/** Snowball Fort (my idea): two snow forts and a snowman. Two ItzBreadLoafs. */
-	SNOWBALL_FORT("snowball_fort", 19, 13, 4);
+	SNOWBALL_FORT("snowball_fort", 19, 13, 4),
+
+	// ---- update 2: wild FelixSyn's homes
+	/** Mace Workshop: stone-and-dark-oak workshop with an anvil, smithing table and mace racks. Wild FelixSyn. */
+	MACE_WORKSHOP("mace_workshop", 13, 11, 8),
+	/** Cliff Hut: a little hut with a ledge for mace drops, on windswept hills and mountains. Wild FelixSyn. */
+	CLIFF_HUT("cliff_hut", 11, 11, 8),
+	/** Wind Tower: a tall thin tower with a ladder all the way up, for jump training. Wild FelixSyn. */
+	WIND_TOWER("wind_tower", 9, 9, 27),
+	/** Rival Camp: always within sight of an ItzBreadLoaf house or tent, so they fight. Wild FelixSyn. */
+	RIVAL_CAMP("rival_camp", 11, 9, 5);
 
 	public static final Codec<HomeKind> CODEC = StringRepresentable.fromEnum(HomeKind::values);
 
@@ -12457,6 +13418,11 @@ public enum HomeKind implements StringRepresentable {
 	/** Needs land under it (the End has void between islands). */
 	public boolean needsSolidGround() {
 		return this == END_MACE_TOWER || this == END_SKY_PLATFORM;
+	}
+
+	/** Only generates near an ItzBreadLoaf house or tent (the Rival Camp). */
+	public boolean needsRivalNearby() {
+		return this == RIVAL_CAMP;
 	}
 
 	/** Built on the water surface instead of on land. */
@@ -13516,7 +14482,7 @@ public class HomeStructure extends Structure {
 	@Override
 	protected Optional<GenerationStub> findGenerationPoint(GenerationContext context) {
 		ChunkPos chunk = context.chunkPos();
-		if (this.yieldsToNeighbor(context)) {
+		if (this.yieldsToNeighbor(context) || this.kind.needsRivalNearby() && !this.rivalHomeNearby(context)) {
 			return Optional.empty();
 		}
 		int x = chunk.getMiddleBlockX();
@@ -13547,30 +14513,36 @@ public class HomeStructure extends Structure {
 				builder.addPiece(new HomePiece(this.kind, context.random(), chunk.getMinBlockX(), chunk.getMinBlockZ())));
 	}
 
-	/**
-	 * Keeps LoafCraft structures off each other: if a bigger LoafCraft structure (from any of our structure sets) would
-	 * start close enough to overlap this one, this one doesn't generate. Bigger wins; equal sizes go to the earlier kind.
-	 * It works out where the other sets place their structures from the world seed, the same way the game does, and
-	 * checks the biome there. (Vanilla villages are kept away with "exclusion_zone" in each structure_set file.)
-	 */
+	/** Separation from other structures (ours, vanilla's and other mods'): see {@link com.itzbreadloaf.worldgen.build.PlacementRules}. */
 	private boolean yieldsToNeighbor(GenerationContext context) {
+		return com.itzbreadloaf.worldgen.build.PlacementRules.yields(context, this);
+	}
+
+	public HomeKind kind() {
+		return this.kind;
+	}
+
+	/**
+	 * Rival Camp: true if an ItzBreadLoaf house or tent will start 24-96 blocks away (close enough to see, far enough
+	 * not to overlap), worked out from the world seed like {@link #yieldsToNeighbor}.
+	 */
+	private boolean rivalHomeNearby(GenerationContext context) {
 		ChunkPos here = context.chunkPos();
-		int mySize = Math.max(this.kind.width, this.kind.depth);
 		for (StructureSet set : context.registryAccess().lookupOrThrow(Registries.STRUCTURE_SET)) {
 			if (!(set.placement() instanceof RandomSpreadStructurePlacement spread)) {
 				continue;
 			}
 			for (StructureSet.StructureSelectionEntry entry : set.structures()) {
-				if (!(entry.structure().value() instanceof HomeStructure other) || other.kind == this.kind || !other.outranks(this)) {
+				if (!(entry.structure().value() instanceof HomeStructure other)
+						|| other.kind != HomeKind.HOUSE && other.kind != HomeKind.TENT) {
 					continue;
 				}
-				int reach = (mySize + Math.max(other.kind.width, other.kind.depth)) / 2 + 6;
-				int reachChunks = reach / 16 + 1;
 				int spacing = spread.spacing();
-				for (int cx = Math.floorDiv(here.x - reachChunks, spacing); cx <= Math.floorDiv(here.x + reachChunks, spacing); cx++) {
-					for (int cz = Math.floorDiv(here.z - reachChunks, spacing); cz <= Math.floorDiv(here.z + reachChunks, spacing); cz++) {
+				for (int cx = Math.floorDiv(here.x - 6, spacing); cx <= Math.floorDiv(here.x + 6, spacing); cx++) {
+					for (int cz = Math.floorDiv(here.z - 6, spacing); cz <= Math.floorDiv(here.z + 6, spacing); cz++) {
 						ChunkPos start = spread.getPotentialStructureChunk(context.seed(), cx * spacing, cz * spacing);
-						if (Math.abs(start.x - here.x) * 16 > reach || Math.abs(start.z - here.z) * 16 > reach) {
+						double blocks = Math.sqrt(Math.pow((start.x - here.x) * 16.0, 2) + Math.pow((start.z - here.z) * 16.0, 2));
+						if (blocks < 24.0 || blocks > 96.0) {
 							continue;
 						}
 						Holder<Biome> biome = context.biomeSource().getNoiseBiome(QuartPos.fromBlock(start.getMiddleBlockX()),
@@ -13583,12 +14555,6 @@ public class HomeStructure extends Structure {
 			}
 		}
 		return false;
-	}
-
-	private boolean outranks(HomeStructure other) {
-		int mine = Math.max(this.kind.width, this.kind.depth);
-		int theirs = Math.max(other.kind.width, other.kind.depth);
-		return mine != theirs ? mine > theirs : this.kind.ordinal() < other.kind.ordinal();
 	}
 
 	@Override
@@ -13823,6 +14789,9 @@ import net.minecraft.world.level.storage.loot.LootTable;
 public final class ModStructures {
 	public static StructureType<HomeStructure> HOME;
 	public static StructurePieceType HOME_PIECE;
+	/** Structures built from blueprints (see worldgen/build). */
+	public static StructureType<com.itzbreadloaf.worldgen.build.BlueprintStructure> BLUEPRINT;
+	public static StructurePieceType BLUEPRINT_PIECE;
 
 	public static final ResourceKey<LootTable> HOUSE_CHEST = lootTable("chests/house");
 	public static final ResourceKey<LootTable> TENT_CHEST = lootTable("chests/tent");
@@ -13851,6 +14820,10 @@ public final class ModStructures {
 		HOME = Registry.register(BuiltInRegistries.STRUCTURE_TYPE, ItzBreadLoaf.id("home"), () -> HomeStructure.CODEC);
 		HOME_PIECE = Registry.register(BuiltInRegistries.STRUCTURE_PIECE, ItzBreadLoaf.id("home_piece"),
 				(StructurePieceType.ContextlessType) HomePiece::new);
+		BLUEPRINT = Registry.register(BuiltInRegistries.STRUCTURE_TYPE, ItzBreadLoaf.id("blueprint"),
+				() -> com.itzbreadloaf.worldgen.build.BlueprintStructure.CODEC);
+		BLUEPRINT_PIECE = Registry.register(BuiltInRegistries.STRUCTURE_PIECE, ItzBreadLoaf.id("blueprint_piece"),
+				(StructurePieceType.ContextlessType) com.itzbreadloaf.worldgen.build.BlueprintPiece::new);
 	}
 }
 ```
@@ -14724,8 +15697,12 @@ public final class RuntimeSites {
 	}
 
 	public static void add(ServerLevel level, HomeKind kind, BoundingBox box) {
+		add(level, kind.getSerializedName(), box);
+	}
+
+	public static void add(ServerLevel level, String kind, BoundingBox box) {
 		Data data = data(level.getServer());
-		data.sites.add(new Site(kind.getSerializedName(), level.dimension().identifier().toString(), box));
+		data.sites.add(new Site(kind, level.dimension().identifier().toString(), box));
 		data.setDirty();
 	}
 
@@ -15338,6 +16315,2939 @@ final class SpecialHomes {
 }
 ```
 
+## src/main/java/com/itzbreadloaf/worldgen/build/Blueprint.java
+
+```java
+package com.itzbreadloaf.worldgen.build;
+
+import com.itzbreadloaf.character.CharacterVariant;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import net.minecraft.core.BlockPos;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * A structure drawn in memory first, then checked, then placed. Local coordinates: x 0..width-1, z 0..depth-1,
+ * y = 0 is the ground layer (basements can go below 0). The front (where doors usually go) is the low-z side.
+ * Layouts only describe what goes where; {@link BlueprintPiece} levels the ground and places it in the world,
+ * and {@link Reachability} checks every floor, chest, bed and resident can be reached before that.
+ */
+public final class Blueprint {
+	public final int width;
+	public final int depth;
+	public final int height;
+	public final Palette palette;
+	/** Seeded from the structure, so every chunk of it builds the same layout. */
+	public final RandomSource random;
+
+	final Map<Long, BlockState> blocks = new HashMap<>();
+	final List<Container> containers = new ArrayList<>();
+	final List<Bed> beds = new ArrayList<>();
+	final List<Resident> residents = new ArrayList<>();
+	final List<Floor> floors = new ArrayList<>();
+	final List<Mob> mobs = new ArrayList<>();
+	final List<int[]> hives = new ArrayList<>();
+	final List<Pillar> pillars = new ArrayList<>();
+	/** Fill any gap under the footprint down to solid ground (off for ships and things on stilts). */
+	public boolean foundation = true;
+	/** Slope the terrain around the footprint toward the structure's ground level (off for ships). */
+	public boolean skirt = true;
+	/** Clear the terrain inside the footprint before building (off for things built into hills or underground). */
+	public boolean clearAbove = true;
+	/** Put the palette's ground on y = 0 wherever the layout leaves it empty. */
+	public boolean groundLayer = true;
+	private int lowestY;
+
+	public record Container(int x, int y, int z, String loot, boolean barrel) {
+	}
+
+	public record Bed(int x, int y, int z, Block block) {
+	}
+
+	public record Resident(CharacterVariant variant, int x, int y, int z, int homeX, int homeZ, int radius,
+			@Nullable BlockPos bed, @Nullable BlockPos pantry, boolean group) {
+	}
+
+	/** An animal or a training dummy: "cow", "sheep", "chicken", "pig", "horse", "dummy" (armor stand). */
+	public record Mob(int x, int y, int z, String type) {
+	}
+
+	/** A post that goes from (x, y, z) down to the ground when placed (docks, stilts). */
+	public record Pillar(int x, int y, int z, BlockState state) {
+	}
+
+	/** A walkable area that must be reachable (feet height y). */
+	public record Floor(int x0, int z0, int x1, int z1, int y, String name) {
+	}
+
+	public Blueprint(int width, int depth, int height, Palette palette, RandomSource random) {
+		this.width = width;
+		this.depth = depth;
+		this.height = height;
+		this.palette = palette;
+		this.random = random;
+	}
+
+	static long key(int x, int y, int z) {
+		return BlockPos.asLong(x, y, z);
+	}
+
+	public int lowestY() {
+		return this.lowestY;
+	}
+
+	// ---------------------------------------------------------------- blocks
+
+	public void set(int x, int y, int z, BlockState state) {
+		this.blocks.put(key(x, y, z), state);
+		this.lowestY = Math.min(this.lowestY, y);
+	}
+
+	public void set(int x, int y, int z, Block block) {
+		this.set(x, y, z, block.defaultBlockState());
+	}
+
+	public @Nullable BlockState get(int x, int y, int z) {
+		return this.blocks.get(key(x, y, z));
+	}
+
+	public boolean isSet(int x, int y, int z) {
+		return this.blocks.containsKey(key(x, y, z));
+	}
+
+	public void fill(int x0, int y0, int z0, int x1, int y1, int z1, BlockState state) {
+		for (int y = Math.min(y0, y1); y <= Math.max(y0, y1); y++) {
+			for (int x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) {
+				for (int z = Math.min(z0, z1); z <= Math.max(z0, z1); z++) {
+					this.set(x, y, z, state);
+				}
+			}
+		}
+	}
+
+	public void fill(int x0, int y0, int z0, int x1, int y1, int z1, Block block) {
+		this.fill(x0, y0, z0, x1, y1, z1, block.defaultBlockState());
+	}
+
+	/** Air (an explicit opening: doorways, stairwells, ladder holes). */
+	public void clear(int x0, int y0, int z0, int x1, int y1, int z1) {
+		this.fill(x0, y0, z0, x1, y1, z1, Blocks.AIR.defaultBlockState());
+	}
+
+	/** The outer ring of a rectangle, from y0 to y1. */
+	public void walls(int x0, int z0, int x1, int z1, int y0, int y1, BlockState state) {
+		for (int y = y0; y <= y1; y++) {
+			for (int x = x0; x <= x1; x++) {
+				this.set(x, y, z0, state);
+				this.set(x, y, z1, state);
+			}
+			for (int z = z0; z <= z1; z++) {
+				this.set(x0, y, z, state);
+				this.set(x1, y, z, state);
+			}
+		}
+	}
+
+	// ---------------------------------------------------------------- things that need more than a block
+
+	/** A chest filled from a loot table ("chests/house" means itzbreadloaf:chests/house). */
+	public void chest(int x, int y, int z, String loot) {
+		this.set(x, y, z, Blocks.CHEST);
+		this.containers.add(new Container(x, y, z, loot, false));
+	}
+
+	public void barrel(int x, int y, int z, String loot) {
+		this.set(x, y, z, Blocks.BARREL);
+		this.containers.add(new Container(x, y, z, loot, true));
+	}
+
+	/** A dispenser facing {@code facing}, loaded from a loot table (for traps use one outside chests/). */
+	public void dispenser(int x, int y, int z, net.minecraft.core.Direction facing, String loot) {
+		this.set(x, y, z, Blocks.DISPENSER.defaultBlockState().setValue(net.minecraft.world.level.block.DispenserBlock.FACING, facing));
+		this.containers.add(new Container(x, y, z, loot, true));
+	}
+
+	public void mob(int x, int y, int z, String type) {
+		this.mobs.add(new Mob(x, y, z, type));
+	}
+
+	/** A full beehive with two bees, over a lit campfire (smoke keeps them calm when the honey is taken). */
+	public void beehive(int x, int y, int z) {
+		this.set(x, y, z, Blocks.CAMPFIRE);
+		this.set(x, y + 1, z, Blocks.BEEHIVE.defaultBlockState()
+				.setValue(net.minecraft.world.level.block.BeehiveBlock.FACING, net.minecraft.core.Direction.SOUTH)
+				.setValue(net.minecraft.world.level.block.BeehiveBlock.HONEY_LEVEL, net.minecraft.world.level.block.BeehiveBlock.MAX_HONEY_LEVELS));
+		this.hives.add(new int[]{x, y + 1, z});
+	}
+
+	public void pillar(int x, int y, int z, BlockState state) {
+		this.set(x, y, z, state);
+		this.pillars.add(new Pillar(x, y, z, state));
+	}
+
+	/** A bed with its foot at z and head at z + 1 (pointing back). */
+	public void bed(int x, int y, int z, Block bed) {
+		this.set(x, y, z, bed);
+		this.set(x, y, z + 1, bed);
+		this.beds.add(new Bed(x, y, z, bed));
+	}
+
+	/** Someone who lives here: spawns at (x, y, z) and stays within radius of (homeX, y, homeZ). */
+	public void resident(CharacterVariant variant, int x, int y, int z, int homeX, int homeZ, int radius) {
+		this.residents.add(new Resident(variant, x, y, z, homeX, homeZ, radius, null, null, false));
+	}
+
+	/** A resident with a bed (local foot position) and optional pantry chest; group = they defend each other. */
+	public void resident(CharacterVariant variant, int x, int y, int z, int homeX, int homeZ, int radius,
+			@Nullable BlockPos bed, @Nullable BlockPos pantry, boolean group) {
+		this.residents.add(new Resident(variant, x, y, z, homeX, homeZ, radius, bed, pantry, group));
+	}
+
+	/** Declares a floor that players and residents must be able to reach (checked by {@link Reachability}). */
+	public void floor(int x0, int z0, int x1, int z1, int y, String name) {
+		this.floors.add(new Floor(x0, z0, x1, z1, y, name));
+	}
+
+	public List<Container> containers() {
+		return this.containers;
+	}
+
+	public List<Resident> residents() {
+		return this.residents;
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/worldgen/build/BlueprintPiece.java
+
+```java
+package com.itzbreadloaf.worldgen.build;
+
+import com.itzbreadloaf.ItzBreadLoaf;
+import com.itzbreadloaf.block.ModBlocks;
+import com.itzbreadloaf.block.ResidentMarkerBlockEntity;
+import com.itzbreadloaf.worldgen.ModStructures;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.core.Holder;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.util.Mth;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.RandomizableContainer;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.StructureManager;
+import net.minecraft.world.level.WorldGenLevel;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.block.BedBlock;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BedPart;
+import net.minecraft.world.level.chunk.ChunkGenerator;
+import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
+import net.minecraft.world.level.levelgen.structure.ScatteredFeaturePiece;
+import net.minecraft.world.level.levelgen.structure.pieces.StructurePieceSerializationContext;
+
+/**
+ * Places a blueprint in the world: picks the palette from the biome, builds the layout (seeded, so every chunk of
+ * the structure agrees), levels the ground under and around it, then places blocks, chests, barrels, beds and a
+ * resident marker. The piece is {@link #MARGIN} blocks bigger than the footprint on each side for the leveling skirt.
+ */
+public class BlueprintPiece extends ScatteredFeaturePiece {
+	public static final int MARGIN = 3;
+	/** Foundations and posts stop this far down (no pillars to the bottom of the world over a cliff or the void). */
+	private static final int FOUNDATION_DEPTH = 16;
+	private static final int PILLAR_DEPTH = 32;
+
+	private final String id;
+	private final long seed;
+	private boolean spawned;
+	private boolean checked;
+
+	public BlueprintPiece(String id, RandomSource random, int x, int z) {
+		super(ModStructures.BLUEPRINT_PIECE, x - MARGIN, 64, z - MARGIN, width(id) + 2 * MARGIN, height(id), depth(id) + 2 * MARGIN,
+				Direction.Plane.HORIZONTAL.getRandomDirection(random));
+		this.id = id;
+		this.seed = random.nextLong();
+	}
+
+	/**
+	 * Builds a structure right now in a loaded world (Village Campsites, Bastion Throne Rooms). (x, z) is the
+	 * footprint's corner and floorY the ground layer's height. Returns the area it covers.
+	 */
+	public static BoundingBox buildNow(net.minecraft.server.level.ServerLevel level, String id, int x, int z, int floorY, RandomSource random) {
+		BlueprintPiece piece = new BlueprintPiece(id, random, x, z);
+		piece.heightPosition = floorY;
+		piece.boundingBox.move(0, floorY - piece.boundingBox.minY(), 0);
+		BoundingBox area = piece.getBoundingBox();
+		piece.postProcess(level, level.structureManager(), level.getChunkSource().getGenerator(), random, area,
+				new ChunkPos(area.getCenter()), area.getCenter());
+		return area;
+	}
+
+	public BlueprintPiece(CompoundTag tag) {
+		super(ModStructures.BLUEPRINT_PIECE, tag);
+		this.id = tag.getStringOr("Id", "");
+		this.seed = tag.getLongOr("Seed", 0L);
+		this.spawned = tag.getBooleanOr("Spawned", false);
+	}
+
+	private static int width(String id) {
+		StructureCatalog.Def def = StructureCatalog.get(id);
+		return def == null ? 1 : def.width();
+	}
+
+	private static int depth(String id) {
+		StructureCatalog.Def def = StructureCatalog.get(id);
+		return def == null ? 1 : def.depth();
+	}
+
+	private static int height(String id) {
+		StructureCatalog.Def def = StructureCatalog.get(id);
+		return def == null ? 1 : def.height();
+	}
+
+	@Override
+	protected void addAdditionalSaveData(StructurePieceSerializationContext context, CompoundTag tag) {
+		super.addAdditionalSaveData(context, tag);
+		tag.putString("Id", this.id);
+		tag.putLong("Seed", this.seed);
+		tag.putBoolean("Spawned", this.spawned);
+	}
+
+	@Override
+	public void postProcess(WorldGenLevel level, StructureManager structureManager, ChunkGenerator generator, RandomSource random,
+			BoundingBox chunkBox, ChunkPos chunkPos, BlockPos pivot) {
+		StructureCatalog.Def def = StructureCatalog.get(this.id);
+		if (def == null || !Blueprints.has(this.id)) {
+			return;
+		}
+		if (def.placement() == StructureCatalog.Placement.NETHER_FLOOR) {
+			this.settleOnNetherFloor(level);
+		} else if (!this.updateAverageGroundHeight(level, chunkBox, -1)) {
+			return;
+		}
+		Holder<Biome> biome = level.getBiome(this.getWorldPos(MARGIN + def.width() / 2, 1, MARGIN + def.depth() / 2));
+		Blueprint blueprint = new Blueprint(def.width(), def.depth(), def.height(), Palette.forBiome(biome), RandomSource.create(this.seed));
+		Blueprints.build(this.id, blueprint);
+		if (!this.checked && FabricLoader.getInstance().isDevelopmentEnvironment()) {
+			// In the dev environment, report layouts with places you can't get to.
+			this.checked = true;
+			for (String problem : Reachability.check(blueprint)) {
+				ItzBreadLoaf.LOGGER.warn("Structure {}: {}", this.id, problem);
+			}
+		}
+		this.levelGround(level, chunkBox, blueprint);
+		this.placeBlocks(level, chunkBox, blueprint, random);
+	}
+
+	/** The Nether's heightmap is its ceiling: find the floor under the middle instead. */
+	private void settleOnNetherFloor(WorldGenLevel level) {
+		if (this.heightPosition >= 0) {
+			return;
+		}
+		BlockPos center = this.getWorldPos(this.boundingBox.getXSpan() / 2, 0, this.boundingBox.getZSpan() / 2);
+		int floor = 64;
+		for (int y = 100; y > 32; y--) {
+			BlockPos at = new BlockPos(center.getX(), y, center.getZ());
+			if (level.getBlockState(at).isAir() && level.getBlockState(at.above()).isAir()
+					&& !level.getBlockState(at.below()).isAir() && level.getFluidState(at.below()).isEmpty()) {
+				floor = y - 1;
+				break;
+			}
+		}
+		this.heightPosition = floor;
+		this.boundingBox.move(0, floor - this.boundingBox.minY(), 0);
+	}
+
+	/**
+	 * Terrain leveling: inside the footprint the terrain is cleared (if the layout wants that), the ground layer laid
+	 * and any gap under it filled down to solid ground, so nothing floats. Around it, a skirt up to {@link #MARGIN}
+	 * blocks wide slopes the terrain toward the structure's ground level, raising dips and cutting bumps, so nothing
+	 * looks buried or perched.
+	 */
+	private void levelGround(WorldGenLevel level, BoundingBox box, Blueprint b) {
+		BlockState ground = b.palette.ground();
+		BlockState foundation = b.palette.foundation();
+		BlockState air = Blocks.AIR.defaultBlockState();
+		for (int lx = -MARGIN; lx < b.width + MARGIN; lx++) {
+			for (int lz = -MARGIN; lz < b.depth + MARGIN; lz++) {
+				int x = lx + MARGIN;
+				int z = lz + MARGIN;
+				int outX = lx < 0 ? -lx : lx >= b.width ? lx - b.width + 1 : 0;
+				int outZ = lz < 0 ? -lz : lz >= b.depth ? lz - b.depth + 1 : 0;
+				int distance = Math.max(outX, outZ);
+				if (distance == 0) {
+					if (b.clearAbove) {
+						for (int y = 1; y < b.height; y++) {
+							if (!b.isSet(lx, y, lz)) {
+								this.placeBlock(level, air, x, y, z, box);
+							}
+						}
+					}
+					if (b.groundLayer && !b.isSet(lx, 0, lz)) {
+						this.placeBlock(level, ground, x, 0, z, box);
+					}
+					if (b.foundation) {
+						this.columnDown(level, foundation, x, Math.min(-1, b.lowestY() - 1), z, box, FOUNDATION_DEPTH);
+					}
+					continue;
+				}
+				if (!b.skirt) {
+					continue;
+				}
+				BlockPos world = this.getWorldPos(x, 0, z);
+				if (!box.isInside(world)) {
+					continue;
+				}
+				int top = level.getHeight(Heightmap.Types.WORLD_SURFACE_WG, world.getX(), world.getZ()) - 1 - world.getY();
+				int raiseTo = -(distance - 1);
+				int cutAbove = distance;
+				if (top < raiseTo) {
+					for (int y = Math.max(top + 1, raiseTo - 8); y <= raiseTo; y++) {
+						this.placeBlock(level, y == raiseTo ? ground : foundation, x, y, z, box);
+					}
+				} else if (top > cutAbove) {
+					for (int y = cutAbove + 1; y <= Math.min(top, cutAbove + 12); y++) {
+						this.placeBlock(level, air, x, y, z, box);
+					}
+					this.placeBlock(level, ground, x, cutAbove, z, box);
+				}
+			}
+		}
+	}
+
+	private void placeBlocks(WorldGenLevel level, BoundingBox box, Blueprint b, RandomSource random) {
+		Set<Long> special = new HashSet<>();
+		for (Blueprint.Bed bed : b.beds) {
+			special.add(Blueprint.key(bed.x(), bed.y(), bed.z()));
+			special.add(Blueprint.key(bed.x(), bed.y(), bed.z() + 1));
+		}
+		for (Blueprint.Container container : b.containers) {
+			special.add(Blueprint.key(container.x(), container.y(), container.z()));
+		}
+		for (Map.Entry<Long, BlockState> entry : b.blocks.entrySet()) {
+			if (special.contains(entry.getKey())) {
+				continue;
+			}
+			long key = entry.getKey();
+			this.placeBlock(level, entry.getValue(), BlockPos.getX(key) + MARGIN, BlockPos.getY(key), BlockPos.getZ(key) + MARGIN, box);
+		}
+		for (Blueprint.Container container : b.containers) {
+			var loot = ModStructures.lootTable(container.loot());
+			int x = container.x() + MARGIN;
+			int z = container.z() + MARGIN;
+			if (container.barrel()) {
+				// Barrels and dispensers: the block the layout chose (rotated with the structure), then its loot.
+				BlockPos at = this.getWorldPos(x, container.y(), z);
+				if (box.isInside(at)) {
+					BlockState state = b.get(container.x(), container.y(), container.z());
+					this.placeBlock(level, state == null ? Blocks.BARREL.defaultBlockState() : state, x, container.y(), z, box);
+					RandomizableContainer.setBlockEntityLootTable(level, random, at, loot);
+				}
+			} else {
+				this.createChest(level, box, random, x, container.y(), z, loot);
+			}
+		}
+		for (Blueprint.Bed bed : b.beds) {
+			// Point the bed from foot to head in real world positions, so both halves match however it's rotated.
+			BlockPos foot = this.getWorldPos(bed.x() + MARGIN, bed.y(), bed.z() + MARGIN);
+			BlockPos head = this.getWorldPos(bed.x() + MARGIN, bed.y(), bed.z() + 1 + MARGIN);
+			if (box.isInside(foot) && box.isInside(head)) {
+				Direction facing = Direction.getApproximateNearest(head.getX() - foot.getX(), 0, head.getZ() - foot.getZ());
+				BlockState state = bed.block().defaultBlockState().setValue(BedBlock.FACING, facing).setValue(BedBlock.PART, BedPart.FOOT);
+				level.setBlock(foot, state, 2);
+				level.setBlock(head, state.setValue(BedBlock.PART, BedPart.HEAD), 2);
+			}
+		}
+		for (Blueprint.Pillar pillar : b.pillars) {
+			this.columnDown(level, pillar.state(), pillar.x() + MARGIN, pillar.y() - 1, pillar.z() + MARGIN, box, PILLAR_DEPTH);
+		}
+		for (int[] hive : b.hives) {
+			BlockPos at = this.getWorldPos(hive[0] + MARGIN, hive[1], hive[2] + MARGIN);
+			if (box.isInside(at) && level.getBlockEntity(at) instanceof net.minecraft.world.level.block.entity.BeehiveBlockEntity beehive) {
+				for (int i = 0; i < 2; i++) {
+					beehive.storeBee(net.minecraft.world.level.block.entity.BeehiveBlockEntity.Occupant.create(random.nextInt(599)));
+				}
+			}
+		}
+		for (Blueprint.Mob mob : b.mobs) {
+			this.placeMob(level, box, mob);
+		}
+		this.placeResidents(level, box, b);
+	}
+
+	/** Like fillColumnDown, but only through air, water and plants, and at most {@code maxDepth} blocks. */
+	private void columnDown(WorldGenLevel level, BlockState state, int x, int y, int z, BoundingBox box, int maxDepth) {
+		for (int i = 0; i < maxDepth; i++) {
+			BlockPos at = this.getWorldPos(x, y - i, z);
+			if (!box.isInside(at) || at.getY() <= level.getMinY()) {
+				return;
+			}
+			BlockState current = level.getBlockState(at);
+			if (!current.isAir() && current.getFluidState().isEmpty() && !current.canBeReplaced()) {
+				return;
+			}
+			level.setBlock(at, state, 2);
+		}
+	}
+
+	private void placeMob(WorldGenLevel level, BoundingBox box, Blueprint.Mob mob) {
+		BlockPos at = this.getWorldPos(mob.x() + MARGIN, mob.y(), mob.z() + MARGIN);
+		if (!box.isInside(at)) {
+			return;
+		}
+		net.minecraft.world.entity.EntityType<?> type = switch (mob.type()) {
+			case "cow" -> net.minecraft.world.entity.EntityType.COW;
+			case "sheep" -> net.minecraft.world.entity.EntityType.SHEEP;
+			case "chicken" -> net.minecraft.world.entity.EntityType.CHICKEN;
+			case "pig" -> net.minecraft.world.entity.EntityType.PIG;
+			case "horse" -> net.minecraft.world.entity.EntityType.HORSE;
+			default -> net.minecraft.world.entity.EntityType.ARMOR_STAND;
+		};
+		net.minecraft.world.entity.Entity entity = type.create(level.getLevel(), net.minecraft.world.entity.EntitySpawnReason.STRUCTURE);
+		if (entity == null) {
+			return;
+		}
+		entity.snapTo(at.getX() + 0.5, at.getY(), at.getZ() + 0.5, level.getRandom().nextFloat() * 360.0F, 0.0F);
+		if (entity instanceof net.minecraft.world.entity.decoration.ArmorStand stand) {
+			// A training dummy in old armor with an iron axe (not a mace: maces are Rare loot).
+			stand.setShowArms(true);
+			stand.setItemSlot(net.minecraft.world.entity.EquipmentSlot.CHEST, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.CHAINMAIL_CHESTPLATE));
+			stand.setItemSlot(net.minecraft.world.entity.EquipmentSlot.HEAD, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.LEATHER_HELMET));
+			stand.setItemSlot(net.minecraft.world.entity.EquipmentSlot.MAINHAND, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.IRON_AXE));
+		} else if (entity instanceof net.minecraft.world.entity.Mob animal) {
+			animal.setPersistenceRequired();
+		}
+		level.addFreshEntityWithPassengers(entity);
+	}
+
+	/** One marker block at the first resident's spawn holds everyone who lives here; they appear when a player comes near. */
+	private void placeResidents(WorldGenLevel level, BoundingBox box, Blueprint b) {
+		List<Blueprint.Resident> residents = b.residents();
+		if (residents.isEmpty() || this.spawned) {
+			return;
+		}
+		Blueprint.Resident first = residents.get(0);
+		BlockPos markerPos = this.getWorldPos(first.x() + MARGIN, first.y(), first.z() + MARGIN);
+		if (!box.isInside(markerPos)) {
+			return;
+		}
+		this.spawned = true;
+		UUID group = Mth.createInsecureUUID(RandomSource.create(this.seed ^ 0x5DEECE66DL));
+		level.setBlock(markerPos, ModBlocks.RESIDENT_MARKER.defaultBlockState(), 2);
+		if (level.getBlockEntity(markerPos) instanceof ResidentMarkerBlockEntity marker) {
+			for (Blueprint.Resident r : residents) {
+				BlockPos spawn = this.getWorldPos(r.x() + MARGIN, r.y(), r.z() + MARGIN);
+				BlockPos home = this.getWorldPos(r.homeX() + MARGIN, r.y(), r.homeZ() + MARGIN);
+				BlockPos bed = r.bed() == null ? null : this.getWorldPos(r.bed().getX() + MARGIN, r.bed().getY(), r.bed().getZ() + MARGIN);
+				BlockPos pantry = r.pantry() == null ? null : this.getWorldPos(r.pantry().getX() + MARGIN, r.pantry().getY(), r.pantry().getZ() + MARGIN);
+				marker.addResident(r.variant(), spawn, home, r.radius(), bed, r.group() ? group : null, pantry);
+			}
+			marker.setChanged();
+		}
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/worldgen/build/BlueprintStructure.java
+
+```java
+package com.itzbreadloaf.worldgen.build;
+
+import com.itzbreadloaf.worldgen.ModStructures;
+import com.mojang.serialization.Codec;
+import com.mojang.serialization.MapCodec;
+import com.mojang.serialization.codecs.RecordCodecBuilder;
+import java.util.Optional;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.NoiseColumn;
+import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.level.levelgen.structure.Structure;
+import net.minecraft.world.level.levelgen.structure.StructureType;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * A structure built from a blueprint. Its worldgen JSON ("type": "itzbreadloaf:blueprint", "id": ...) is written by
+ * {@link StructureCatalogExport}; everything else about it (size, placement, layout) comes from the catalog and
+ * {@link Blueprints} by that id.
+ */
+public class BlueprintStructure extends Structure {
+	public static final MapCodec<BlueprintStructure> CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
+			settingsCodec(instance),
+			Codec.STRING.fieldOf("id").forGetter(structure -> structure.id)
+	).apply(instance, BlueprintStructure::new));
+
+	private final String id;
+
+	public BlueprintStructure(StructureSettings settings, String id) {
+		super(settings);
+		this.id = id;
+	}
+
+	public String id() {
+		return this.id;
+	}
+
+	public @Nullable StructureCatalog.Def def() {
+		return StructureCatalog.get(this.id);
+	}
+
+	@Override
+	protected Optional<GenerationStub> findGenerationPoint(GenerationContext context) {
+		StructureCatalog.Def def = this.def();
+		if (def == null || def.placement() == StructureCatalog.Placement.RUNTIME || !Blueprints.has(this.id)
+				|| PlacementRules.yields(context, this) || !def.near().isEmpty() && !PlacementRules.nearAny(context, def.near(), 24, 96)) {
+			return Optional.empty();
+		}
+		ChunkPos chunk = context.chunkPos();
+		int x = chunk.getMiddleBlockX();
+		int z = chunk.getMiddleBlockZ();
+		NoiseColumn column = context.chunkGenerator().getBaseColumn(x, z, context.heightAccessor(), context.randomState());
+		if (def.placement() == StructureCatalog.Placement.NETHER_FLOOR) {
+			for (int y = 100; y > 32; y--) {
+				if (column.getBlock(y).isAir() && column.getBlock(y + 1).isAir() && !column.getBlock(y - 1).isAir()
+						&& column.getBlock(y - 1).getFluidState().isEmpty()) {
+					return Optional.of(new GenerationStub(new BlockPos(x, y, z), builder ->
+							builder.addPiece(new BlueprintPiece(this.id, context.random(), chunk.getMinBlockX(), chunk.getMinBlockZ()))));
+				}
+			}
+			return Optional.empty();
+		}
+		int surface = context.chunkGenerator().getBaseHeight(x, z, Heightmap.Types.WORLD_SURFACE_WG, context.heightAccessor(), context.randomState());
+		if (def.placement() == StructureCatalog.Placement.ISLAND && surface <= context.heightAccessor().getMinY() + 8) {
+			return Optional.empty();
+		}
+		boolean water = !column.getBlock(surface - 1).getFluidState().isEmpty();
+		if (def.placement() == StructureCatalog.Placement.LAND && water || def.placement() == StructureCatalog.Placement.WATER && !water) {
+			return Optional.empty();
+		}
+		return onTopOfChunkCenter(context, Heightmap.Types.WORLD_SURFACE_WG, builder ->
+				builder.addPiece(new BlueprintPiece(this.id, context.random(), chunk.getMinBlockX(), chunk.getMinBlockZ())));
+	}
+
+	@Override
+	public StructureType<?> type() {
+		return ModStructures.BLUEPRINT;
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/worldgen/build/Blueprints.java
+
+```java
+package com.itzbreadloaf.worldgen.build;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+
+/** The layout for each catalog id. Layouts live in the *Blueprints classes, grouped by who builds there. */
+public final class Blueprints {
+	/** Draws a structure into a blueprint. */
+	@FunctionalInterface
+	public interface Layout {
+		void build(Blueprint b);
+	}
+
+	private static final Map<String, Layout> LAYOUTS = new HashMap<>();
+
+	static {
+		LAYOUTS.put("house", BreadBlueprints::house);
+		LAYOUTS.put("tent", BreadBlueprints::tent);
+		LAYOUTS.put("fort", BreadBlueprints::fort);
+		LAYOUTS.put("watchtower", BreadBlueprints::watchtower);
+		LAYOUTS.put("bandit_camp", BreadBlueprints::banditCamp);
+		LAYOUTS.put("bread_bakery", BreadBlueprints::breadBakery);
+		LAYOUTS.put("mining_camp", BreadBlueprints::miningCamp);
+		LAYOUTS.put("jungle_treehouse", BreadBlueprints::jungleTreehouse);
+		LAYOUTS.put("desert_bunker", BreadBlueprints::desertBunker);
+		LAYOUTS.put("igloo_hideout", BreadBlueprints::igloo);
+		LAYOUTS.put("ruined_loaf_castle", BreadBlueprints::ruinedCastle);
+		LAYOUTS.put("sweaty_dojo", BreadBlueprints::sweatyDojo);
+		LAYOUTS.put("windmill", BreadBlueprints::breadMill);
+		LAYOUTS.put("swamp_hut", BreadBlueprints::swampHut);
+		LAYOUTS.put("mountain_outpost", BreadBlueprints::mountainOutpost);
+		LAYOUTS.put("badlands_saloon", BreadBlueprints::badlandsSaloon);
+		LAYOUTS.put("cliffside_base", BreadBlueprints::cliffsideBase);
+		LAYOUTS.put("snowball_fort", BreadBlueprints::snowballFort);
+		LAYOUTS.put("lookout_tower", BreadBlueprints::lookoutTower);
+		LAYOUTS.put("pirate_ship", BreadBlueprints::pirateShip);
+		LAYOUTS.put("fishing_dock", BreadBlueprints::fishingDock);
+		LAYOUTS.put("loaf_lighthouse", BreadBlueprints::lighthouse);
+		LAYOUTS.put("smugglers_cove", BreadBlueprints::smugglersCove);
+		LAYOUTS.put("shipwreck_camp", BreadBlueprints::shipwreckCamp);
+		LAYOUTS.put("village_campsite", BreadBlueprints::villageCampsite);
+		LAYOUTS.put("bastion_throne_room", BreadBlueprints::bastionThroneRoom);
+	}
+
+	private Blueprints() {
+	}
+
+	public static boolean has(String id) {
+		return LAYOUTS.containsKey(id);
+	}
+
+	public static void build(String id, Blueprint blueprint) {
+		LAYOUTS.get(id).build(blueprint);
+	}
+
+	public static Set<String> ids() {
+		return LAYOUTS.keySet();
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/worldgen/build/BreadBlueprints.java
+
+```java
+package com.itzbreadloaf.worldgen.build;
+
+import com.itzbreadloaf.character.CharacterVariant;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.CarvedPumpkinBlock;
+import net.minecraft.world.level.block.LeavesBlock;
+import net.minecraft.world.level.block.state.BlockState;
+
+/** ItzBreadLoaf's structures (and the pirates', bandits' and knights'), remade on the blueprint system. */
+final class BreadBlueprints {
+	private static final Block[] WOOL = {Blocks.WHITE_WOOL, Blocks.ORANGE_WOOL, Blocks.LIGHT_BLUE_WOOL, Blocks.YELLOW_WOOL,
+			Blocks.LIME_WOOL, Blocks.CYAN_WOOL, Blocks.RED_WOOL, Blocks.BROWN_WOOL, Blocks.GREEN_WOOL, Blocks.BLUE_WOOL};
+	private static final Block[] DARK_WOOL = {Blocks.BLACK_WOOL, Blocks.GRAY_WOOL, Blocks.BROWN_WOOL};
+
+	private BreadBlueprints() {
+	}
+
+	private static BlockState wool(Blueprint b, Block[] colors) {
+		return colors[b.random.nextInt(colors.length)].defaultBlockState();
+	}
+
+	private static BlockPos at(int x, int y, int z) {
+		return new BlockPos(x, y, z);
+	}
+
+	/** Crenellations: every other block along the ring at height y. */
+	private static void crenellate(Blueprint b, int x0, int z0, int x1, int z1, int y, BlockState state) {
+		for (int x = x0; x <= x1; x += 2) {
+			b.set(x, y, z0, state);
+			b.set(x, y, z1, state);
+		}
+		for (int z = z0; z <= z1; z += 2) {
+			b.set(x0, y, z, state);
+			b.set(x1, y, z, state);
+		}
+	}
+
+	// ================================================================ homes
+
+	/** House: a gable-roofed cottage with a bed, chest, kitchen corner and table, a path and flowers out front. */
+	static void house(Blueprint b) {
+		Palette p = b.palette;
+		Pieces.cottage(b, 1, 1, 7, 7, 0, 3, Pieces.Roof.GABLE_X, "house");
+		b.bed(2, 1, 5, p.bed());
+		b.chest(3, 1, 6, "chests/house");
+		b.set(6, 1, 6, Blocks.CRAFTING_TABLE);
+		b.set(6, 1, 5, Blocks.FURNACE);
+		Pieces.table(b, 5, 1, 3, false, false);
+		b.set(4, 1, 3, Pieces.stairs(p.stairs(), Direction.WEST));
+		Pieces.path(b, 4, 0, 4, 0, 0);
+		Pieces.garden(b, 0, 0, 2, 0, 0);
+		Pieces.garden(b, 6, 0, 8, 0, 0);
+		b.resident(CharacterVariant.BREADLOAF, 4, 1, 4, 4, 4, 10, at(2, 1, 5), null, false);
+	}
+
+	/** Tent: a walk-in tent for 2-4 ItzBreadLoafs with beds, a chest and barrel, and a campfire out front. */
+	static void tent(Blueprint b) {
+		Palette p = b.palette;
+		Pieces.tent(b, 3, 3, 7, wool(b, WOOL));
+		b.bed(4, 1, 4, p.bed());
+		b.bed(6, 1, 4, p.bed());
+		b.chest(4, 1, 7, "chests/tent");
+		b.barrel(6, 1, 7, "chests/barrel_supplies");
+		Pieces.lantern(b, 5, 1, 8, false);
+		// In front of the tent, off the doorway line so the way in stays open.
+		Pieces.campfire(b, 5, 1, 1);
+		int members = 2 + b.random.nextInt(3);
+		for (int i = 0; i < members; i++) {
+			BlockPos bed = i == 0 ? at(4, 1, 4) : i == 1 ? at(6, 1, 4) : null;
+			b.resident(CharacterVariant.BREADLOAF, 6, 1, 1, 5, 5, 10, bed, null, true);
+		}
+	}
+
+	/** Bread Bakery: ItzBreadLoaf's own bakery with ovens, a counter, flour and a brick chimney. */
+	static void breadBakery(Blueprint b) {
+		Palette p = b.palette;
+		Pieces.cottage(b, 1, 1, 9, 9, 0, 3, Pieces.Roof.HIP, "bakery");
+		for (int x = 3; x <= 6; x++) {
+			b.set(x, 1, 8, x == 6 ? Blocks.SMOKER : Blocks.FURNACE);
+		}
+		b.chest(7, 1, 8, "chests/bread_bakery");
+		b.barrel(8, 1, 7, "chests/barrel_supplies");
+		b.fill(2, 1, 2, 2, 2, 2, Blocks.HAY_BLOCK);
+		// Counter (upside-down stairs) with a gap to walk through.
+		for (int x = 4; x <= 7; x++) {
+			b.set(x, 1, 5, Pieces.upsideDown(p.stairs(), Direction.NORTH));
+		}
+		b.bed(2, 1, 6, p.bed());
+		// Chimney through the roof, with smoke.
+		b.fill(8, 1, 9, 8, 8, 9, Blocks.BRICKS);
+		b.set(8, 9, 9, Blocks.CAMPFIRE);
+		Pieces.path(b, 5, 0, 5, 0, 0);
+		b.resident(CharacterVariant.BREADLOAF, 5, 1, 3, 5, 5, 10, at(2, 1, 6), null, false);
+	}
+
+	/** Jungle Treehouse: a hut on a platform around a big jungle trunk, a ladder up the trunk, a canopy and vines. */
+	static void jungleTreehouse(Blueprint b) {
+		Palette p = b.palette;
+		BlockState log = Blocks.JUNGLE_LOG.defaultBlockState();
+		b.fill(5, 1, 5, 6, 18, 6, log);
+		int deck = 10;
+		b.fill(2, deck, 2, 10, deck, 10, p.planks());
+		b.fill(5, deck, 5, 6, deck, 6, log);
+		Pieces.room(b, 3, 4, 9, 9, deck, 3, "treehouse");
+		b.fill(5, deck + 1, 5, 6, deck + 3, 6, log);
+		Pieces.door(b, 7, deck + 1, 4, Direction.NORTH);
+		Pieces.window(b, 3, deck + 2, 7);
+		Pieces.window(b, 9, deck + 2, 6);
+		Pieces.roof(b, Pieces.Roof.GABLE_X, 3, 4, 9, 9, deck + 3);
+		// Balcony rail, with the ladder coming up through the front.
+		b.walls(2, 2, 10, 10, deck + 1, deck + 1, p.fence());
+		// Ladder up the front, onto the balcony through a hole in the deck.
+		Pieces.ladder(b, 5, 1, deck, 3, Direction.NORTH);
+		// Inside.
+		b.bed(8, deck + 1, 7, p.bed());
+		b.chest(4, deck + 1, 8, "chests/jungle_treehouse");
+		Pieces.lantern(b, 4, deck + 1, 5, false);
+		// Canopy and vines.
+		for (int dx = -4; dx <= 4; dx++) {
+			for (int dz = -4; dz <= 4; dz++) {
+				for (int y = 17; y <= 20; y++) {
+					if (Math.abs(dx) + Math.abs(dz) + Math.abs(y - 18) * 2 <= 6) {
+						b.set(5 + dx, y, 5 + dz, Blocks.JUNGLE_LEAVES.defaultBlockState().setValue(LeavesBlock.PERSISTENT, true));
+					}
+				}
+			}
+		}
+		for (int y = deck - 3; y < deck; y++) {
+			b.set(10, y, 4, Blocks.VINE.defaultBlockState().setValue(net.minecraft.world.level.block.VineBlock.WEST, true));
+		}
+		b.resident(CharacterVariant.BREADLOAF, 7, deck + 1, 6, 6, 6, 6, at(8, deck + 1, 7), null, false);
+	}
+
+	/** Desert Bunker: a sandstone hut over stairs down to a hidden room, with an arrow trap at the door. */
+	static void desertBunker(Blueprint b) {
+		Palette p = b.palette;
+		// Bunker room underground.
+		Pieces.stoneRoom(b, 1, 1, 9, 9, -6, 4, "bunker");
+		b.fill(1, -1, 1, 9, -1, 9, p.bricks());
+		// The hut on top and the stairs down.
+		b.walls(3, 1, 7, 5, 1, 2, p.bricks());
+		b.fill(3, 3, 1, 7, 3, 5, p.stoneSlab());
+		Pieces.door(b, 5, 1, 1, Direction.NORTH);
+		Pieces.stairsRun(b, 5, -5, 8, Direction.NORTH, 6);
+		// Arrow trap: a pressure plate just inside the door, a dispenser beside it.
+		b.set(5, 1, 2, Blocks.STONE_PRESSURE_PLATE);
+		b.dispenser(6, 1, 2, Direction.WEST, "traps/arrows");
+		// Inside the bunker.
+		b.bed(2, -5, 2, p.bed());
+		b.bed(8, -5, 2, p.bed());
+		b.chest(2, -5, 7, "chests/desert_bunker");
+		b.chest(3, -5, 8, "chests/desert_bunker");
+		b.barrel(8, -5, 8, "chests/barrel_supplies");
+		b.set(8, -5, 6, Blocks.CRAFTING_TABLE);
+		b.set(7, -5, 8, Blocks.CARTOGRAPHY_TABLE);
+		Pieces.lantern(b, 5, -5, 2, false);
+		Pieces.lantern(b, 2, -5, 5, false);
+		b.resident(CharacterVariant.BREADLOAF, 4, -5, 4, 5, 5, 6, at(2, -5, 2), null, false);
+	}
+
+	/** Igloo Hideout: a snow dome with a hidden trapdoor (behind the furnace) down to a stone basement. */
+	static void igloo(Blueprint b) {
+		Palette p = b.palette;
+		BlockState snow = Blocks.SNOW_BLOCK.defaultBlockState();
+		for (int x = 0; x <= 8; x++) {
+			for (int z = 0; z <= 8; z++) {
+				for (int y = 1; y <= 5; y++) {
+					double d = Math.sqrt((x - 4) * (x - 4) + (z - 4) * (z - 4) + (y - 1) * (y - 1) * 1.6);
+					if (d <= 4.2) {
+						b.set(x, y, z, d > 3.2 ? snow : Blocks.AIR.defaultBlockState());
+					}
+				}
+			}
+		}
+		b.fill(1, 0, 1, 7, 0, 7, Blocks.PACKED_ICE);
+		b.fill(2, 1, 2, 6, 1, 6, Blocks.WHITE_CARPET);
+		b.clear(4, 1, 0, 4, 2, 1);
+		b.floor(3, 3, 5, 5, 1, "igloo");
+		b.bed(2, 1, 3, p.bed());
+		b.set(6, 1, 3, Blocks.FURNACE);
+		b.set(6, 1, 2, Blocks.CRAFTING_TABLE);
+		Pieces.lantern(b, 3, 1, 6, false);
+		// Hidden hatch beside the furnace, a ladder down to the basement.
+		Pieces.stoneRoom(b, 2, 2, 7, 7, -6, 4, "basement");
+		b.fill(2, -1, 2, 7, -1, 7, p.bricks());
+		Pieces.ladder(b, 6, -5, -1, 4, Direction.NORTH);
+		b.set(6, 0, 4, Blocks.SPRUCE_TRAPDOOR);
+		b.set(6, 1, 4, Blocks.AIR);
+		b.chest(3, -5, 3, "chests/igloo_hideout");
+		b.barrel(3, -5, 6, "chests/barrel_supplies");
+		b.set(5, -5, 6, Blocks.BREWING_STAND);
+		Pieces.lantern(b, 4, -5, 3, false);
+		b.resident(CharacterVariant.BREADLOAF, 4, 1, 4, 4, 4, 8, at(2, 1, 3), null, false);
+	}
+
+	/** Swamp Hut on stilts: a shack over the water with a porch, a ladder and a cauldron. */
+	static void swampHut(Blueprint b) {
+		Palette p = b.palette;
+		b.foundation = false;
+		b.groundLayer = false;
+		b.skirt = false;
+		int deck = 3;
+		for (int[] c : new int[][]{{2, 2}, {8, 2}, {2, 8}, {8, 8}, {2, 1}, {8, 1}}) {
+			b.pillar(c[0], deck - 1, c[1], p.log());
+		}
+		b.fill(2, deck, 1, 8, deck, 1, p.planks());
+		Pieces.room(b, 2, 2, 8, 8, deck, 3, "hut");
+		Pieces.door(b, 5, deck + 1, 2, Direction.NORTH);
+		Pieces.windowsAround(b, 2, 2, 8, 8, deck + 2, 5);
+		Pieces.roof(b, Pieces.Roof.GABLE_X, 2, 2, 8, 8, deck + 3);
+		b.fill(2, deck + 1, 1, 4, deck + 1, 1, p.fence());
+		b.fill(6, deck + 1, 1, 8, deck + 1, 1, p.fence());
+		Pieces.ladder(b, 5, 1, deck, 0, Direction.NORTH);
+		b.bed(3, deck + 1, 6, p.bed());
+		b.set(7, deck + 1, 7, Blocks.WATER_CAULDRON);
+		b.set(7, deck + 1, 3, Blocks.CRAFTING_TABLE);
+		b.chest(7, deck + 1, 5, "chests/swamp_hut");
+		b.barrel(3, deck + 1, 3, "chests/barrel_supplies");
+		Pieces.lantern(b, 5, deck + 1, 7, false);
+		b.resident(CharacterVariant.BREADLOAF, 5, deck + 1, 4, 5, 5, 10, at(3, deck + 1, 6), null, false);
+	}
+
+	/** Cliffside Cave Base: a lit stone room underground, reached through a trapdoor hidden in a bush. */
+	static void cliffsideBase(Blueprint b) {
+		Palette p = b.palette;
+		b.clearAbove = false;
+		b.groundLayer = false;
+		b.skirt = false;
+		b.foundation = false;
+		BlockState wall = p.bricks();
+		b.fill(1, -8, 1, 11, -2, 11, wall);
+		b.clear(2, -7, 2, 10, -3, 10);
+		b.fill(2, -8, 2, 10, -8, 10, p.stoneFloor());
+		b.floor(2, 2, 10, 10, -7, "cave base");
+		Pieces.ladder(b, 6, -7, -1, 6, Direction.NORTH);
+		b.set(6, 0, 6, Blocks.SPRUCE_TRAPDOOR);
+		BlockState leaves = Blocks.OAK_LEAVES.defaultBlockState().setValue(LeavesBlock.PERSISTENT, true);
+		for (int[] c : new int[][]{{5, 5}, {6, 5}, {7, 5}, {5, 6}, {7, 6}, {5, 7}, {7, 7}}) {
+			b.set(c[0], 1, c[1], leaves);
+		}
+		b.bed(3, -7, 8, p.bed());
+		b.set(9, -7, 9, Blocks.CRAFTING_TABLE);
+		b.set(9, -7, 8, Blocks.FURNACE);
+		b.set(9, -7, 3, Blocks.SMITHING_TABLE);
+		b.chest(3, -7, 3, "chests/cliffside_base");
+		b.chest(4, -7, 3, "chests/cliffside_base");
+		b.barrel(9, -7, 5, "chests/barrel_supplies");
+		b.mob(8, -7, 8, "dummy");
+		for (int[] l : new int[][]{{4, 6}, {8, 4}, {3, 10}}) {
+			Pieces.lantern(b, l[0], -7, l[1], false);
+		}
+		b.fill(5, -8, 4, 7, -8, 4, Blocks.RED_WOOL);
+		b.resident(CharacterVariant.BREADLOAF, 6, -7, 4, 6, 6, 4, at(3, -7, 8), null, false);
+	}
+
+	// ================================================================ outposts and towers
+
+	/**
+	 * Lookout Tower (remade): the old one had no way up. Now a 5x5 tower on a stone pad with three floors, a ladder up
+	 * the inside of the back wall through a hole in every floor, a fenced lookout on top under a hip roof, windows and
+	 * a lantern on every floor. Archer ItzBreadLoaf keeps watch from the top.
+	 */
+	static void lookoutTower(Blueprint b) {
+		Palette p = b.palette;
+		b.fill(0, 0, 0, 6, 0, 6, p.stoneFloor());
+		Pieces.tower(b, 1, 1, 5, 0, 15, 5, false);
+		b.walls(1, 1, 5, 5, 1, 1, p.bricks());
+		Pieces.door(b, 3, 1, 1, Direction.NORTH);
+		b.fill(0, 15, 0, 6, 15, 6, p.planks());
+		Pieces.ladder(b, 3, 15, 15, 4, Direction.NORTH);
+		b.walls(0, 0, 6, 6, 16, 16, p.fence());
+		for (int[] c : new int[][]{{0, 0}, {6, 0}, {0, 6}, {6, 6}}) {
+			b.fill(c[0], 17, c[1], c[0], 18, c[1], p.fence());
+		}
+		Pieces.hipRoof(b, 1, 1, 5, 5, 19);
+		b.floor(1, 1, 5, 5, 16, "lookout");
+		b.bed(2, 1, 2, p.bed());
+		b.chest(4, 1, 2, "chests/lookout_tower");
+		b.barrel(4, 1, 3, "chests/barrel_supplies");
+		b.set(4, 6, 2, Blocks.CRAFTING_TABLE);
+		b.set(4, 6, 3, Blocks.BOOKSHELF);
+		b.set(4, 11, 2, Blocks.TARGET);
+		b.chest(1, 16, 1, "chests/lookout_tower");
+		Pieces.lantern(b, 5, 16, 5, false);
+		b.resident(CharacterVariant.ARCHER, 3, 16, 2, 3, 3, 2);
+	}
+
+	/** Watchtower: a tall stone tower with a ladder all the way up and a walled lookout. Archer on top. */
+	static void watchtower(Blueprint b) {
+		Palette p = b.palette;
+		b.fill(0, 0, 0, 6, 0, 6, p.stoneFloor());
+		Pieces.tower(b, 1, 1, 5, 0, 16, 8, true);
+		Pieces.door(b, 3, 1, 1, Direction.NORTH);
+		b.fill(0, 16, 0, 6, 16, 6, p.bricks());
+		Pieces.ladder(b, 3, 16, 16, 4, Direction.NORTH);
+		b.walls(0, 0, 6, 6, 17, 17, p.stoneWall());
+		for (int[] c : new int[][]{{0, 0}, {6, 0}, {0, 6}, {6, 6}}) {
+			Pieces.lantern(b, c[0], 18, c[1], false);
+		}
+		b.floor(1, 1, 5, 5, 17, "lookout");
+		b.bed(2, 1, 2, p.bed());
+		b.barrel(4, 1, 2, "chests/barrel_supplies");
+		b.chest(1, 17, 1, "chests/watchtower");
+		b.resident(CharacterVariant.ARCHER, 3, 17, 2, 3, 3, 2);
+	}
+
+	/** Mountain Outpost: a two-floor stone lookout on the peaks with a crenellated roof and a campfire. */
+	static void mountainOutpost(Blueprint b) {
+		Palette p = b.palette;
+		b.fill(0, 0, 0, 8, 0, 8, p.stoneFloor());
+		Pieces.tower(b, 1, 1, 7, 0, 8, 4, true);
+		Pieces.door(b, 4, 1, 1, Direction.NORTH);
+		crenellate(b, 1, 1, 7, 7, 9, p.bricks());
+		b.set(3, 9, 3, Blocks.CAMPFIRE);
+		b.bed(2, 1, 4, p.bed());
+		b.bed(2, 5, 4, p.bed());
+		b.set(6, 1, 2, Blocks.FURNACE);
+		b.chest(6, 1, 4, "chests/mountain_outpost");
+		b.barrel(6, 5, 2, "chests/barrel_supplies");
+		b.set(6, 5, 4, Blocks.FLETCHING_TABLE);
+		b.resident(CharacterVariant.ARCHER, 4, 9, 4, 4, 4, 3, at(2, 5, 4), null, true);
+		b.resident(CharacterVariant.KNIGHT, 4, 1, 3, 4, 4, 8, at(2, 1, 4), null, true);
+	}
+
+	/** Mining Camp: a tent and campfire beside a log-framed shaft down to a lit mine room with rails. */
+	static void miningCamp(Blueprint b) {
+		Palette p = b.palette;
+		Pieces.tent(b, 1, 5, 6, Blocks.BROWN_WOOL.defaultBlockState());
+		b.bed(2, 1, 7, p.bed());
+		b.barrel(4, 1, 9, "chests/barrel_supplies");
+		Pieces.campfire(b, 3, 1, 2);
+		// Shaft head: four posts and a slab roof over a ladder going down.
+		for (int[] c : new int[][]{{8, 8}, {11, 8}, {8, 11}, {11, 11}}) {
+			b.fill(c[0], 1, c[1], c[0], 2, c[1], p.fence());
+		}
+		b.fill(8, 3, 8, 11, 3, 11, p.slab());
+		Pieces.ladder(b, 9, -9, 0, 10, Direction.NORTH);
+		b.fill(8, 0, 8, 11, 0, 11, p.planks());
+		Pieces.ladder(b, 9, 0, 0, 10, Direction.NORTH);
+		// Mine room.
+		Pieces.stoneRoom(b, 5, 5, 12, 12, -10, 4, "mine");
+		b.fill(5, -6, 5, 12, -6, 12, p.stoneBase());
+		Pieces.ladder(b, 9, -9, -6, 10, Direction.NORTH);
+		b.fill(6, -9, 6, 11, -9, 6, Blocks.RAIL);
+		b.set(6, -8, 12, Blocks.COAL_ORE);
+		b.set(12, -8, 8, Blocks.IRON_ORE);
+		b.set(5, -9, 9, Blocks.COPPER_ORE);
+		b.chest(11, -9, 11, "chests/mining_camp");
+		b.barrel(6, -9, 11, "chests/barrel_supplies");
+		Pieces.lantern(b, 7, -9, 9, false);
+		Pieces.lantern(b, 11, -9, 7, false);
+		b.fill(6, 1, 10, 7, 1, 10, Blocks.RAIL);
+		b.resident(CharacterVariant.MINER, 3, 1, 3, 6, 6, 10, at(2, 1, 7), null, false);
+	}
+
+	// ================================================================ fortifications
+
+	/** Bread Fort: stone walls with crenellations, four towers with ladders, barracks, an armory and a treasure room. */
+	static void fort(Blueprint b) {
+		Palette p = b.palette;
+		BlockState brick = p.bricks();
+		b.walls(0, 0, 20, 20, 1, 4, brick);
+		crenellate(b, 0, 0, 20, 20, 5, brick);
+		b.clear(9, 1, 0, 11, 3, 0);
+		Pieces.path(b, 10, 0, 10, 0, 12);
+		for (int[] c : new int[][]{{0, 0}, {16, 0}, {0, 16}, {16, 16}}) {
+			Pieces.tower(b, c[0], c[1], 5, 0, 9, 9, true);
+			crenellate(b, c[0], c[1], c[0] + 4, c[1] + 4, 10, brick);
+			// Door into the courtyard: the front towers open sideways, the back ones forward (the barracks is beside them).
+			if (c[1] == 0) {
+				Pieces.door(b, c[0] == 0 ? 4 : 16, 1, 2, c[0] == 0 ? Direction.EAST : Direction.WEST);
+			} else {
+				Pieces.door(b, c[0] + 2, 1, 16, Direction.NORTH);
+			}
+		}
+		// Barracks along the back.
+		Pieces.stoneRoom(b, 5, 13, 15, 18, 0, 4, "barracks");
+		Pieces.door(b, 10, 1, 13, Direction.NORTH);
+		Pieces.roof(b, Pieces.Roof.FLAT, 5, 13, 15, 18, 4);
+		for (int x : new int[]{6, 8, 12, 14}) {
+			b.bed(x, 1, 16, p.bed());
+		}
+		Pieces.lantern(b, 10, 1, 17, false);
+		b.barrel(7, 1, 14, "chests/barrel_supplies");
+		// Treasure room and armory either side of the courtyard.
+		Pieces.stoneRoom(b, 4, 5, 8, 9, 0, 3, "treasure room");
+		Pieces.door(b, 8, 1, 7, Direction.EAST);
+		Pieces.roof(b, Pieces.Roof.FLAT, 4, 5, 8, 9, 3);
+		b.chest(5, 1, 6, "chests/fort");
+		b.chest(5, 1, 8, "chests/fort");
+		Pieces.lantern(b, 7, 1, 8, false);
+		Pieces.stoneRoom(b, 12, 5, 16, 9, 0, 3, "armory");
+		Pieces.door(b, 12, 1, 7, Direction.WEST);
+		Pieces.roof(b, Pieces.Roof.FLAT, 12, 5, 16, 9, 3);
+		b.set(15, 1, 6, Blocks.ANVIL);
+		b.set(15, 1, 8, Blocks.GRINDSTONE);
+		b.barrel(14, 1, 8, "chests/barrel_supplies");
+		Pieces.lantern(b, 13, 1, 6, false);
+		// Courtyard: training dummies and lamp posts.
+		b.mob(7, 1, 11, "dummy");
+		b.mob(13, 1, 11, "dummy");
+		for (int[] l : new int[][]{{6, 3}, {14, 3}, {6, 11}, {14, 11}}) {
+			b.set(l[0], 1, l[1], p.fence());
+			Pieces.lantern(b, l[0], 2, l[1], false);
+		}
+		BlockPos[] beds = {at(6, 1, 16), at(8, 1, 16), at(12, 1, 16), at(14, 1, 16)};
+		b.resident(CharacterVariant.CAPTAIN, 10, 1, 11, 10, 10, 9, beds[0], null, true);
+		for (int i = 1; i < 4; i++) {
+			b.resident(CharacterVariant.KNIGHT, 10, 1, 11, 10, 10, 9, beds[i], null, true);
+		}
+	}
+
+	/** Ruined Loaf Castle: crumbling walls and towers, a two-floor keep with a great hall, a throne and a treasury. */
+	static void ruinedCastle(Blueprint b) {
+		Palette p = b.palette;
+		BlockState[] stones = {Blocks.STONE_BRICKS.defaultBlockState(), Blocks.MOSSY_STONE_BRICKS.defaultBlockState(),
+				Blocks.CRACKED_STONE_BRICKS.defaultBlockState(), Blocks.COBBLESTONE.defaultBlockState()};
+		// Outer walls with gaps.
+		for (int y = 1; y <= 6; y++) {
+			for (int i = 0; i <= 26; i++) {
+				for (int[] c : new int[][]{{i, 0}, {i, 26}, {0, i}, {26, i}}) {
+					if (y <= 2 || b.random.nextInt(5) != 0) {
+						b.set(c[0], y, c[1], stones[b.random.nextInt(stones.length)]);
+					}
+				}
+			}
+		}
+		b.clear(12, 1, 0, 14, 4, 0);
+		b.fill(12, 4, 0, 14, 4, 0, Blocks.IRON_BARS);
+		b.clear(26, 1, 10, 26, 6, 12);
+		// Corner towers; some tops have fallen.
+		for (int[] c : new int[][]{{0, 0}, {22, 0}, {0, 22}, {22, 22}}) {
+			int height = 8 + b.random.nextInt(4);
+			Pieces.tower(b, c[0], c[1], 5, 0, height, height, true);
+			Pieces.door(b, c[0] == 0 ? c[0] + 4 : c[0], 1, c[1] + 2, c[0] == 0 ? Direction.EAST : Direction.WEST);
+		}
+		// The keep: great hall below, treasury above, stairs between.
+		Pieces.stoneRoom(b, 8, 8, 18, 18, 0, 5, "great hall");
+		Pieces.door(b, 13, 1, 8, Direction.NORTH);
+		b.clear(12, 1, 8, 14, 2, 8);
+		b.fill(8, 6, 8, 18, 6, 18, p.planks());
+		Pieces.stoneRoom(b, 8, 8, 18, 18, 6, 4, "treasury");
+		// Stairs up the back wall; the floor above them is open, the last step leads onto the treasury floor.
+		Pieces.stairsRun(b, 9, 1, 16, Direction.EAST, 5);
+		b.clear(10, 6, 16, 13, 6, 16);
+		crenellate(b, 8, 8, 18, 18, 11, stones[0]);
+		// Long table down the hall, and the throne at the far end.
+		for (int z = 11; z <= 14; z++) {
+			Pieces.table(b, 13, 1, z, true, false);
+		}
+		b.set(13, 1, 17, Pieces.stairs(p.stairs(), Direction.NORTH));
+		b.set(12, 1, 17, p.bricks());
+		b.set(14, 1, 17, p.bricks());
+		b.fill(13, 1, 9, 13, 1, 10, Blocks.RED_CARPET);
+		Pieces.lantern(b, 9, 1, 9, false);
+		Pieces.lantern(b, 17, 1, 9, false);
+		Pieces.lantern(b, 17, 1, 17, false);
+		b.chest(17, 7, 17, "chests/ruined_loaf_castle");
+		b.chest(9, 7, 9, "chests/ruined_loaf_castle");
+		b.barrel(17, 7, 9, "chests/barrel_supplies");
+		Pieces.lantern(b, 13, 7, 13, false);
+		// Rubble in the courtyard.
+		for (int i = 0; i < 14; i++) {
+			int x = 2 + b.random.nextInt(23);
+			int z = 2 + b.random.nextInt(23);
+			if ((x < 7 || x > 19 || z < 7 || z > 19) && !b.isSet(x, 1, z)) {
+				b.set(x, 1, z, b.random.nextBoolean() ? Blocks.MOSSY_COBBLESTONE : Blocks.COBBLESTONE);
+			}
+		}
+		int members = 3 + b.random.nextInt(3);
+		b.resident(CharacterVariant.CAPTAIN, 11, 1, 12, 13, 13, 12, null, null, true);
+		for (int i = 1; i < members; i++) {
+			b.resident(i % 2 == 0 ? CharacterVariant.BREADLOAF : CharacterVariant.KNIGHT, 11, 1, 12, 13, 13, 12, null, null, true);
+		}
+	}
+
+	/** Bandit Camp: dark tents around a campfire, a pile of stolen goods, 3-4 Bandits who defend each other. */
+	static void banditCamp(Blueprint b) {
+		Palette p = b.palette;
+		Pieces.tent(b, 1, 6, 6, wool(b, DARK_WOOL));
+		Pieces.tent(b, 9, 6, 6, wool(b, DARK_WOOL));
+		b.bed(2, 1, 8, p.bed());
+		b.bed(12, 1, 8, p.bed());
+		Pieces.campfire(b, 7, 1, 3);
+		b.fill(6, 1, 12, 8, 1, 12, Blocks.HAY_BLOCK);
+		b.chest(7, 1, 13, "chests/bandit_camp");
+		b.barrel(6, 1, 13, "chests/barrel_supplies");
+		b.barrel(8, 1, 13, "chests/barrel_supplies");
+		for (int[] l : new int[][]{{1, 1}, {13, 1}}) {
+			b.set(l[0], 1, l[1], p.fence());
+			Pieces.lantern(b, l[0], 2, l[1], false);
+		}
+		int members = 3 + b.random.nextInt(2);
+		for (int i = 0; i < members; i++) {
+			BlockPos bed = i == 0 ? at(2, 1, 8) : i == 1 ? at(12, 1, 8) : null;
+			b.resident(CharacterVariant.BANDIT, 7, 1, 4, 7, 7, 10, bed, null, true);
+		}
+	}
+
+	/** Sweaty Dojo: a training hall with targets, dummies, an anvil and a weapon chest. */
+	static void sweatyDojo(Blueprint b) {
+		Palette p = b.palette;
+		Pieces.cottage(b, 1, 1, 11, 11, 0, 4, Pieces.Roof.HIP, "dojo");
+		b.fill(4, 0, 4, 8, 0, 8, Blocks.RED_WOOL);
+		b.fill(5, 0, 5, 7, 0, 7, Blocks.WHITE_WOOL);
+		b.set(3, 1, 10, Blocks.TARGET);
+		b.set(9, 1, 10, Blocks.TARGET);
+		b.mob(5, 1, 9, "dummy");
+		b.mob(7, 1, 9, "dummy");
+		b.set(10, 1, 3, Blocks.ANVIL);
+		b.set(10, 1, 4, Blocks.GRINDSTONE);
+		b.chest(2, 1, 3, "chests/sweaty_dojo");
+		b.barrel(2, 1, 4, "chests/barrel_supplies");
+		b.bed(2, 1, 8, p.bed());
+		Pieces.lantern(b, 6, 1, 3, false);
+		b.resident(CharacterVariant.SWEATY, 6, 1, 5, 6, 6, 6, at(2, 1, 8), null, false);
+	}
+
+	/** Snowball Fort: two snow forts facing each other, a snowman between them, snowball stashes. */
+	static void snowballFort(Blueprint b) {
+		BlockState snow = Blocks.SNOW_BLOCK.defaultBlockState();
+		for (int[] fort : new int[][]{{1, 6, 6}, {12, 17, 12}}) {
+			int x0 = fort[0];
+			int x1 = fort[1];
+			int front = fort[2];
+			b.fill(front, 1, 3, front, 2, 9, snow);
+			b.fill(x0, 1, 3, x1, 1, 3, snow);
+			b.fill(x0, 1, 9, x1, 1, 9, snow);
+			for (int z = 3; z <= 9; z += 2) {
+				b.set(front, 3, z, snow);
+			}
+		}
+		b.fill(9, 1, 6, 9, 2, 6, snow);
+		b.set(9, 3, 6, Blocks.CARVED_PUMPKIN.defaultBlockState().setValue(CarvedPumpkinBlock.FACING, Direction.NORTH));
+		b.chest(2, 1, 5, "chests/snowball_fort");
+		b.chest(16, 1, 7, "chests/snowball_fort");
+		b.floor(2, 4, 5, 8, 1, "left fort");
+		b.floor(13, 4, 16, 8, 1, "right fort");
+		b.resident(CharacterVariant.BREADLOAF, 4, 1, 6, 9, 6, 10, null, null, true);
+		b.resident(CharacterVariant.VILLAGER, 14, 1, 6, 9, 6, 10, null, null, true);
+	}
+
+	// ================================================================ special buildings
+
+	/** Bread Mill (the windmill): a stone mill floor, a wooden tower with a ladder to the sail room, sails, a wheat farm. */
+	static void breadMill(Blueprint b) {
+		Palette p = b.palette;
+		Pieces.stoneRoom(b, 3, 3, 11, 11, 0, 4, "mill floor");
+		Pieces.door(b, 7, 1, 3, Direction.NORTH);
+		Pieces.window(b, 3, 2, 7);
+		Pieces.window(b, 11, 2, 7);
+		// Wooden tower on top, two floors, a ladder all the way up.
+		b.fill(3, 5, 3, 11, 5, 11, p.slab());
+		b.fill(4, 5, 4, 10, 5, 10, p.planks());
+		b.walls(4, 4, 10, 10, 6, 11, p.planks());
+		for (int[] c : new int[][]{{4, 4}, {10, 4}, {4, 10}, {10, 10}}) {
+			b.fill(c[0], 6, c[1], c[0], 11, c[1], p.log());
+		}
+		b.fill(5, 9, 5, 9, 9, 9, p.planks());
+		b.floor(5, 5, 9, 9, 6, "grain loft");
+		b.floor(5, 5, 9, 9, 10, "sail room");
+		Pieces.roof(b, Pieces.Roof.GABLE_X, 4, 4, 10, 10, 11);
+		Pieces.ladder(b, 7, 1, 9, 9, Direction.NORTH);
+		Pieces.window(b, 4, 7, 7);
+		Pieces.window(b, 10, 7, 7);
+		// Sails: a hub on the front of the tower and four wool blades.
+		b.set(7, 9, 3, Pieces.logAlong(p.log(), Direction.Axis.Z));
+		for (int i = 1; i <= 4; i++) {
+			for (int[] d : new int[][]{{1, 1}, {-1, -1}, {1, -1}, {-1, 1}}) {
+				b.set(7 + d[0] * i, 9 + d[1] * i, 2, Blocks.WHITE_WOOL);
+			}
+		}
+		// Inside: grindstone, hay, flour, a bed for the miller.
+		b.set(5, 1, 9, Blocks.GRINDSTONE);
+		b.fill(9, 1, 9, 10, 2, 10, Blocks.HAY_BLOCK);
+		b.chest(4, 1, 6, "chests/windmill");
+		b.barrel(4, 1, 7, "chests/barrel_supplies");
+		b.bed(9, 1, 5, p.bed());
+		Pieces.lantern(b, 5, 1, 4, false);
+		Pieces.lantern(b, 5, 6, 5, false);
+		b.barrel(9, 6, 9, "chests/windmill");
+		Pieces.field(b, 0, 12, 14, 14, 0, Blocks.WHEAT);
+		Pieces.path(b, 7, 0, 7, 0, 2);
+		b.resident(CharacterVariant.BREADLOAF, 7, 1, 5, 7, 7, 9, at(9, 1, 5), null, false);
+		b.resident(CharacterVariant.FARMER, 7, 1, 5, 7, 13, 9);
+	}
+
+	/** Badlands Mineshaft Saloon: a saloon with a bar, stools and tables, and a mine shaft under the back room. */
+	static void badlandsSaloon(Blueprint b) {
+		Palette p = b.palette;
+		Pieces.room(b, 1, 1, 13, 11, 0, 5, "saloon");
+		b.fill(1, 6, 1, 13, 6, 11, p.slab());
+		// False front with a sign stripe.
+		b.fill(1, 6, 1, 13, 8, 1, p.planks());
+		b.fill(4, 7, 1, 10, 7, 1, Blocks.YELLOW_TERRACOTTA);
+		// Swinging doors (gates) and windows.
+		b.clear(6, 1, 1, 8, 2, 1);
+		b.set(6, 1, 1, p.wood().gate());
+		b.set(8, 1, 1, p.wood().gate());
+		Pieces.windowsAround(b, 1, 1, 13, 11, 2, 7);
+		// Bar along the back with barrels behind it, stools in front.
+		for (int x = 2; x <= 8; x++) {
+			b.set(x, 1, 8, Pieces.upsideDown(p.stairs(), Direction.NORTH));
+			b.set(x, 1, 10, Blocks.BARREL);
+		}
+		for (int x = 3; x <= 7; x += 2) {
+			b.set(x, 1, 6, p.fence());
+			b.set(x, 2, 6, Blocks.BROWN_CARPET);
+		}
+		Pieces.table(b, 3, 1, 3, true, false);
+		Pieces.table(b, 11, 1, 3, true, false);
+		b.chest(2, 1, 9, "chests/badlands_saloon");
+		b.barrel(9, 1, 10, "chests/barrel_supplies");
+		Pieces.lantern(b, 5, 1, 4, false);
+		Pieces.lantern(b, 12, 1, 8, false);
+		// Mine shaft in the back corner.
+		Pieces.ladder(b, 11, -7, 0, 9, Direction.NORTH);
+		Pieces.stoneRoom(b, 4, 6, 12, 10, -8, 3, "mine");
+		b.fill(4, -4, 6, 12, -4, 10, p.planks());
+		Pieces.ladder(b, 11, -7, -4, 9, Direction.NORTH);
+		b.fill(5, -7, 8, 10, -7, 8, Blocks.RAIL);
+		b.chest(5, -7, 9, "chests/badlands_saloon");
+		Pieces.lantern(b, 7, -7, 7, false);
+		b.bed(12, 1, 5, p.bed());
+		b.resident(CharacterVariant.MINER, 7, 1, 5, 7, 6, 10, null, null, true);
+		b.resident(CharacterVariant.BREADLOAF, 7, 1, 5, 7, 6, 10, at(12, 1, 5), null, true);
+	}
+
+	// ================================================================ by the water
+
+	/** Fishing Dock: a shack on the shore and a dock on posts out over the water, with lanterns. Fisherman. */
+	static void fishingDock(Blueprint b) {
+		Palette p = b.palette;
+		b.foundation = false;
+		b.groundLayer = false;
+		b.skirt = false;
+		for (int[] c : new int[][]{{1, 0}, {5, 0}, {1, 4}, {5, 4}}) {
+			b.pillar(c[0], -1, c[1], p.log());
+		}
+		Pieces.room(b, 1, 0, 5, 4, 0, 3, "shack");
+		Pieces.door(b, 3, 1, 4, Direction.SOUTH);
+		Pieces.window(b, 1, 2, 2);
+		Pieces.window(b, 5, 2, 2);
+		Pieces.roof(b, Pieces.Roof.GABLE_Z, 1, 0, 5, 4, 3);
+		b.bed(2, 1, 1, p.bed());
+		b.barrel(4, 1, 1, "chests/fishing_barrel");
+		b.chest(4, 1, 2, "chests/fishing_dock");
+		Pieces.lantern(b, 4, 1, 3, false);
+		Pieces.dock(b, 2, 5, 4, 16, 0);
+		Pieces.lantern(b, 2, 2, 9, false);
+		Pieces.lantern(b, 4, 2, 14, false);
+		b.barrel(3, 1, 16, "chests/fishing_barrel");
+		b.floor(3, 6, 3, 15, 1, "dock");
+		b.resident(CharacterVariant.FISHERMAN, 3, 1, 9, 3, 10, 6, at(2, 1, 1), null, false);
+	}
+
+	/** Loaf Lighthouse: a striped tower with a ladder up to a glowing lamp room and a railed gallery. Fisherman. */
+	static void lighthouse(Blueprint b) {
+		Palette p = b.palette;
+		b.fill(0, 0, 0, 8, 0, 8, p.bricks());
+		for (int y = 1; y <= 16; y++) {
+			BlockState stripe = (y - 1) / 3 % 2 == 0 ? Blocks.WHITE_CONCRETE.defaultBlockState() : Blocks.RED_CONCRETE.defaultBlockState();
+			b.walls(2, 2, 6, 6, y, y, stripe);
+		}
+		b.clear(3, 1, 3, 5, 16, 5);
+		b.fill(3, 0, 3, 5, 0, 5, p.planks());
+		Pieces.door(b, 4, 1, 2, Direction.NORTH);
+		Pieces.ladder(b, 4, 1, 17, 5, Direction.NORTH);
+		Pieces.window(b, 2, 6, 4);
+		Pieces.window(b, 6, 6, 4);
+		Pieces.window(b, 2, 12, 4);
+		Pieces.window(b, 6, 12, 4);
+		b.fill(1, 17, 1, 7, 17, 7, p.bricks());
+		Pieces.ladder(b, 4, 17, 17, 5, Direction.NORTH);
+		b.walls(1, 1, 7, 7, 18, 18, Blocks.IRON_BARS.defaultBlockState());
+		b.set(4, 18, 4, Blocks.SEA_LANTERN);
+		b.set(4, 19, 4, Blocks.GLOWSTONE);
+		b.fill(3, 20, 3, 5, 20, 5, p.stoneSlab());
+		b.floor(2, 2, 6, 6, 18, "gallery");
+		b.bed(3, 1, 3, p.bed());
+		b.barrel(5, 1, 3, "chests/fishing_barrel");
+		b.chest(5, 1, 4, "chests/loaf_lighthouse");
+		b.set(3, 1, 5, Blocks.LANTERN);
+		b.resident(CharacterVariant.FISHERMAN, 4, 1, 1, 4, 4, 10, at(3, 1, 3), null, false);
+	}
+
+	/** Pirate Ship: floating on the ocean with a captain's cabin, a hold below deck, a mast with sails and a crow's nest. */
+	static void pirateShip(Blueprint b) {
+		b.foundation = false;
+		b.groundLayer = false;
+		b.skirt = false;
+		BlockState hull = Blocks.DARK_OAK_PLANKS.defaultBlockState();
+		BlockState deck = Blocks.SPRUCE_PLANKS.defaultBlockState();
+		for (int z = 1; z <= 21; z++) {
+			int half = z <= 18 ? 3 : 21 - z;
+			for (int y = -3; y <= 0; y++) {
+				int hw = y == -3 ? Math.max(0, half - 1) : half;
+				for (int x = 4 - hw; x <= 4 + hw; x++) {
+					boolean edge = x == 4 - hw || x == 4 + hw || y == -3 || z == 1 || z == 21;
+					b.set(x, y, z, edge ? hull : y == 0 ? deck : Blocks.AIR.defaultBlockState());
+				}
+			}
+		}
+		// Rails, with a gap amidships to climb aboard.
+		for (int z = 1; z <= 21; z++) {
+			int half = z <= 18 ? 3 : 21 - z;
+			if (z != 10) {
+				b.set(4 - half, 1, z, Blocks.DARK_OAK_FENCE);
+				b.set(4 + half, 1, z, Blocks.DARK_OAK_FENCE);
+			}
+		}
+		b.floor(2, 7, 6, 17, 1, "deck");
+		// Captain's cabin at the stern.
+		b.walls(2, 2, 6, 6, 1, 3, hull);
+		b.clear(3, 1, 3, 5, 3, 5);
+		b.fill(2, 4, 2, 6, 4, 6, Blocks.DARK_OAK_SLAB);
+		Pieces.door(b, 4, 1, 6, Direction.SOUTH);
+		b.bed(3, 1, 3, Blocks.RED_BED);
+		b.chest(5, 1, 3, "chests/pirate_ship");
+		Pieces.lantern(b, 5, 1, 5, false);
+		b.floor(3, 3, 5, 5, 1, "cabin");
+		// The hold: a hatch and ladder down, loot and barrels.
+		Pieces.ladder(b, 4, -2, 0, 8, Direction.NORTH);
+		b.floor(3, 9, 5, 16, -2, "hold");
+		b.chest(3, -2, 14, "chests/pirate_ship");
+		b.barrel(5, -2, 14, "chests/barrel_supplies");
+		b.barrel(5, -2, 12, "chests/fishing_barrel");
+		Pieces.lantern(b, 4, -2, 16, false);
+		// Mast, sails and crow's nest.
+		b.fill(4, 1, 13, 4, 12, 13, Blocks.DARK_OAK_LOG);
+		Pieces.ladder(b, 4, 1, 11, 12, Direction.NORTH);
+		b.fill(1, 5, 14, 7, 10, 14, Blocks.WHITE_WOOL);
+		b.fill(3, 11, 12, 5, 11, 14, deck);
+		b.set(4, 11, 12, Blocks.LADDER.defaultBlockState().setValue(net.minecraft.world.level.block.LadderBlock.FACING, Direction.NORTH));
+		b.walls(3, 12, 5, 14, 12, 12, Blocks.DARK_OAK_FENCE.defaultBlockState());
+		b.set(4, 12, 12, Blocks.AIR);
+		b.set(4, 13, 13, Blocks.BLACK_BANNER);
+		b.fill(4, 1, 22, 4, 1, 22, Blocks.DARK_OAK_FENCE);
+		int members = 2 + b.random.nextInt(2);
+		for (int i = 0; i < members; i++) {
+			b.resident(CharacterVariant.PIRATE, 4, 1, 9, 4, 11, 8, i == 0 ? at(3, 1, 3) : null, null, true);
+		}
+	}
+
+	/** Smugglers' Cove: a beach shack full of crates and a little dock. A Pirate and a Bandit share the loot. */
+	static void smugglersCove(Blueprint b) {
+		Palette p = b.palette;
+		b.skirt = false;
+		b.groundLayer = false;
+		b.foundation = false;
+		for (int[] c : new int[][]{{1, 1}, {7, 1}, {1, 6}, {7, 6}}) {
+			b.pillar(c[0], -1, c[1], p.log());
+		}
+		Pieces.room(b, 1, 1, 7, 6, 0, 3, "shack");
+		Pieces.door(b, 4, 1, 6, Direction.SOUTH);
+		Pieces.window(b, 1, 2, 3);
+		Pieces.window(b, 7, 2, 3);
+		Pieces.roof(b, Pieces.Roof.GABLE_X, 1, 1, 7, 6, 3);
+		b.chest(2, 1, 2, "chests/smugglers_cove");
+		b.chest(3, 1, 2, "chests/smugglers_cove");
+		b.barrel(6, 1, 2, "chests/barrel_supplies");
+		b.barrel(6, 1, 3, "chests/barrel_supplies");
+		b.bed(2, 1, 4, p.bed());
+		Pieces.lantern(b, 5, 1, 2, false);
+		Pieces.dock(b, 9, 6, 11, 16, 0);
+		b.barrel(10, 1, 16, "chests/fishing_barrel");
+		b.set(10, 1, 15, Blocks.BLACK_BANNER);
+		b.floor(10, 7, 10, 14, 1, "dock");
+		b.resident(CharacterVariant.PIRATE, 10, 1, 8, 6, 8, 8, at(2, 1, 4), null, true);
+		b.resident(CharacterVariant.BANDIT, 10, 1, 8, 6, 8, 8, null, null, true);
+	}
+
+	/** Shipwreck Camp: Pirates camping beside the broken half of their ship. */
+	static void shipwreckCamp(Blueprint b) {
+		BlockState hull = Blocks.DARK_OAK_PLANKS.defaultBlockState();
+		for (int x = 2; x <= 11; x++) {
+			for (int y = 1; y <= 3; y++) {
+				for (int z : new int[]{2, 7}) {
+					if (y == 1 || b.random.nextInt(5) != 0) {
+						b.set(x, y, z, hull);
+					}
+				}
+			}
+		}
+		b.fill(2, 1, 3, 2, 3, 6, hull);
+		b.fill(3, 0, 3, 11, 0, 6, Blocks.SPRUCE_PLANKS);
+		b.clear(3, 1, 3, 11, 3, 6);
+		b.fill(6, 1, 4, 6, 6, 4, Blocks.DARK_OAK_LOG);
+		b.fill(7, 4, 4, 7, 5, 4, Blocks.WHITE_WOOL);
+		b.chest(4, 1, 5, "chests/shipwreck_camp");
+		b.chest(9, 1, 5, "chests/shipwreck_camp");
+		b.barrel(10, 1, 3, "chests/fishing_barrel");
+		b.floor(3, 3, 11, 6, 1, "wreck");
+		Pieces.tent(b, 12, 4, 6, Blocks.BLACK_WOOL.defaultBlockState());
+		b.bed(13, 1, 5, Blocks.BLACK_BED);
+		Pieces.campfire(b, 14, 1, 2);
+		b.set(16, 1, 0, Blocks.BLACK_BANNER);
+		b.resident(CharacterVariant.PIRATE, 14, 1, 3, 10, 4, 10, at(13, 1, 5), null, true);
+		b.resident(CharacterVariant.PIRATE, 14, 1, 3, 10, 4, 10, null, null, true);
+	}
+
+	// ================================================================ built while the game runs
+
+	/**
+	 * Village Campsite (built at the edge of a village): FelixSyn's camp. A walk-in tent with his and Harley's beds,
+	 * a campfire with benches, two training dummies, and a ladder-up jump platform over hay bales for mace practice.
+	 */
+	static void villageCampsite(Blueprint b) {
+		b.fill(1, 0, 1, 11, 0, 9, Blocks.COARSE_DIRT);
+		Pieces.tent(b, 1, 4, 6, wool(b, DARK_WOOL));
+		b.bed(2, 1, 5, Blocks.BLACK_BED);
+		b.bed(4, 1, 5, Blocks.PINK_BED);
+		b.chest(2, 1, 8, "chests/village_campsite");
+		b.barrel(4, 1, 8, "chests/barrel_supplies");
+		Pieces.lantern(b, 3, 1, 8, false);
+		Pieces.campfire(b, 8, 1, 3);
+		b.mob(10, 1, 6, "dummy");
+		b.mob(10, 1, 8, "dummy");
+		b.set(12, 1, 5, Blocks.TARGET);
+		// Jump platform: climb the log post, jump onto the hay.
+		b.fill(12, 1, 10, 12, 3, 10, b.palette.log());
+		Pieces.ladder(b, 12, 1, 3, 9, Direction.NORTH);
+		b.fill(10, 1, 9, 11, 1, 10, Blocks.HAY_BLOCK);
+		b.floor(12, 10, 12, 10, 4, "jump platform");
+		Pieces.path(b, 7, 0, 9, 0, 0);
+		b.resident(CharacterVariant.FELIXSYN, 8, 1, 5, 7, 5, 24, at(2, 1, 5), null, false);
+	}
+
+	/**
+	 * Bastion Throne Room (carved into a bastion the first time a player walks in): Master BreadLoaf's closed
+	 * blackstone-and-gold hall, so no lava gets in. A gilded aisle up to the throne, pillars with soul lanterns, and
+	 * a treasure chest on each side of the throne.
+	 */
+	static void bastionThroneRoom(Blueprint b) {
+		// Inside a bastion: no terrain leveling, the room is its own closed box.
+		b.clearAbove = false;
+		b.groundLayer = false;
+		b.foundation = false;
+		b.skirt = false;
+		b.fill(0, 0, 0, 12, 8, 12, Blocks.POLISHED_BLACKSTONE_BRICKS);
+		b.clear(1, 1, 1, 11, 7, 11);
+		b.fill(1, 0, 1, 11, 0, 11, Blocks.POLISHED_BLACKSTONE);
+		b.fill(6, 0, 0, 6, 0, 9, Blocks.GILDED_BLACKSTONE);
+		b.fill(6, 1, 1, 6, 1, 8, Blocks.RED_CARPET);
+		// Gold trim around the walls and a gold-capped entrance arch.
+		b.fill(0, 4, 1, 0, 4, 11, Blocks.GILDED_BLACKSTONE);
+		b.fill(12, 4, 1, 12, 4, 11, Blocks.GILDED_BLACKSTONE);
+		b.fill(1, 4, 12, 11, 4, 12, Blocks.GILDED_BLACKSTONE);
+		b.clear(5, 1, 0, 7, 3, 0);
+		b.fill(5, 4, 0, 7, 4, 0, Blocks.GOLD_BLOCK);
+		for (int[] c : new int[][]{{3, 3}, {9, 3}, {3, 7}, {9, 7}}) {
+			b.fill(c[0], 1, c[1], c[0], 6, c[1], Blocks.POLISHED_BLACKSTONE_BRICK_WALL);
+			b.set(c[0], 7, c[1], Blocks.SOUL_LANTERN);
+		}
+		b.set(6, 7, 5, Blocks.SOUL_LANTERN.defaultBlockState().setValue(net.minecraft.world.level.block.LanternBlock.HANGING, true));
+		// The throne: a blackstone seat between gold arms, with a tall gold back and a gilded crown.
+		b.set(6, 1, 10, Pieces.stairs(Blocks.POLISHED_BLACKSTONE_STAIRS.defaultBlockState(), Direction.SOUTH));
+		b.set(5, 1, 10, Blocks.GOLD_BLOCK);
+		b.set(7, 1, 10, Blocks.GOLD_BLOCK);
+		b.fill(6, 1, 11, 6, 4, 11, Blocks.GOLD_BLOCK);
+		b.set(5, 1, 11, Blocks.GOLD_BLOCK);
+		b.set(7, 1, 11, Blocks.GOLD_BLOCK);
+		b.set(6, 5, 11, Blocks.GILDED_BLACKSTONE);
+		b.chest(2, 1, 10, "chests/bastion_throne_room");
+		b.chest(10, 1, 10, "chests/bastion_throne_room");
+		b.set(1, 1, 11, Blocks.GOLD_BLOCK);
+		b.set(11, 1, 11, Blocks.GOLD_BLOCK);
+		b.floor(1, 1, 11, 9, 1, "throne hall");
+		b.resident(CharacterVariant.MASTER, 6, 1, 7, 6, 7, 5);
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/worldgen/build/CatalogEntries.java
+
+```java
+package com.itzbreadloaf.worldgen.build;
+
+import java.util.List;
+
+/**
+ * The remade structures' catalog entries (ids, rarity, salts and biomes kept from before the remake, so worlds keep
+ * finding them in the same places). Written by tools/update2_p7_catalog.py.
+ */
+final class CatalogEntries {
+	private CatalogEntries() {
+	}
+
+	static void addAll() {
+		StructureCatalog.add(StructureCatalog.def("house", "House", "ItzBreadLoaf", 1, 20, 7, 1022001, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "#minecraft:is_forest", "#minecraft:is_taiga", "#minecraft:is_savanna", "minecraft:snowy_plains", "minecraft:snowy_taiga", "minecraft:desert"), "ItzBreadLoaf", 9, 9, 12));
+		StructureCatalog.add(StructureCatalog.def("tent", "Tent", "ItzBreadLoaf", 1, 25, 8, 1022002, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow", "#minecraft:is_forest", "#minecraft:is_taiga", "#minecraft:is_savanna", "minecraft:snowy_plains", "minecraft:snowy_taiga", "minecraft:desert"), "2-4 ItzBreadLoafs", 11, 11, 7));
+		StructureCatalog.add(StructureCatalog.def("fort", "Bread Fort", "ItzBreadLoaf", 3, 34, 11, 1022006, List.of("minecraft:plains", "minecraft:meadow", "#minecraft:is_forest", "#minecraft:is_taiga", "#minecraft:is_savanna", "minecraft:windswept_hills", "minecraft:snowy_plains"), "3 Knights + Captain", 21, 21, 14));
+		StructureCatalog.add(StructureCatalog.def("watchtower", "Watchtower", "ItzBreadLoaf", 2, 24, 8, 1022007, List.of("minecraft:plains", "minecraft:sunflower_plains", "#minecraft:is_forest", "#minecraft:is_taiga", "#minecraft:is_savanna", "minecraft:desert", "minecraft:snowy_plains", "minecraft:meadow"), "Archer", 7, 7, 22));
+		StructureCatalog.add(StructureCatalog.def("bandit_camp", "Bandit Camp", "ItzBreadLoaf", 2, 30, 9, 1022008, List.of("#minecraft:is_forest", "#minecraft:is_taiga", "minecraft:dark_forest", "#minecraft:is_badlands", "#minecraft:is_savanna"), "3-4 Bandits", 15, 15, 7));
+		StructureCatalog.add(StructureCatalog.def("bread_bakery", "Bread Bakery", "ItzBreadLoaf", 1, 26, 8, 1022201, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow"), "ItzBreadLoaf", 11, 11, 12));
+		StructureCatalog.add(StructureCatalog.def("mining_camp", "Mining Camp", "ItzBreadLoaf", 2, 32, 10, 1022203, List.of("#minecraft:is_overworld"), "Miner", 13, 13, 8));
+		StructureCatalog.add(StructureCatalog.def("jungle_treehouse", "Jungle Treehouse", "ItzBreadLoaf", 2, 24, 8, 1022204, List.of("#minecraft:is_jungle", "minecraft:dark_forest"), "ItzBreadLoaf", 13, 13, 24));
+		StructureCatalog.add(StructureCatalog.def("desert_bunker", "Desert Bunker", "ItzBreadLoaf", 2, 26, 8, 1022205, List.of("minecraft:desert", "#minecraft:is_badlands"), "ItzBreadLoaf", 11, 11, 6));
+		StructureCatalog.add(StructureCatalog.def("igloo_hideout", "Igloo Hideout", "ItzBreadLoaf", 1, 24, 8, 1022206, List.of("minecraft:snowy_plains", "minecraft:snowy_taiga", "minecraft:ice_spikes", "minecraft:snowy_slopes"), "ItzBreadLoaf", 9, 9, 7));
+		StructureCatalog.add(StructureCatalog.def("ruined_loaf_castle", "Ruined Loaf Castle", "ItzBreadLoaf", 3, 36, 12, 1022208, List.of("minecraft:plains", "minecraft:sunflower_plains", "#minecraft:is_savanna"), "Captain, Knights, ItzBreadLoafs (3-5)", 27, 27, 16));
+		StructureCatalog.add(StructureCatalog.def("sweaty_dojo", "Sweaty Dojo", "ItzBreadLoaf", 2, 32, 10, 1022314, List.of("minecraft:bamboo_jungle", "minecraft:jungle", "minecraft:cherry_grove", "minecraft:savanna", "minecraft:plains"), "Sweaty", 13, 13, 10));
+		StructureCatalog.add(StructureCatalog.def("windmill", "Bread Mill (id windmill)", "ItzBreadLoaf", 1, 28, 9, 1022307, List.of("minecraft:plains", "minecraft:sunflower_plains", "minecraft:meadow"), "ItzBreadLoaf + Farmer Madison", 15, 15, 18));
+		StructureCatalog.add(StructureCatalog.def("swamp_hut", "Swamp Hut", "ItzBreadLoaf", 1, 24, 8, 1022401, List.of("minecraft:swamp", "minecraft:mangrove_swamp"), "ItzBreadLoaf", 11, 11, 12).placement(StructureCatalog.Placement.ANY_SURFACE));
+		StructureCatalog.add(StructureCatalog.def("mountain_outpost", "Mountain Outpost", "ItzBreadLoaf", 2, 24, 8, 1022402, List.of("minecraft:jagged_peaks", "minecraft:frozen_peaks", "minecraft:stony_peaks", "minecraft:snowy_slopes"), "Archer + Knight", 9, 9, 14));
+		StructureCatalog.add(StructureCatalog.def("badlands_saloon", "Badlands Mineshaft Saloon", "ItzBreadLoaf", 2, 26, 8, 1022403, List.of("#minecraft:is_badlands"), "Miner + ItzBreadLoaf", 15, 13, 10));
+		StructureCatalog.add(StructureCatalog.def("cliffside_base", "Cliffside Cave Base", "ItzBreadLoaf", 2, 26, 8, 1022404, List.of("minecraft:windswept_hills", "minecraft:windswept_gravelly_hills", "minecraft:windswept_forest", "minecraft:meadow", "minecraft:stony_shore"), "ItzBreadLoaf", 13, 13, 4));
+		StructureCatalog.add(StructureCatalog.def("snowball_fort", "Snowball Fort (my idea)", "ItzBreadLoaf", 1, 26, 8, 1022418, List.of("minecraft:snowy_plains", "minecraft:ice_spikes", "minecraft:snowy_taiga", "minecraft:grove"), "ItzBreadLoaf + Village Bread", 19, 13, 5));
+		StructureCatalog.add(StructureCatalog.def("lookout_tower", "Lookout Tower", "ItzBreadLoaf", 2, 24, 8, 1022202, List.of("#minecraft:is_forest", "#minecraft:is_taiga", "minecraft:dark_forest", "minecraft:old_growth_pine_taiga", "minecraft:old_growth_spruce_taiga"), "Archer", 7, 7, 23));
+		StructureCatalog.add(StructureCatalog.def("pirate_ship", "Pirate Ship", "ItzBreadLoaf", 2, 28, 8, 1022012, List.of("#minecraft:is_ocean"), "2-3 Pirates", 9, 23, 15).placement(StructureCatalog.Placement.WATER));
+		StructureCatalog.add(StructureCatalog.def("fishing_dock", "Fishing Dock", "ItzBreadLoaf", 1, 20, 6, 1022207, List.of("minecraft:river", "minecraft:beach", "minecraft:snowy_beach"), "Fisherman", 7, 17, 7).placement(StructureCatalog.Placement.ANY_SURFACE));
+		StructureCatalog.add(StructureCatalog.def("loaf_lighthouse", "Loaf Lighthouse (my idea)", "ItzBreadLoaf", 1, 26, 8, 1022414, List.of("#minecraft:is_beach", "minecraft:stony_shore"), "Fisherman", 9, 9, 23).placement(StructureCatalog.Placement.ANY_SURFACE));
+		StructureCatalog.add(StructureCatalog.def("smugglers_cove", "Smugglers' Cove", "Ocean/beach", 2, 30, 10, 1022315, List.of("#minecraft:is_beach", "minecraft:stony_shore"), "Pirate + Bandit", 13, 17, 8).placement(StructureCatalog.Placement.ANY_SURFACE));
+		StructureCatalog.add(StructureCatalog.def("shipwreck_camp", "Shipwreck Camp (my idea)", "Ocean/beach", 2, 28, 9, 1022417, List.of("#minecraft:is_beach"), "2 Pirates", 17, 11, 8).placement(StructureCatalog.Placement.ANY_SURFACE));
+		StructureCatalog.add(StructureCatalog.def("village_campsite", "Village Campsite", "FelixSyn", 2, 2, 1, 0, List.of(), "FelixSyn & Harley", 13, 11, 7).placement(StructureCatalog.Placement.RUNTIME));
+		StructureCatalog.add(StructureCatalog.def("bastion_throne_room", "Bastion Throne Room", "Nether", 4, 2, 1, 0, List.of(), "Master BreadLoaf", 13, 13, 9).placement(StructureCatalog.Placement.RUNTIME));
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/worldgen/build/Palette.java
+
+```java
+package com.itzbreadloaf.worldgen.build;
+
+import net.minecraft.core.Holder;
+import net.minecraft.tags.BiomeTags;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.biome.Biomes;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+
+/**
+ * The materials a structure is built from, picked from the biome so the same layout looks right anywhere: a wood
+ * set (planks, logs, stairs, slabs, fences, doors...), a stone set (bricks, stairs, slabs, walls), and the ground,
+ * path, light and flowers around it. Pieces always ask the palette instead of naming blocks.
+ */
+public record Palette(Wood wood, Stone stone, BlockState ground, BlockState path, BlockState light, Block bed, Block[] flowers) {
+
+	/** A wood family. */
+	public record Wood(Block planks, Block log, Block strippedLog, Block slab, Block stairs, Block fence, Block gate,
+			Block door, Block trapdoor, Block leaves) {
+	}
+
+	/** A stone family. */
+	public record Stone(Block base, Block bricks, Block stairs, Block slab, Block wall, Block floor) {
+	}
+
+	public static final Wood OAK = new Wood(Blocks.OAK_PLANKS, Blocks.OAK_LOG, Blocks.STRIPPED_OAK_LOG, Blocks.OAK_SLAB,
+			Blocks.OAK_STAIRS, Blocks.OAK_FENCE, Blocks.OAK_FENCE_GATE, Blocks.OAK_DOOR, Blocks.OAK_TRAPDOOR, Blocks.OAK_LEAVES);
+	public static final Wood SPRUCE = new Wood(Blocks.SPRUCE_PLANKS, Blocks.SPRUCE_LOG, Blocks.STRIPPED_SPRUCE_LOG, Blocks.SPRUCE_SLAB,
+			Blocks.SPRUCE_STAIRS, Blocks.SPRUCE_FENCE, Blocks.SPRUCE_FENCE_GATE, Blocks.SPRUCE_DOOR, Blocks.SPRUCE_TRAPDOOR, Blocks.SPRUCE_LEAVES);
+	public static final Wood BIRCH = new Wood(Blocks.BIRCH_PLANKS, Blocks.BIRCH_LOG, Blocks.STRIPPED_BIRCH_LOG, Blocks.BIRCH_SLAB,
+			Blocks.BIRCH_STAIRS, Blocks.BIRCH_FENCE, Blocks.BIRCH_FENCE_GATE, Blocks.BIRCH_DOOR, Blocks.BIRCH_TRAPDOOR, Blocks.BIRCH_LEAVES);
+	public static final Wood DARK_OAK = new Wood(Blocks.DARK_OAK_PLANKS, Blocks.DARK_OAK_LOG, Blocks.STRIPPED_DARK_OAK_LOG, Blocks.DARK_OAK_SLAB,
+			Blocks.DARK_OAK_STAIRS, Blocks.DARK_OAK_FENCE, Blocks.DARK_OAK_FENCE_GATE, Blocks.DARK_OAK_DOOR, Blocks.DARK_OAK_TRAPDOOR, Blocks.DARK_OAK_LEAVES);
+	public static final Wood ACACIA = new Wood(Blocks.ACACIA_PLANKS, Blocks.ACACIA_LOG, Blocks.STRIPPED_ACACIA_LOG, Blocks.ACACIA_SLAB,
+			Blocks.ACACIA_STAIRS, Blocks.ACACIA_FENCE, Blocks.ACACIA_FENCE_GATE, Blocks.ACACIA_DOOR, Blocks.ACACIA_TRAPDOOR, Blocks.ACACIA_LEAVES);
+	public static final Wood JUNGLE = new Wood(Blocks.JUNGLE_PLANKS, Blocks.JUNGLE_LOG, Blocks.STRIPPED_JUNGLE_LOG, Blocks.JUNGLE_SLAB,
+			Blocks.JUNGLE_STAIRS, Blocks.JUNGLE_FENCE, Blocks.JUNGLE_FENCE_GATE, Blocks.JUNGLE_DOOR, Blocks.JUNGLE_TRAPDOOR, Blocks.JUNGLE_LEAVES);
+	public static final Wood MANGROVE = new Wood(Blocks.MANGROVE_PLANKS, Blocks.MANGROVE_LOG, Blocks.STRIPPED_MANGROVE_LOG, Blocks.MANGROVE_SLAB,
+			Blocks.MANGROVE_STAIRS, Blocks.MANGROVE_FENCE, Blocks.MANGROVE_FENCE_GATE, Blocks.MANGROVE_DOOR, Blocks.MANGROVE_TRAPDOOR, Blocks.MANGROVE_LEAVES);
+	public static final Wood CHERRY = new Wood(Blocks.CHERRY_PLANKS, Blocks.CHERRY_LOG, Blocks.STRIPPED_CHERRY_LOG, Blocks.CHERRY_SLAB,
+			Blocks.CHERRY_STAIRS, Blocks.CHERRY_FENCE, Blocks.CHERRY_FENCE_GATE, Blocks.CHERRY_DOOR, Blocks.CHERRY_TRAPDOOR, Blocks.CHERRY_LEAVES);
+	public static final Wood BAMBOO = new Wood(Blocks.BAMBOO_PLANKS, Blocks.BAMBOO_BLOCK, Blocks.STRIPPED_BAMBOO_BLOCK, Blocks.BAMBOO_SLAB,
+			Blocks.BAMBOO_STAIRS, Blocks.BAMBOO_FENCE, Blocks.BAMBOO_FENCE_GATE, Blocks.BAMBOO_DOOR, Blocks.BAMBOO_TRAPDOOR, Blocks.JUNGLE_LEAVES);
+	public static final Wood CRIMSON = new Wood(Blocks.CRIMSON_PLANKS, Blocks.CRIMSON_STEM, Blocks.STRIPPED_CRIMSON_STEM, Blocks.CRIMSON_SLAB,
+			Blocks.CRIMSON_STAIRS, Blocks.CRIMSON_FENCE, Blocks.CRIMSON_FENCE_GATE, Blocks.CRIMSON_DOOR, Blocks.CRIMSON_TRAPDOOR, Blocks.NETHER_WART_BLOCK);
+	public static final Wood WARPED = new Wood(Blocks.WARPED_PLANKS, Blocks.WARPED_STEM, Blocks.STRIPPED_WARPED_STEM, Blocks.WARPED_SLAB,
+			Blocks.WARPED_STAIRS, Blocks.WARPED_FENCE, Blocks.WARPED_FENCE_GATE, Blocks.WARPED_DOOR, Blocks.WARPED_TRAPDOOR, Blocks.WARPED_WART_BLOCK);
+
+	public static final Stone COBBLE = new Stone(Blocks.COBBLESTONE, Blocks.STONE_BRICKS, Blocks.STONE_BRICK_STAIRS, Blocks.STONE_BRICK_SLAB,
+			Blocks.COBBLESTONE_WALL, Blocks.POLISHED_ANDESITE);
+	public static final Stone MOSSY = new Stone(Blocks.MOSSY_COBBLESTONE, Blocks.MOSSY_STONE_BRICKS, Blocks.MOSSY_STONE_BRICK_STAIRS,
+			Blocks.MOSSY_STONE_BRICK_SLAB, Blocks.MOSSY_COBBLESTONE_WALL, Blocks.COBBLESTONE);
+	public static final Stone SANDSTONE = new Stone(Blocks.SANDSTONE, Blocks.CUT_SANDSTONE, Blocks.SANDSTONE_STAIRS, Blocks.SANDSTONE_SLAB,
+			Blocks.SANDSTONE_WALL, Blocks.SMOOTH_SANDSTONE);
+	public static final Stone RED_SANDSTONE = new Stone(Blocks.RED_SANDSTONE, Blocks.CUT_RED_SANDSTONE, Blocks.RED_SANDSTONE_STAIRS,
+			Blocks.RED_SANDSTONE_SLAB, Blocks.RED_SANDSTONE_WALL, Blocks.SMOOTH_RED_SANDSTONE);
+	public static final Stone DEEPSLATE = new Stone(Blocks.COBBLED_DEEPSLATE, Blocks.DEEPSLATE_BRICKS, Blocks.DEEPSLATE_BRICK_STAIRS,
+			Blocks.DEEPSLATE_BRICK_SLAB, Blocks.COBBLED_DEEPSLATE_WALL, Blocks.POLISHED_DEEPSLATE);
+	public static final Stone MUD = new Stone(Blocks.PACKED_MUD, Blocks.MUD_BRICKS, Blocks.MUD_BRICK_STAIRS, Blocks.MUD_BRICK_SLAB,
+			Blocks.MUD_BRICK_WALL, Blocks.PACKED_MUD);
+	public static final Stone BLACKSTONE = new Stone(Blocks.BLACKSTONE, Blocks.POLISHED_BLACKSTONE_BRICKS, Blocks.POLISHED_BLACKSTONE_BRICK_STAIRS,
+			Blocks.POLISHED_BLACKSTONE_BRICK_SLAB, Blocks.POLISHED_BLACKSTONE_BRICK_WALL, Blocks.POLISHED_BLACKSTONE);
+	public static final Stone END = new Stone(Blocks.END_STONE, Blocks.END_STONE_BRICKS, Blocks.END_STONE_BRICK_STAIRS, Blocks.END_STONE_BRICK_SLAB,
+			Blocks.END_STONE_BRICK_WALL, Blocks.PURPUR_BLOCK);
+
+	private static final Block[] MEADOW_FLOWERS = {Blocks.POPPY, Blocks.DANDELION, Blocks.CORNFLOWER, Blocks.OXEYE_DAISY, Blocks.AZURE_BLUET, Blocks.ALLIUM};
+	private static final Block[] CHERRY_FLOWERS = {Blocks.PINK_TULIP, Blocks.ALLIUM, Blocks.LILY_OF_THE_VALLEY, Blocks.PINK_TULIP};
+	private static final Block[] DRY_FLOWERS = {Blocks.DEAD_BUSH, Blocks.DEAD_BUSH};
+	private static final Block[] COLD_FLOWERS = {Blocks.SWEET_BERRY_BUSH, Blocks.FERN, Blocks.LILY_OF_THE_VALLEY};
+	private static final Block[] JUNGLE_FLOWERS = {Blocks.FERN, Blocks.LARGE_FERN, Blocks.POPPY};
+	private static final Block[] NETHER_FLOWERS = {Blocks.CRIMSON_FUNGUS, Blocks.WARPED_FUNGUS, Blocks.CRIMSON_ROOTS};
+	private static final Block[] END_FLOWERS = {Blocks.AIR};
+
+	/** The palette for a biome. Anything not listed is built like the plains: oak and cobblestone on grass. */
+	public static Palette forBiome(Holder<Biome> biome) {
+		BlockState grass = Blocks.GRASS_BLOCK.defaultBlockState();
+		BlockState dirtPath = Blocks.DIRT_PATH.defaultBlockState();
+		BlockState lantern = Blocks.LANTERN.defaultBlockState();
+		if (biome.is(BiomeTags.IS_NETHER)) {
+			Wood wood = biome.is(Biomes.WARPED_FOREST) ? WARPED : CRIMSON;
+			BlockState ground = biome.is(Biomes.WARPED_FOREST) ? Blocks.WARPED_NYLIUM.defaultBlockState()
+					: biome.is(Biomes.CRIMSON_FOREST) ? Blocks.CRIMSON_NYLIUM.defaultBlockState() : Blocks.NETHERRACK.defaultBlockState();
+			return new Palette(wood, BLACKSTONE, ground, Blocks.POLISHED_BLACKSTONE.defaultBlockState(), Blocks.SOUL_LANTERN.defaultBlockState(),
+					Blocks.RED_BED, NETHER_FLOWERS);
+		}
+		if (biome.is(BiomeTags.IS_END)) {
+			return new Palette(BIRCH, END, Blocks.END_STONE.defaultBlockState(), Blocks.END_STONE_BRICKS.defaultBlockState(),
+					Blocks.END_ROD.defaultBlockState(), Blocks.PURPLE_BED, END_FLOWERS);
+		}
+		if (biome.is(Biomes.DESERT)) {
+			return new Palette(BIRCH, SANDSTONE, Blocks.SAND.defaultBlockState(), Blocks.SMOOTH_SANDSTONE.defaultBlockState(), lantern,
+					Blocks.YELLOW_BED, DRY_FLOWERS);
+		}
+		if (biome.is(BiomeTags.IS_BADLANDS)) {
+			return new Palette(DARK_OAK, RED_SANDSTONE, Blocks.RED_SAND.defaultBlockState(), Blocks.SMOOTH_RED_SANDSTONE.defaultBlockState(), lantern,
+					Blocks.ORANGE_BED, DRY_FLOWERS);
+		}
+		if (biome.is(Biomes.MANGROVE_SWAMP)) {
+			return new Palette(MANGROVE, MUD, Blocks.MUD.defaultBlockState(), Blocks.PACKED_MUD.defaultBlockState(), lantern, Blocks.GREEN_BED, JUNGLE_FLOWERS);
+		}
+		if (biome.is(Biomes.SWAMP)) {
+			return new Palette(OAK, MOSSY, grass, dirtPath, lantern, Blocks.GREEN_BED, JUNGLE_FLOWERS);
+		}
+		if (biome.is(Biomes.CHERRY_GROVE)) {
+			return new Palette(CHERRY, COBBLE, grass, dirtPath, lantern, Blocks.PINK_BED, CHERRY_FLOWERS);
+		}
+		if (biome.is(Biomes.BAMBOO_JUNGLE)) {
+			return new Palette(BAMBOO, MOSSY, grass, dirtPath, lantern, Blocks.LIME_BED, JUNGLE_FLOWERS);
+		}
+		if (biome.is(BiomeTags.IS_JUNGLE)) {
+			return new Palette(JUNGLE, MOSSY, grass, dirtPath, lantern, Blocks.LIME_BED, JUNGLE_FLOWERS);
+		}
+		if (biome.is(Biomes.DARK_FOREST) || biome.is(Biomes.PALE_GARDEN)) {
+			return new Palette(DARK_OAK, MOSSY, grass, dirtPath, lantern, Blocks.BROWN_BED, MEADOW_FLOWERS);
+		}
+		if (biome.is(Biomes.BIRCH_FOREST) || biome.is(Biomes.OLD_GROWTH_BIRCH_FOREST)) {
+			return new Palette(BIRCH, COBBLE, grass, dirtPath, lantern, Blocks.LIGHT_BLUE_BED, MEADOW_FLOWERS);
+		}
+		if (biome.is(BiomeTags.IS_SAVANNA)) {
+			return new Palette(ACACIA, COBBLE, grass, dirtPath, lantern, Blocks.ORANGE_BED, DRY_FLOWERS);
+		}
+		if (biome.is(Biomes.MUSHROOM_FIELDS)) {
+			return new Palette(OAK, COBBLE, Blocks.MYCELIUM.defaultBlockState(), dirtPath, lantern, Blocks.RED_BED, MEADOW_FLOWERS);
+		}
+		if (biome.value().getBaseTemperature() < 0.15F) {
+			// Snowy and frozen biomes: spruce and stone on snow.
+			return new Palette(SPRUCE, COBBLE, Blocks.SNOW_BLOCK.defaultBlockState(), Blocks.PACKED_ICE.defaultBlockState(), lantern,
+					Blocks.WHITE_BED, COLD_FLOWERS);
+		}
+		if (biome.is(BiomeTags.IS_MOUNTAIN) || biome.is(BiomeTags.IS_HILL)) {
+			return new Palette(SPRUCE, DEEPSLATE, grass, Blocks.GRAVEL.defaultBlockState(), lantern, Blocks.GRAY_BED, COLD_FLOWERS);
+		}
+		if (biome.is(BiomeTags.IS_TAIGA)) {
+			return new Palette(SPRUCE, COBBLE, Blocks.PODZOL.defaultBlockState(), dirtPath, lantern, Blocks.BROWN_BED, COLD_FLOWERS);
+		}
+		if (biome.is(BiomeTags.IS_BEACH) || biome.is(BiomeTags.IS_OCEAN)) {
+			return new Palette(BIRCH, SANDSTONE, Blocks.SAND.defaultBlockState(), Blocks.SMOOTH_SANDSTONE.defaultBlockState(), lantern,
+					Blocks.LIGHT_BLUE_BED, MEADOW_FLOWERS);
+		}
+		return new Palette(OAK, COBBLE, grass, dirtPath, lantern, Blocks.RED_BED, MEADOW_FLOWERS);
+	}
+
+	// ---------------------------------------------------------------- shortcuts used by the pieces
+
+	public BlockState planks() {
+		return this.wood.planks().defaultBlockState();
+	}
+
+	public BlockState log() {
+		return this.wood.log().defaultBlockState();
+	}
+
+	public BlockState strippedLog() {
+		return this.wood.strippedLog().defaultBlockState();
+	}
+
+	public BlockState slab() {
+		return this.wood.slab().defaultBlockState();
+	}
+
+	public BlockState stairs() {
+		return this.wood.stairs().defaultBlockState();
+	}
+
+	public BlockState fence() {
+		return this.wood.fence().defaultBlockState();
+	}
+
+	public BlockState bricks() {
+		return this.stone.bricks().defaultBlockState();
+	}
+
+	public BlockState stoneBase() {
+		return this.stone.base().defaultBlockState();
+	}
+
+	public BlockState stoneFloor() {
+		return this.stone.floor().defaultBlockState();
+	}
+
+	public BlockState stoneStairs() {
+		return this.stone.stairs().defaultBlockState();
+	}
+
+	public BlockState stoneSlab() {
+		return this.stone.slab().defaultBlockState();
+	}
+
+	public BlockState stoneWall() {
+		return this.stone.wall().defaultBlockState();
+	}
+
+	/** What fills the gap under a structure: dirt under soil, the stone otherwise (sand would fall). */
+	public BlockState foundation() {
+		Block g = this.ground.getBlock();
+		return g == Blocks.GRASS_BLOCK || g == Blocks.PODZOL || g == Blocks.MYCELIUM || g == Blocks.SNOW_BLOCK || g == Blocks.MUD
+				? Blocks.DIRT.defaultBlockState() : this.stoneBase();
+	}
+
+	/** A flower that fits the biome (air in the End). */
+	public Block flower(int index) {
+		return this.flowers[Math.floorMod(index, this.flowers.length)];
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/worldgen/build/Pieces.java
+
+```java
+package com.itzbreadloaf.worldgen.build;
+
+import net.minecraft.core.Direction;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.CropBlock;
+import net.minecraft.world.level.block.DoorBlock;
+import net.minecraft.world.level.block.FarmBlock;
+import net.minecraft.world.level.block.LadderBlock;
+import net.minecraft.world.level.block.LanternBlock;
+import net.minecraft.world.level.block.RotatedPillarBlock;
+import net.minecraft.world.level.block.SlabBlock;
+import net.minecraft.world.level.block.StairBlock;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
+import net.minecraft.world.level.block.state.properties.Half;
+import net.minecraft.world.level.block.state.properties.SlabType;
+
+/**
+ * Reusable building pieces for blueprints: rooms, doors, windows, roofs, stairs, ladders, towers, furniture,
+ * gardens, fields, paths and lights. All of them take their materials from the blueprint's palette.
+ * Directions are in local coordinates (north = towards z 0, the front).
+ */
+public final class Pieces {
+	private Pieces() {
+	}
+
+	// ---------------------------------------------------------------- block states
+
+	public static BlockState stairs(BlockState stairs, Direction facing) {
+		return stairs.setValue(StairBlock.FACING, facing);
+	}
+
+	public static BlockState upsideDown(BlockState stairs, Direction facing) {
+		return stairs.setValue(StairBlock.FACING, facing).setValue(StairBlock.HALF, Half.TOP);
+	}
+
+	public static BlockState topSlab(BlockState slab) {
+		return slab.setValue(SlabBlock.TYPE, SlabType.TOP);
+	}
+
+	public static BlockState logAlong(BlockState log, Direction.Axis axis) {
+		return log.hasProperty(RotatedPillarBlock.AXIS) ? log.setValue(RotatedPillarBlock.AXIS, axis) : log;
+	}
+
+	// ---------------------------------------------------------------- rooms, doors, windows
+
+	/**
+	 * A room: floor at y (the whole rectangle, walls included), walls from y + 1 to y + wallHeight with logs in the
+	 * corners. The inside is cleared, and its floor is declared so the reachability check looks for it.
+	 */
+	public static void room(Blueprint b, int x0, int z0, int x1, int z1, int y, int wallHeight, String name) {
+		Palette p = b.palette;
+		b.fill(x0, y, z0, x1, y, z1, p.planks());
+		b.clear(x0 + 1, y + 1, z0 + 1, x1 - 1, y + wallHeight, z1 - 1);
+		b.walls(x0, z0, x1, z1, y + 1, y + wallHeight, p.planks());
+		for (int[] c : new int[][]{{x0, z0}, {x1, z0}, {x0, z1}, {x1, z1}}) {
+			b.fill(c[0], y + 1, c[1], c[0], y + wallHeight, c[1], p.log());
+		}
+		b.floor(x0 + 1, z0 + 1, x1 - 1, z1 - 1, y + 1, name);
+	}
+
+	/** A stone room (cellars, workshops, towers): same as {@link #room} in the palette's stone bricks. */
+	public static void stoneRoom(Blueprint b, int x0, int z0, int x1, int z1, int y, int wallHeight, String name) {
+		Palette p = b.palette;
+		b.fill(x0, y, z0, x1, y, z1, p.stoneFloor());
+		b.clear(x0 + 1, y + 1, z0 + 1, x1 - 1, y + wallHeight, z1 - 1);
+		b.walls(x0, z0, x1, z1, y + 1, y + wallHeight, p.bricks());
+		b.floor(x0 + 1, z0 + 1, x1 - 1, z1 - 1, y + 1, name);
+	}
+
+	/** A door (two blocks) in a wall, opening outward toward {@code facing}; clears a step in front of it. */
+	public static void door(Blueprint b, int x, int y, int z, Direction facing) {
+		BlockState lower = b.palette.wood().door().defaultBlockState().setValue(DoorBlock.FACING, facing)
+				.setValue(DoorBlock.HALF, DoubleBlockHalf.LOWER);
+		b.set(x, y, z, lower);
+		b.set(x, y + 1, z, lower.setValue(DoorBlock.HALF, DoubleBlockHalf.UPPER));
+	}
+
+	public static void window(Blueprint b, int x, int y, int z) {
+		b.set(x, y, z, Blocks.GLASS_PANE);
+	}
+
+	// ---------------------------------------------------------------- roofs
+
+	/**
+	 * A gable roof over walls x0..x1, z0..z1 with its ridge running along x. {@code y} is the height of the walls' top
+	 * row: the eaves overhang one block out at that height, then each row steps up and in, so the roof sits right on
+	 * the walls with no gap. The gable ends are filled with planks; an odd depth gets a slab ridge.
+	 */
+	public static void gableRoof(Blueprint b, int x0, int z0, int x1, int z1, int y) {
+		Palette p = b.palette;
+		for (int i = 0; ; i++) {
+			int front = z0 - 1 + i;
+			int back = z1 + 1 - i;
+			int level = y + i;
+			if (front > back) {
+				break;
+			}
+			if (front == back) {
+				b.fill(x0 - 1, level, front, x1 + 1, level, front, p.slab());
+				break;
+			}
+			b.fill(x0 - 1, level, front, x1 + 1, level, front, stairs(p.stairs(), Direction.SOUTH));
+			b.fill(x0 - 1, level, back, x1 + 1, level, back, stairs(p.stairs(), Direction.NORTH));
+			// Close the triangle at both gable ends (above the walls).
+			for (int z = Math.max(front + 1, z0); i > 0 && z <= Math.min(back - 1, z1); z++) {
+				b.set(x0, level, z, p.planks());
+				b.set(x1, level, z, p.planks());
+			}
+		}
+	}
+
+	/** A hip roof: stairs on all four sides stepping in, a slab cap on top. */
+	public static void hipRoof(Blueprint b, int x0, int z0, int x1, int z1, int y) {
+		Palette p = b.palette;
+		for (int i = 0; ; i++) {
+			int ax = x0 - 1 + i;
+			int bx = x1 + 1 - i;
+			int az = z0 - 1 + i;
+			int bz = z1 + 1 - i;
+			int level = y + i;
+			if (ax > bx || az > bz) {
+				break;
+			}
+			if (ax >= bx - 1 || az >= bz - 1) {
+				b.fill(ax, level, az, bx, level, bz, p.slab());
+				break;
+			}
+			b.fill(ax, level, az, bx, level, az, stairs(p.stairs(), Direction.SOUTH));
+			b.fill(ax, level, bz, bx, level, bz, stairs(p.stairs(), Direction.NORTH));
+			b.fill(ax, level, az + 1, ax, level, bz - 1, stairs(p.stairs(), Direction.EAST));
+			b.fill(bx, level, az + 1, bx, level, bz - 1, stairs(p.stairs(), Direction.WEST));
+		}
+	}
+
+	/** A gable roof with its ridge running along z (same rules as {@link #gableRoof}). */
+	public static void gableRoofZ(Blueprint b, int x0, int z0, int x1, int z1, int y) {
+		Palette p = b.palette;
+		for (int i = 0; ; i++) {
+			int left = x0 - 1 + i;
+			int right = x1 + 1 - i;
+			int level = y + i;
+			if (left > right) {
+				break;
+			}
+			if (left == right) {
+				b.fill(left, level, z0 - 1, left, level, z1 + 1, p.slab());
+				break;
+			}
+			b.fill(left, level, z0 - 1, left, level, z1 + 1, stairs(p.stairs(), Direction.EAST));
+			b.fill(right, level, z0 - 1, right, level, z1 + 1, stairs(p.stairs(), Direction.WEST));
+			for (int x = Math.max(left + 1, x0); i > 0 && x <= Math.min(right - 1, x1); x++) {
+				b.set(x, level, z0, p.planks());
+				b.set(x, level, z1, p.planks());
+			}
+		}
+	}
+
+	public static void flatRoof(Blueprint b, int x0, int z0, int x1, int z1, int y) {
+		b.fill(x0, y, z0, x1, y, z1, b.palette.slab());
+	}
+
+	public enum Roof { GABLE_X, GABLE_Z, HIP, FLAT }
+
+	/** A roof of the given shape over walls x0..x1, z0..z1 whose top row is at y. */
+	public static void roof(Blueprint b, Roof roof, int x0, int z0, int x1, int z1, int y) {
+		switch (roof) {
+			case GABLE_X -> gableRoof(b, x0, z0, x1, z1, y);
+			case GABLE_Z -> gableRoofZ(b, x0, z0, x1, z1, y);
+			case HIP -> hipRoof(b, x0, z0, x1, z1, y);
+			case FLAT -> {
+				b.fill(x0, y + 1, z0, x1, y + 1, z1, b.palette.planks());
+				b.walls(x0, z0, x1, z1, y + 2, y + 2, b.palette.slab());
+			}
+		}
+	}
+
+	/** Glass panes every other block along all four walls at height y (not in the corners, not over the door). */
+	public static void windowsAround(Blueprint b, int x0, int z0, int x1, int z1, int y, int doorX) {
+		for (int x = x0 + 2; x <= x1 - 2; x += 2) {
+			if (x != doorX) {
+				window(b, x, y, z0);
+			}
+			window(b, x, y, z1);
+		}
+		for (int z = z0 + 2; z <= z1 - 2; z += 2) {
+			window(b, x0, y, z);
+			window(b, x1, y, z);
+		}
+	}
+
+	/**
+	 * A whole little house: a room (floor at y, walls wallHeight tall), a door in the middle of the front wall, windows
+	 * all around, a roof, and lanterns inside (two in bigger rooms). Returns the door's x.
+	 */
+	public static int cottage(Blueprint b, int x0, int z0, int x1, int z1, int y, int wallHeight, Roof roof, String name) {
+		room(b, x0, z0, x1, z1, y, wallHeight, name);
+		int doorX = (x0 + x1) / 2;
+		door(b, doorX, y + 1, z0, Direction.NORTH);
+		windowsAround(b, x0, z0, x1, z1, y + 2, doorX);
+		roof(b, roof, x0, z0, x1, z1, y + wallHeight);
+		lantern(b, x1 - 1, y + 1, z0 + 1, false);
+		if (x1 - x0 >= 8 || z1 - z0 >= 8) {
+			lantern(b, x0 + 1, y + 1, z1 - 1, false);
+		}
+		return doorX;
+	}
+
+	/**
+	 * A walk-in tent, 5 wide and 3 tall, open at the front (z = oz) and closed at the back. Sleeping spots are the
+	 * two side rows (x = ox + 1 and ox + 3); the middle row is the aisle.
+	 */
+	public static void tent(Blueprint b, int ox, int oz, int length, BlockState wool) {
+		for (int z = oz; z < oz + length; z++) {
+			b.set(ox, 1, z, wool);
+			b.set(ox + 4, 1, z, wool);
+			b.set(ox + 1, 2, z, wool);
+			b.set(ox + 3, 2, z, wool);
+			b.set(ox + 2, 3, z, wool);
+			b.clear(ox + 1, 1, z, ox + 3, 1, z);
+			b.clear(ox + 2, 2, z, ox + 2, 2, z);
+		}
+		b.fill(ox + 1, 1, oz + length - 1, ox + 3, 2, oz + length - 1, wool);
+		b.floor(ox + 2, oz, ox + 2, oz + length - 2, 1, "tent");
+	}
+
+	/** A campfire with log benches on the left, right and front (low z) sides; the back is left open. */
+	public static void campfire(Blueprint b, int x, int y, int z) {
+		b.set(x, y, z, Blocks.CAMPFIRE);
+		BlockState bench = logAlong(b.palette.log(), Direction.Axis.Z);
+		b.set(x - 2, y, z, bench);
+		b.set(x + 2, y, z, bench);
+		b.set(x, y, z - 2, logAlong(b.palette.log(), Direction.Axis.X));
+	}
+
+	/** A plank dock (deck at y) on log posts down to the ground or the bottom of the water, with a rail on both sides. */
+	public static void dock(Blueprint b, int x0, int z0, int x1, int z1, int y) {
+		Palette p = b.palette;
+		b.fill(x0, y, z0, x1, y, z1, p.planks());
+		for (int z = z0; z <= z1; z += 3) {
+			b.pillar(x0, y - 1, z, p.log());
+			b.pillar(x1, y - 1, z, p.log());
+		}
+		for (int z = z0 + 1; z <= z1; z++) {
+			if (z % 4 != 0) {
+				b.set(x0, y + 1, z, p.fence());
+				b.set(x1, y + 1, z, p.fence());
+			}
+		}
+	}
+
+	// ---------------------------------------------------------------- getting up
+
+	/**
+	 * A ladder from y0 to y1 at (x, z), facing away from the wall it hangs on. Puts a wall block behind any rung
+	 * that has nothing to hang on, and clears the rungs' space.
+	 */
+	public static void ladder(Blueprint b, int x, int y0, int y1, int z, Direction facing) {
+		int sx = x - facing.getStepX();
+		int sz = z - facing.getStepZ();
+		BlockState rung = Blocks.LADDER.defaultBlockState().setValue(LadderBlock.FACING, facing);
+		for (int y = y0; y <= y1; y++) {
+			BlockState behind = b.get(sx, y, sz);
+			if (behind == null || behind.isAir()) {
+				b.set(sx, y, sz, b.palette.planks());
+			}
+			b.set(x, y, z, rung);
+		}
+	}
+
+	/** A straight staircase going {@code dir}, one block up per step, with headroom cleared. Returns the top step's y. */
+	public static int stairsRun(Blueprint b, int x, int y, int z, Direction dir, int steps) {
+		for (int i = 0; i < steps; i++) {
+			int sx = x + dir.getStepX() * i;
+			int sz = z + dir.getStepZ() * i;
+			b.set(sx, y + i, sz, stairs(b.palette.stairs(), dir));
+			b.clear(sx, y + i + 1, sz, sx, y + i + 3, sz);
+		}
+		return y + steps - 1;
+	}
+
+	/**
+	 * Spiral stairs around a log post at (cx, cz): eight steps per full turn, one block up each, from y0 up to y1.
+	 * Floors the stairs pass through must leave the 3x3 around the post open (the caller clears them).
+	 */
+	public static void spiralStairs(Blueprint b, int cx, int cz, int y0, int y1) {
+		int[][] ring = {{0, -1}, {1, -1}, {1, 0}, {1, 1}, {0, 1}, {-1, 1}, {-1, 0}, {-1, -1}};
+		b.fill(cx, y0, cz, cx, y1, cz, b.palette.log());
+		for (int k = 0; y0 + k <= y1; k++) {
+			int[] cell = ring[k % 8];
+			int[] next = ring[(k + 1) % 8];
+			int dx = next[0] - cell[0];
+			int dz = next[1] - cell[1];
+			Direction dir = dx > 0 ? Direction.EAST : dx < 0 ? Direction.WEST : dz > 0 ? Direction.SOUTH : Direction.NORTH;
+			int y = y0 + k;
+			b.set(cx + cell[0], y, cz + cell[1], stairs(b.palette.stairs(), dir));
+			b.clear(cx + cell[0], y + 1, cz + cell[1], cx + cell[0], y + 3, cz + cell[1]);
+		}
+	}
+
+	/**
+	 * A square tower with walls x0..x0+size-1, z0..z0+size-1 from y0 up to the top floor at y0 + height. Floors every
+	 * {@code floorEvery} blocks, a ladder up the inside of the back wall through every floor, a window on each side of
+	 * every floor, a lantern on each floor. Every floor and the top are declared for the reachability check.
+	 */
+	public static void tower(Blueprint b, int x0, int z0, int size, int y0, int height, int floorEvery, boolean stone) {
+		Palette p = b.palette;
+		int x1 = x0 + size - 1;
+		int z1 = z0 + size - 1;
+		int top = y0 + height;
+		BlockState wall = stone ? p.bricks() : p.planks();
+		b.fill(x0, y0, z0, x1, y0, z1, stone ? p.stoneFloor() : p.planks());
+		b.clear(x0 + 1, y0 + 1, z0 + 1, x1 - 1, top - 1, z1 - 1);
+		// Walls go up to the top floor's level, so anything built on the rim (parapets, crenellations) sits on them.
+		b.walls(x0, z0, x1, z1, y0 + 1, top, wall);
+		for (int[] c : new int[][]{{x0, z0}, {x1, z0}, {x0, z1}, {x1, z1}}) {
+			b.fill(c[0], y0 + 1, c[1], c[0], top, c[1], p.log());
+		}
+		int lx = x0 + size / 2;
+		int lz = z1 - 1;
+		int floorNumber = 0;
+		for (int f = y0; f <= top; f += floorEvery) {
+			int floorY = Math.min(f, top);
+			if (floorY != y0) {
+				b.fill(x0 + 1, floorY, z0 + 1, x1 - 1, floorY, z1 - 1, p.planks());
+			}
+			b.floor(x0 + 1, z0 + 1, x1 - 1, z1 - 1, floorY + 1, floorY == top ? "top" : "floor " + floorNumber++);
+			if (floorY < top) {
+				int windowY = floorY + 2;
+				window(b, x0, windowY, z0 + size / 2);
+				window(b, x1, windowY, z0 + size / 2);
+				window(b, x0 + 1, windowY, z1);
+				b.set(x0 + 1, floorY + 1, z0 + 1, Blocks.LANTERN);
+			}
+			if (floorY == top) {
+				break;
+			}
+		}
+		if ((top - y0) % floorEvery != 0) {
+			b.fill(x0 + 1, top, z0 + 1, x1 - 1, top, z1 - 1, p.planks());
+			b.floor(x0 + 1, z0 + 1, x1 - 1, z1 - 1, top + 1, "top");
+		}
+		ladder(b, lx, y0 + 1, top, lz, Direction.NORTH);
+	}
+
+	// ---------------------------------------------------------------- furniture
+
+	/** A table (top slab) with stair chairs facing it on the given sides. */
+	public static void table(Blueprint b, int x, int y, int z, boolean chairsX, boolean chairsZ) {
+		Palette p = b.palette;
+		b.set(x, y, z, topSlab(p.slab()));
+		if (chairsX) {
+			b.set(x - 1, y, z, stairs(p.stairs(), Direction.WEST));
+			b.set(x + 1, y, z, stairs(p.stairs(), Direction.EAST));
+		}
+		if (chairsZ) {
+			b.set(x, y, z - 1, stairs(p.stairs(), Direction.NORTH));
+			b.set(x, y, z + 1, stairs(p.stairs(), Direction.SOUTH));
+		}
+	}
+
+	/** A bed with a chest at its foot side and a lantern beside it. */
+	public static void bedroom(Blueprint b, int x, int y, int z, String loot) {
+		b.bed(x, y, z, b.palette.bed());
+		b.chest(x + 1, y, z + 1, loot);
+		b.set(x + 1, y, z, Blocks.LANTERN);
+	}
+
+	/** Smoker, barrel and a cauldron in a row along x. */
+	public static void kitchen(Blueprint b, int x, int y, int z, String barrelLoot) {
+		b.set(x, y, z, Blocks.SMOKER);
+		b.barrel(x + 1, y, z, barrelLoot);
+		b.set(x + 2, y, z, Blocks.WATER_CAULDRON);
+	}
+
+	/** A row of bookshelves two high along x, with a lectern in front of the middle. */
+	public static void library(Blueprint b, int x, int y, int z, int length) {
+		b.fill(x, y, z, x + length - 1, y + 1, z, Blocks.BOOKSHELF);
+		b.set(x + length / 2, y, z - 1, Blocks.LECTERN);
+	}
+
+	/** Crafting table, furnace and anvil in a row along x. */
+	public static void workshop(Blueprint b, int x, int y, int z) {
+		b.set(x, y, z, Blocks.CRAFTING_TABLE);
+		b.set(x + 1, y, z, Blocks.FURNACE);
+		b.set(x + 2, y, z, Blocks.ANVIL);
+	}
+
+	public static void lantern(Blueprint b, int x, int y, int z, boolean hanging) {
+		b.set(x, y, z, b.palette.light().hasProperty(LanternBlock.HANGING)
+				? b.palette.light().setValue(LanternBlock.HANGING, hanging) : b.palette.light());
+	}
+
+	// ---------------------------------------------------------------- outside
+
+	/** Flowers (and grass under them) scattered over a rectangle, about one in three spots. */
+	public static void garden(Blueprint b, int x0, int z0, int x1, int z1, int y) {
+		for (int x = x0; x <= x1; x++) {
+			for (int z = z0; z <= z1; z++) {
+				b.set(x, y, z, Blocks.GRASS_BLOCK);
+				if (b.random.nextInt(3) == 0) {
+					Block flower = b.palette.flower(b.random.nextInt(16));
+					if (flower != Blocks.AIR) {
+						b.set(x, y + 1, z, flower);
+					}
+				}
+			}
+		}
+	}
+
+	/** Wet farmland with a crop on it and a water channel down the middle (along x). */
+	public static void field(Blueprint b, int x0, int z0, int x1, int z1, int y, Block crop) {
+		BlockState farmland = Blocks.FARMLAND.defaultBlockState().setValue(FarmBlock.MOISTURE, 7);
+		int channel = (z0 + z1) / 2;
+		for (int x = x0; x <= x1; x++) {
+			for (int z = z0; z <= z1; z++) {
+				if (z == channel) {
+					b.set(x, y, z, Blocks.WATER);
+					continue;
+				}
+				b.set(x, y, z, farmland);
+				if (crop instanceof CropBlock c) {
+					b.set(x, y + 1, z, c.getStateForAge(b.random.nextInt(c.getMaxAge() + 1)));
+				}
+			}
+		}
+	}
+
+	public static void path(Blueprint b, int x0, int z0, int x1, int z1, int y) {
+		b.fill(x0, y, z0, x1, y, z1, b.palette.path());
+	}
+
+	/** A fence around a rectangle with a gate at (gateX, gateZ). */
+	public static void fenceRing(Blueprint b, int x0, int z0, int x1, int z1, int y, int gateX, int gateZ) {
+		b.walls(x0, z0, x1, z1, y, y, b.palette.fence());
+		b.set(gateX, y, gateZ, b.palette.wood().gate());
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/worldgen/build/PlacementRules.java
+
+```java
+package com.itzbreadloaf.worldgen.build;
+
+import com.itzbreadloaf.ItzBreadLoaf;
+import com.itzbreadloaf.worldgen.HomeStructure;
+import net.minecraft.core.Holder;
+import net.minecraft.core.QuartPos;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.levelgen.structure.Structure;
+import net.minecraft.world.level.levelgen.structure.StructureSet;
+import net.minecraft.world.level.levelgen.structure.placement.RandomSpreadStructurePlacement;
+
+/**
+ * Separation: keeps every LoafCraft structure off other structures. Before one generates, it works out (from the
+ * world seed, the way the game does) where every other random-spread structure set will try to place a structure
+ * nearby, and checks the biome there. If one would overlap, this one doesn't generate:
+ * <ul>
+ *   <li>other LoafCraft structures: the bigger one wins (equal sizes: the one whose id sorts first);</li>
+ *   <li>vanilla and other mods' structures (temples, outposts, ruined portals, other mods' buildings): they always
+ *   win, and are assumed to be {@link #OTHER_SIZE} blocks across. Vanilla villages are also kept away by the
+ *   "exclusion_zone" in each structure set.</li>
+ * </ul>
+ */
+public final class PlacementRules {
+	/** Assumed size of a structure we don't know the size of. */
+	public static final int OTHER_SIZE = 24;
+	/** Sets this dense are tiny scattered things (buried treasure...), not worth avoiding. */
+	private static final int MIN_OTHER_SPACING = 8;
+
+	private PlacementRules() {
+	}
+
+	/** Size used for overlap checks, or -1 for structures that aren't ours. */
+	public static int footprint(Structure structure) {
+		if (structure instanceof HomeStructure home) {
+			return Math.max(home.kind().width, home.kind().depth);
+		}
+		if (structure instanceof BlueprintStructure blueprint && blueprint.def() != null) {
+			return blueprint.def().footprint();
+		}
+		return -1;
+	}
+
+	private static String rankName(Structure structure) {
+		if (structure instanceof HomeStructure home) {
+			return home.kind().getSerializedName();
+		}
+		if (structure instanceof BlueprintStructure blueprint) {
+			return blueprint.id();
+		}
+		return "";
+	}
+
+	/** True if {@code self} should not generate here because another structure would overlap it. */
+	public static boolean yields(Structure.GenerationContext context, Structure self) {
+		ChunkPos here = context.chunkPos();
+		int mySize = footprint(self);
+		String myName = rankName(self);
+		for (StructureSet set : context.registryAccess().lookupOrThrow(Registries.STRUCTURE_SET)) {
+			if (!(set.placement() instanceof RandomSpreadStructurePlacement spread)) {
+				continue;
+			}
+			for (StructureSet.StructureSelectionEntry entry : set.structures()) {
+				Structure other = entry.structure().value();
+				if (other == self) {
+					continue;
+				}
+				int otherSize = footprint(other);
+				if (otherSize < 0) {
+					boolean ours = entry.structure().unwrapKey().map(k -> k.identifier().getNamespace().equals(ItzBreadLoaf.MOD_ID)).orElse(false);
+					if (ours || spread.spacing() < MIN_OTHER_SPACING) {
+						continue;
+					}
+					otherSize = OTHER_SIZE;
+				} else if (!outranks(otherSize, rankName(other), mySize, myName)) {
+					continue;
+				}
+				int reach = (mySize + otherSize) / 2 + 6;
+				if (startsNear(context, spread, other, here, reach, 0)) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	/** True if one of the LoafCraft structures with these ids will start between minBlocks and maxBlocks away. */
+	public static boolean nearAny(Structure.GenerationContext context, java.util.List<String> ids, int minBlocks, int maxBlocks) {
+		for (StructureSet set : context.registryAccess().lookupOrThrow(Registries.STRUCTURE_SET)) {
+			if (!(set.placement() instanceof RandomSpreadStructurePlacement spread)) {
+				continue;
+			}
+			for (StructureSet.StructureSelectionEntry entry : set.structures()) {
+				boolean wanted = entry.structure().unwrapKey().map(k -> k.identifier().getNamespace().equals(ItzBreadLoaf.MOD_ID)
+						&& ids.contains(k.identifier().getPath())).orElse(false);
+				if (wanted && startsNear(context, spread, entry.structure().value(), context.chunkPos(), maxBlocks, minBlocks)) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	private static boolean outranks(int size, String name, int otherSize, String otherName) {
+		return size != otherSize ? size > otherSize : name.compareTo(otherName) < 0;
+	}
+
+	/**
+	 * Whether {@code structure}'s set places a start (in a biome it can use) between minBlocks and reach blocks
+	 * (box distance) from this chunk.
+	 */
+	public static boolean startsNear(Structure.GenerationContext context, RandomSpreadStructurePlacement spread, Structure structure,
+			ChunkPos here, int reach, int minBlocks) {
+		int reachChunks = reach / 16 + 1;
+		int spacing = spread.spacing();
+		for (int cx = Math.floorDiv(here.x - reachChunks, spacing); cx <= Math.floorDiv(here.x + reachChunks, spacing); cx++) {
+			for (int cz = Math.floorDiv(here.z - reachChunks, spacing); cz <= Math.floorDiv(here.z + reachChunks, spacing); cz++) {
+				ChunkPos start = spread.getPotentialStructureChunk(context.seed(), cx * spacing, cz * spacing);
+				int dx = Math.abs(start.x - here.x) * 16;
+				int dz = Math.abs(start.z - here.z) * 16;
+				if (dx > reach || dz > reach || Math.max(dx, dz) < minBlocks) {
+					continue;
+				}
+				Holder<Biome> biome = context.biomeSource().getNoiseBiome(QuartPos.fromBlock(start.getMiddleBlockX()),
+						QuartPos.fromBlock(64), QuartPos.fromBlock(start.getMiddleBlockZ()), context.randomState().sampler());
+				if (structure.biomes().contains(biome)) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/worldgen/build/Reachability.java
+
+```java
+package com.itzbreadloaf.worldgen.build;
+
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.world.level.EmptyBlockGetter;
+import net.minecraft.world.level.block.DoorBlock;
+import net.minecraft.world.level.block.FenceGateBlock;
+import net.minecraft.world.level.block.LadderBlock;
+import net.minecraft.world.level.block.TrapDoorBlock;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.shapes.VoxelShape;
+
+/**
+ * Walks a blueprint like a player would, starting from the ground all around it: walking, stepping up one block,
+ * dropping up to three, climbing ladders, and going through doors, gates and trapdoors (they open). Then it reports
+ * every declared floor, chest, barrel, bed and resident spot it couldn't get to. Unset cells count as ground at
+ * y <= 0 and air above, which is what the leveling leaves.
+ */
+public final class Reachability {
+	private static final int[][] SIDES = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+
+	private Reachability() {
+	}
+
+	public static List<String> check(Blueprint b) {
+		Set<Long> reached = walk(b);
+		List<String> problems = new ArrayList<>();
+		for (Blueprint.Floor floor : b.floors) {
+			boolean ok = false;
+			for (int x = floor.x0(); x <= floor.x1() && !ok; x++) {
+				for (int z = floor.z0(); z <= floor.z1() && !ok; z++) {
+					ok = reached.contains(Blueprint.key(x, floor.y(), z));
+				}
+			}
+			if (!ok) {
+				problems.add("floor '" + floor.name() + "' (y " + floor.y() + ") can't be reached");
+			}
+		}
+		for (Blueprint.Container c : b.containers) {
+			if (!nextTo(reached, c.x(), c.y(), c.z())) {
+				problems.add((c.barrel() ? "barrel" : "chest") + " at " + c.x() + " " + c.y() + " " + c.z() + " can't be reached");
+			}
+		}
+		for (Blueprint.Bed bed : b.beds) {
+			if (!nextTo(reached, bed.x(), bed.y(), bed.z()) && !nextTo(reached, bed.x(), bed.y(), bed.z() + 1)) {
+				problems.add("bed at " + bed.x() + " " + bed.y() + " " + bed.z() + " can't be reached");
+			}
+		}
+		for (Blueprint.Resident r : b.residents) {
+			if (!reached.contains(Blueprint.key(r.x(), r.y(), r.z())) && !nextTo(reached, r.x(), r.y(), r.z())) {
+				problems.add(r.variant().displayName() + "'s spawn at " + r.x() + " " + r.y() + " " + r.z() + " can't be reached");
+			}
+		}
+		return problems;
+	}
+
+	/** Something you can use from any reachable spot right beside it (or above/below by one). */
+	private static boolean nextTo(Set<Long> reached, int x, int y, int z) {
+		for (int dy = -1; dy <= 1; dy++) {
+			for (int dx = -1; dx <= 1; dx++) {
+				for (int dz = -1; dz <= 1; dz++) {
+					if (reached.contains(Blueprint.key(x + dx, y + dy, z + dz))) {
+						return true;
+					}
+				}
+			}
+		}
+		return false;
+	}
+
+	private static Set<Long> walk(Blueprint b) {
+		Set<Long> seen = new HashSet<>();
+		ArrayDeque<int[]> queue = new ArrayDeque<>();
+		// Start on the ground all around the outside.
+		for (int x = -2; x <= b.width + 1; x++) {
+			for (int z = -2; z <= b.depth + 1; z++) {
+				boolean outside = x < 0 || z < 0 || x >= b.width || z >= b.depth;
+				if (outside && walkable(b, x, 1, z) && seen.add(Blueprint.key(x, 1, z))) {
+					queue.add(new int[]{x, 1, z});
+				}
+			}
+		}
+		int minY = b.lowestY() - 1;
+		while (!queue.isEmpty()) {
+			int[] at = queue.poll();
+			int x = at[0];
+			int y = at[1];
+			int z = at[2];
+			for (int[] side : SIDES) {
+				int nx = x + side[0];
+				int nz = z + side[1];
+				if (nx < -3 || nz < -3 || nx > b.width + 2 || nz > b.depth + 2) {
+					continue;
+				}
+				if (walkable(b, nx, y, nz)) {
+					visit(seen, queue, nx, y, nz);
+				} else if (walkable(b, nx, y + 1, nz) && passable(b, x, y + 2, z)) {
+					visit(seen, queue, nx, y + 1, nz);
+				} else if (passable(b, nx, y, nz) && passable(b, nx, y + 1, nz)) {
+					for (int drop = 1; drop <= 3 && y - drop >= minY; drop++) {
+						if (walkable(b, nx, y - drop, nz)) {
+							visit(seen, queue, nx, y - drop, nz);
+							break;
+						}
+						if (!passable(b, nx, y - drop, nz)) {
+							break;
+						}
+					}
+				}
+			}
+			// Ladders (and trapdoor hatches on top of them): up and down.
+			if (climbable(b, x, y, z)) {
+				if (y + 1 < b.height + 2 && passable(b, x, y + 1, z) && passable(b, x, y + 2, z)) {
+					visit(seen, queue, x, y + 1, z);
+				}
+			}
+			if (climbable(b, x, y - 1, z) && y - 1 >= minY) {
+				visit(seen, queue, x, y - 1, z);
+			}
+		}
+		return seen;
+	}
+
+	private static void visit(Set<Long> seen, ArrayDeque<int[]> queue, int x, int y, int z) {
+		if (seen.add(Blueprint.key(x, y, z))) {
+			queue.add(new int[]{x, y, z});
+		}
+	}
+
+	/** Feet and head fit, and there's something to stand on (or a ladder to hold). */
+	static boolean walkable(Blueprint b, int x, int y, int z) {
+		if (!passable(b, x, y, z) || !passable(b, x, y + 1, z)) {
+			return false;
+		}
+		return ladder(b, x, y, z) || standOn(b, x, y - 1, z);
+	}
+
+	private static boolean climbable(Blueprint b, int x, int y, int z) {
+		BlockState state = b.get(x, y, z);
+		return state != null && (state.getBlock() instanceof LadderBlock || state.getBlock() instanceof TrapDoorBlock);
+	}
+
+	private static boolean ladder(Blueprint b, int x, int y, int z) {
+		BlockState state = b.get(x, y, z);
+		return state != null && state.getBlock() instanceof LadderBlock;
+	}
+
+	static boolean passable(Blueprint b, int x, int y, int z) {
+		BlockState state = b.get(x, y, z);
+		if (state == null) {
+			return y >= 1;
+		}
+		if (state.isAir() || state.getBlock() instanceof DoorBlock || state.getBlock() instanceof FenceGateBlock
+				|| state.getBlock() instanceof TrapDoorBlock || state.getBlock() instanceof LadderBlock) {
+			return true;
+		}
+		// Low things you walk over: carpets, pressure plates, a thin snow layer.
+		VoxelShape shape = shape(state);
+		return shape.isEmpty() || shape.max(Direction.Axis.Y) <= 0.25;
+	}
+
+	private static boolean standOn(Blueprint b, int x, int y, int z) {
+		BlockState state = b.get(x, y, z);
+		if (state == null) {
+			return y <= 0;
+		}
+		if (state.getBlock() instanceof LadderBlock || state.getBlock() instanceof TrapDoorBlock) {
+			return true;
+		}
+		VoxelShape shape = shape(state);
+		// Fences and walls are 1.5 tall: you can't stand on them in a normal way.
+		return !shape.isEmpty() && shape.max(Direction.Axis.Y) <= 1.0;
+	}
+
+	private static VoxelShape shape(BlockState state) {
+		return state.getCollisionShape(EmptyBlockGetter.INSTANCE, BlockPos.ZERO);
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/worldgen/build/StructureCatalog.java
+
+```java
+package com.itzbreadloaf.worldgen.build;
+
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Every structure built with the blueprint system, in one place: id, name, category, biomes, rarity (spacing and
+ * separation in chunks), loot level, who lives there, and an optional lore book. This class is plain Java on purpose
+ * (no Minecraft classes), so {@code ./gradlew exportStructures} can run it outside the game to write the worldgen
+ * JSON (structure, structure set, biome tag) for each entry. The layout itself is in {@link Blueprints}.
+ */
+public final class StructureCatalog {
+	/** How it's placed in the world. */
+	public enum Placement {
+		/** On dry land. */
+		LAND,
+		/** Floating on water (pirate ships). */
+		WATER,
+		/** Land or water, wherever it lands (docks, stilts). */
+		ANY_SURFACE,
+		/** On the Nether floor, found by searching down under the ceiling. */
+		NETHER_FLOOR,
+		/** Needs ground under it (the End's islands). */
+		ISLAND,
+		/** Built by the mod while the game runs (campsites, throne rooms): no worldgen files. */
+		RUNTIME
+	}
+
+	/**
+	 * One structure. Size is the footprint (width x depth) and height; the piece adds a leveling margin around it.
+	 * {@code biomes} are biome ids or #tags. {@code loreBook} is a lore book id or null.
+	 */
+	public record Def(String id, String name, String category, int lootLevel, int spacing, int separation, int salt,
+			List<String> biomes, String residents, String loreBook, int width, int depth, int height,
+			Placement placement, String step, List<String> near) {
+		public int footprint() {
+			return Math.max(this.width, this.depth);
+		}
+
+		public Def placement(Placement value) {
+			return new Def(this.id, this.name, this.category, this.lootLevel, this.spacing, this.separation, this.salt, this.biomes,
+					this.residents, this.loreBook, this.width, this.depth, this.height, value, this.step, this.near);
+		}
+
+		public Def lore(String book) {
+			return new Def(this.id, this.name, this.category, this.lootLevel, this.spacing, this.separation, this.salt, this.biomes,
+					this.residents, book, this.width, this.depth, this.height, this.placement, this.step, this.near);
+		}
+
+		public Def step(String value) {
+			return new Def(this.id, this.name, this.category, this.lootLevel, this.spacing, this.separation, this.salt, this.biomes,
+					this.residents, this.loreBook, this.width, this.depth, this.height, this.placement, value, this.near);
+		}
+
+		/** Only generates 24-96 blocks from one of these structures (Rival Camp: near ItzBreadLoaf's houses). */
+		public Def near(String... ids) {
+			return new Def(this.id, this.name, this.category, this.lootLevel, this.spacing, this.separation, this.salt, this.biomes,
+					this.residents, this.loreBook, this.width, this.depth, this.height, this.placement, this.step, List.of(ids));
+		}
+	}
+
+	/** A structure on land, on the surface, with no lore book (change those with placement(), step(), lore(), near()). */
+	static Def def(String id, String name, String category, int lootLevel, int spacing, int separation, int salt,
+			List<String> biomes, String residents, int width, int depth, int height) {
+		return new Def(id, name, category, lootLevel, spacing, separation, salt, biomes, residents, null, width, depth, height,
+				Placement.LAND, "surface_structures", List.of());
+	}
+
+	private static final Map<String, Def> DEFS = new LinkedHashMap<>();
+
+	static {
+		// ---- remade with the blueprint system (ids kept, so old worlds keep their structures)
+		CatalogEntries.addAll();
+	}
+
+	private StructureCatalog() {
+	}
+
+	static void add(Def def) {
+		if (DEFS.put(def.id(), def) != null) {
+			throw new IllegalStateException("Two structures with the id " + def.id());
+		}
+		if (def.separation() >= def.spacing()) {
+			throw new IllegalStateException(def.id() + ": separation must be smaller than spacing");
+		}
+	}
+
+	public static Def get(String id) {
+		return DEFS.get(id);
+	}
+
+	public static java.util.Collection<Def> all() {
+		return DEFS.values();
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/worldgen/build/StructureCatalogExport.java
+
+```java
+package com.itzbreadloaf.worldgen.build;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+/**
+ * Writes the worldgen JSON for every {@link StructureCatalog} entry: worldgen/structure/<id>.json (type
+ * itzbreadloaf:blueprint), worldgen/structure_set/<id>.json (random spread, kept out of vanilla villages in the
+ * Overworld) and tags/worldgen/biome/has_structure/<id>.json. Run with {@code ./gradlew exportStructures}.
+ * Plain Java only: it runs outside the game.
+ */
+public final class StructureCatalogExport {
+	/** Structure sets whose file had another name before the remake (kept, so there is one set per structure). */
+	private static final Map<String, String> OLD_SET_NAMES = Map.ofEntries(
+			Map.entry("bandit_camp", "bandit_camps"),
+			Map.entry("fort", "forts"),
+			Map.entry("house", "houses"),
+			Map.entry("pirate_ship", "pirate_ships"),
+			Map.entry("tent", "tents"),
+			Map.entry("watchtower", "watchtowers"));
+
+	private StructureCatalogExport() {
+	}
+
+	public static void main(String[] args) throws IOException {
+		Path data = Path.of(args.length > 0 ? args[0] : "src/main/resources").resolve("data/itzbreadloaf");
+		int count = 0;
+		for (StructureCatalog.Def def : StructureCatalog.all()) {
+			if (def.placement() == StructureCatalog.Placement.RUNTIME) {
+				continue;
+			}
+			write(data.resolve("worldgen/structure/" + def.id() + ".json"), """
+					{
+					  "type": "itzbreadloaf:blueprint",
+					  "id": "%s",
+					  "biomes": "#itzbreadloaf:has_structure/%s",
+					  "step": "%s",
+					  "spawn_overrides": {},
+					  "terrain_adaptation": "none"
+					}
+					""".formatted(def.id(), def.id(), def.step()));
+			boolean overworld = def.placement() != StructureCatalog.Placement.NETHER_FLOOR && def.placement() != StructureCatalog.Placement.ISLAND;
+			String exclusion = overworld ? """
+					,
+					    "exclusion_zone": {
+					      "other_set": "minecraft:villages",
+					      "chunk_count": 4
+					    }""" : "";
+			write(data.resolve("worldgen/structure_set/" + OLD_SET_NAMES.getOrDefault(def.id(), def.id()) + ".json"), """
+					{
+					  "structures": [
+					    {
+					      "structure": "itzbreadloaf:%s",
+					      "weight": 1
+					    }
+					  ],
+					  "placement": {
+					    "type": "minecraft:random_spread",
+					    "spacing": %d,
+					    "separation": %d,
+					    "salt": %d%s
+					  }
+					}
+					""".formatted(def.id(), def.spacing(), def.separation(), def.salt(), exclusion));
+			String biomes = def.biomes().stream().map(b -> "    \"" + b + "\"").collect(Collectors.joining(",\n"));
+			write(data.resolve("tags/worldgen/biome/has_structure/" + def.id() + ".json"), "{\n  \"values\": [\n" + biomes + "\n  ]\n}\n");
+			count++;
+		}
+		System.out.println("Exported " + count + " structures to " + data);
+	}
+
+	private static void write(Path path, String text) throws IOException {
+		Files.createDirectories(path.getParent());
+		Files.writeString(path, text, StandardCharsets.UTF_8);
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/worldgen/build/StructureCheck.java
+
+```java
+package com.itzbreadloaf.worldgen.build;
+
+import java.util.ArrayList;
+import java.util.List;
+import net.minecraft.core.Holder;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.biome.Biomes;
+
+/**
+ * {@code /loafcraft checkstructures}: builds every blueprint in memory (no world needed) in several biomes' palettes
+ * and with several seeds, and runs the reachability check on each. Lists every floor, chest, bed or resident spot that
+ * can't be reached, or says they're all fine.
+ */
+public final class StructureCheck {
+	private static final List<ResourceKey<Biome>> OVERWORLD = List.of(Biomes.PLAINS, Biomes.DESERT, Biomes.SNOWY_TAIGA, Biomes.CHERRY_GROVE,
+			Biomes.BADLANDS, Biomes.JUNGLE, Biomes.MANGROVE_SWAMP);
+	private static final int SEEDS = 4;
+
+	private StructureCheck() {
+	}
+
+	public static List<String> run(MinecraftServer server) {
+		var biomes = server.registryAccess().lookupOrThrow(Registries.BIOME);
+		List<String> report = new ArrayList<>();
+		int built = 0;
+		for (StructureCatalog.Def def : StructureCatalog.all()) {
+			if (!Blueprints.has(def.id())) {
+				report.add(def.id() + ": no layout");
+				continue;
+			}
+			List<ResourceKey<Biome>> keys = switch (def.placement()) {
+				case NETHER_FLOOR -> List.of(Biomes.NETHER_WASTES, Biomes.CRIMSON_FOREST, Biomes.WARPED_FOREST);
+				case ISLAND -> List.of(Biomes.END_HIGHLANDS);
+				default -> OVERWORLD;
+			};
+			for (ResourceKey<Biome> key : keys) {
+				Holder<Biome> biome = biomes.getOrThrow(key);
+				for (int seed = 0; seed < SEEDS; seed++) {
+					Blueprint b = new Blueprint(def.width(), def.depth(), def.height(), Palette.forBiome(biome), RandomSource.create(seed));
+					Blueprints.build(def.id(), b);
+					built++;
+					for (String problem : Reachability.check(b)) {
+						String line = def.id() + " (" + key.identifier().getPath() + "): " + problem;
+						if (!report.contains(line)) {
+							report.add(line);
+						}
+					}
+				}
+			}
+		}
+		report.add(0, report.isEmpty() ? "All " + built + " test builds passed: every floor, chest, bed and resident is reachable."
+				: report.size() + " problem(s) in " + built + " test builds:");
+		return report;
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/worldgen/build/StructureCheckMain.java
+
+```java
+package com.itzbreadloaf.worldgen.build;
+
+import java.util.ArrayList;
+import java.util.List;
+import net.minecraft.SharedConstants;
+import net.minecraft.server.Bootstrap;
+import net.minecraft.util.RandomSource;
+
+/**
+ * {@code ./gradlew checkStructures}: the reachability check without starting the game. Boots just enough of
+ * Minecraft to know its blocks, builds every blueprint with several wood/stone palettes and seeds, and fails the
+ * task if any floor, chest, bed or resident can't be reached. ({@code /loafcraft checkstructures} does the same
+ * in game with the real biome palettes.)
+ */
+public final class StructureCheckMain {
+	private StructureCheckMain() {
+	}
+
+	public static void main(String[] args) {
+		SharedConstants.tryDetectVersion();
+		Bootstrap.bootStrap();
+		List<Palette> palettes = List.of(
+				new Palette(Palette.OAK, Palette.COBBLE, net.minecraft.world.level.block.Blocks.GRASS_BLOCK.defaultBlockState(),
+						net.minecraft.world.level.block.Blocks.DIRT_PATH.defaultBlockState(), net.minecraft.world.level.block.Blocks.LANTERN.defaultBlockState(),
+						net.minecraft.world.level.block.Blocks.RED_BED, new net.minecraft.world.level.block.Block[]{net.minecraft.world.level.block.Blocks.POPPY}),
+				new Palette(Palette.SPRUCE, Palette.DEEPSLATE, net.minecraft.world.level.block.Blocks.SNOW_BLOCK.defaultBlockState(),
+						net.minecraft.world.level.block.Blocks.GRAVEL.defaultBlockState(), net.minecraft.world.level.block.Blocks.LANTERN.defaultBlockState(),
+						net.minecraft.world.level.block.Blocks.WHITE_BED, new net.minecraft.world.level.block.Block[]{net.minecraft.world.level.block.Blocks.FERN}),
+				new Palette(Palette.CRIMSON, Palette.BLACKSTONE, net.minecraft.world.level.block.Blocks.NETHERRACK.defaultBlockState(),
+						net.minecraft.world.level.block.Blocks.POLISHED_BLACKSTONE.defaultBlockState(), net.minecraft.world.level.block.Blocks.SOUL_LANTERN.defaultBlockState(),
+						net.minecraft.world.level.block.Blocks.RED_BED, new net.minecraft.world.level.block.Block[]{net.minecraft.world.level.block.Blocks.CRIMSON_ROOTS}));
+		selfTest(palettes.get(0));
+		List<String> problems = new ArrayList<>();
+		int built = 0;
+		for (StructureCatalog.Def def : StructureCatalog.all()) {
+			if (!Blueprints.has(def.id())) {
+				problems.add(def.id() + ": no layout");
+				continue;
+			}
+			for (Palette palette : palettes) {
+				for (int seed = 0; seed < 4; seed++) {
+					Blueprint b = new Blueprint(def.width(), def.depth(), def.height(), palette, RandomSource.create(seed));
+					Blueprints.build(def.id(), b);
+					built++;
+					for (String problem : Reachability.check(b)) {
+						String line = def.id() + ": " + problem;
+						if (!problems.contains(line)) {
+							problems.add(line);
+						}
+					}
+				}
+			}
+		}
+		if (problems.isEmpty()) {
+			System.out.println("Structure check: all " + built + " test builds passed (" + StructureCatalog.all().size() + " structures).");
+			return;
+		}
+		problems.forEach(p -> System.out.println("Structure check: " + p));
+		throw new IllegalStateException(problems.size() + " structure problem(s)");
+	}
+
+	/** Makes sure the check can fail: a sealed room's chest, and a tower top with no ladder, must be reported. */
+	private static void selfTest(Palette palette) {
+		Blueprint sealed = new Blueprint(5, 5, 6, palette, RandomSource.create(0));
+		Pieces.room(sealed, 0, 0, 4, 4, 0, 3, "sealed room");
+		sealed.fill(0, 4, 0, 4, 4, 4, palette.planks());
+		sealed.chest(2, 1, 2, "chests/house");
+		Blueprint noLadder = new Blueprint(5, 5, 12, palette, RandomSource.create(0));
+		Pieces.tower(noLadder, 0, 0, 5, 0, 10, 5, true);
+		noLadder.fill(2, 1, 3, 2, 10, 3, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState());
+		Pieces.door(noLadder, 2, 1, 0, net.minecraft.core.Direction.NORTH);
+		if (Reachability.check(sealed).size() < 2 || Reachability.check(noLadder).isEmpty()) {
+			throw new IllegalStateException("The structure check didn't catch a sealed room or a missing ladder: it's broken");
+		}
+	}
+}
+```
+
 ## src/main/resources/assets/itzbreadloaf/blockstates/master_loaf_trophy.json
 
 ```json
@@ -15555,7 +19465,19 @@ final class SpecialHomes {
   "advancements.itzbreadloaf.peak_performance.title": "Peak Performance",
   "advancements.itzbreadloaf.peak_performance.description": "Reach a Mountain Outpost",
   "advancements.itzbreadloaf.campfire_stories.title": "Campfire Stories",
-  "advancements.itzbreadloaf.campfire_stories.description": "Find FelixSyn and Harley's campsite at the edge of a village"
+  "advancements.itzbreadloaf.campfire_stories.description": "Find FelixSyn and Harley's campsite at the edge of a village",
+  "subtitles.itzbreadloaf.felixsyn.defend": "FelixSyn defends his friends",
+  "subtitles.itzbreadloaf.felixsyn.hurt": "FelixSyn gets hit",
+  "subtitles.itzbreadloaf.felixsyn.death": "FelixSyn is defeated",
+  "subtitles.itzbreadloaf.felixsyn.idle": "FelixSyn chatters",
+  "subtitles.itzbreadloaf.felixsyn.mace": "FelixSyn smashes",
+  "subtitles.itzbreadloaf.felixsyn.retreat": "FelixSyn backs off",
+  "subtitles.itzbreadloaf.felixsyn.sleep": "FelixSyn yawns",
+  "subtitles.itzbreadloaf.felixsyn.spot_rival": "FelixSyn challenges ItzBreadLoaf",
+  "subtitles.itzbreadloaf.felixsyn.village": "FelixSyn greets the village",
+  "subtitles.itzbreadloaf.felixsyn.win": "FelixSyn celebrates",
+  "subtitles.itzbreadloaf.felixsyn.see_harley": "FelixSyn greets Harley",
+  "subtitles.itzbreadloaf.felixsyn.spot_player": "FelixSyn spots you"
 }
 ```
 
@@ -16156,6 +20078,528 @@ final class SpecialHomes {
       },
       {
         "name": "itzbreadloaf:breadloaf/daily_mission_3",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.attack_village_or_harley": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.defend",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/attack_village_or_harley",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085055": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.defend",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085055",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_091128": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.defend",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_091128",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_091135": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.defend",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_091135",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.being_hit_felixsym": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.hurt",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/being_hit_felixsym",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090121": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.hurt",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090121",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090127": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.hurt",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090127",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090134": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.hurt",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090134",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090143": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.hurt",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090143",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090149": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.hurt",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090149",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.death_felixsyn": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.death",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/death_felixsyn",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.felixsyn_itzbreadloaf": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.death",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/felixsyn_itzbreadloaf",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090322": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.death",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090322",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090330": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.death",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090330",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090337": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.death",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090337",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.elijah": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/elijah",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.idle_felixsyn": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/idle_felixsyn",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_084807": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_084807",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_084835": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_084835",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_084917": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_084917",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_084935": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_084935",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_084953": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_084953",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085007": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085007",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085028": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085028",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085111": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085111",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085137": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085137",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085152": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085152",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085418": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085418",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085453": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085453",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085506": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085506",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085515": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085515",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.mace_attack": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.mace",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/mace_attack",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_084900": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.mace",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_084900",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085947": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.mace",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085947",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.retreat_to_heal_felixsyn": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.retreat",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/retreat_to_heal_felixsyn",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090217": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.retreat",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090217",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090244": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.retreat",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090244",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090251": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.retreat",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090251",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.sleeping": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.sleep",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/sleeping",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_091053": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.sleep",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_091053",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085438": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.spot_rival",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085438",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085544": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.spot_rival",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085544",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085607": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.spot_rival",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085607",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.village": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.village",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/village",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090953": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.village",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090953",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_091002": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.village",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_091002",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085557": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.win",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085557",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085806": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.win",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085806",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090028": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.win",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090028",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090043": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.win",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090043",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090049": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.win",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090049",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.winning_against_itzbreadloaf": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.win",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/winning_against_itzbreadloaf",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.harley_see": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.see_harley",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/harley_see",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090821": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.see_harley",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090821",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090838": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.see_harley",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090838",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090856": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.see_harley",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090856",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.see_sm1_felixsyn": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.spot_player",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/see_sm1_felixsyn",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085524": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.spot_player",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085524",
         "attenuation_distance": 16
       }
     ]
@@ -17265,6 +21709,499 @@ final class SpecialHomes {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/loot_table/characters/felixsyn.json
+
+```json
+{
+  "type": "minecraft:entity",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 1,
+        "max": 2
+      },
+      "bonus_rolls": 0.0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cooked_porkchop",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:string",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/characters/harley.json
+
+```json
+{
+  "type": "minecraft:entity",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 1,
+        "max": 2
+      },
+      "bonus_rolls": 0.0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cookie",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:pink_tulip",
+          "weight": 2
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cooked_beef",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/characters/imlilylol.json
+
+```json
+{
+  "type": "minecraft:entity",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 1,
+        "max": 2
+      },
+      "bonus_rolls": 0.0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:poppy",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:pink_tulip",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cornflower",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cookie",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:paper",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/characters/itzbreadloaf.json
+
+```json
+{
+  "type": "minecraft:entity",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 1,
+        "max": 2
+      },
+      "bonus_rolls": 0.0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "itzbreadloaf:loaf_bread",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cooked_beef",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:arrow",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/characters/madison.json
+
+```json
+{
+  "type": "minecraft:entity",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 1,
+        "max": 2
+      },
+      "bonus_rolls": 0.0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:carrot",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:potato",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:baked_potato",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:pumpkin_pie",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:apple",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/characters/master_breadloaf.json
+
+```json
+{
+  "type": "minecraft:entity",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 1,
+        "max": 2
+      },
+      "bonus_rolls": 0.0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "itzbreadloaf:loaf_bread",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 5
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 3,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "rolls": 2,
+      "bonus_rolls": 0.0,
+      "entries": [
+        {
+          "type": "minecraft:loot_table",
+          "value": "itzbreadloaf:tiers/epic",
+          "weight": 3
+        },
+        {
+          "type": "minecraft:loot_table",
+          "value": "itzbreadloaf:tiers/legendary",
+          "weight": 1
+        }
+      ]
+    }
+  ]
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/loot_table/chests/badlands_saloon.json
 
 ```json
@@ -17274,8 +22211,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 4,
-        "max": 8
+        "min": 3,
+        "max": 6
       },
       "bonus_rolls": 0,
       "entries": [
@@ -17393,22 +22330,6 @@ final class SpecialHomes {
         },
         {
           "type": "minecraft:item",
-          "name": "minecraft:diamond",
-          "weight": 4,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 2
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
           "name": "minecraft:tnt",
           "weight": 4,
           "functions": [
@@ -17454,8 +22375,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 4.0,
-        "max": 8.0
+        "min": 3.0,
+        "max": 6.0
       },
       "bonus_rolls": 0.0,
       "entries": [
@@ -17602,8 +22523,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 3.0,
-        "max": 7.0
+        "min": 2.0,
+        "max": 5.0
       },
       "bonus_rolls": 0.0,
       "entries": [
@@ -17673,38 +22594,6 @@ final class SpecialHomes {
         },
         {
           "type": "minecraft:item",
-          "name": "minecraft:saddle",
-          "weight": 3,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:diamond",
-          "weight": 3,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 2
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
           "name": "minecraft:bread",
           "weight": 15,
           "functions": [
@@ -17750,8 +22639,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 2,
-        "max": 5
+        "min": 1,
+        "max": 3
       },
       "bonus_rolls": 0,
       "entries": [
@@ -17930,27 +22819,11 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 6,
-        "max": 10
+        "min": 5,
+        "max": 8
       },
       "bonus_rolls": 0,
       "entries": [
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:gold_block",
-          "weight": 12,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 3
-              },
-              "add": false
-            }
-          ]
-        },
         {
           "type": "minecraft:item",
           "name": "minecraft:gold_ingot",
@@ -17962,134 +22835,6 @@ final class SpecialHomes {
                 "type": "minecraft:uniform",
                 "min": 4,
                 "max": 12
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:netherite_scrap",
-          "weight": 6,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 2
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:ancient_debris",
-          "weight": 4,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 2
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:golden_apple",
-          "weight": 10,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 3
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:enchanted_golden_apple",
-          "weight": 2,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:wind_charge",
-          "weight": 15,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 6,
-                "max": 16
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:heavy_core",
-          "weight": 2,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:netherite_upgrade_smithing_template",
-          "weight": 3,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:diamond",
-          "weight": 8,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 4
               },
               "add": false
             }
@@ -18110,8 +22855,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 4,
-        "max": 7
+        "min": 3,
+        "max": 5
       },
       "bonus_rolls": 0,
       "entries": [
@@ -18158,22 +22903,6 @@ final class SpecialHomes {
                 "type": "minecraft:uniform",
                 "min": 1,
                 "max": 2
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:bee_nest",
-          "weight": 2,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
               },
               "add": false
             }
@@ -18274,8 +23003,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 3,
-        "max": 6
+        "min": 2,
+        "max": 4
       },
       "bonus_rolls": 0,
       "entries": [
@@ -18406,8 +23135,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 4,
-        "max": 7
+        "min": 3,
+        "max": 5
       },
       "bonus_rolls": 0,
       "entries": [
@@ -18545,6 +23274,122 @@ final class SpecialHomes {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/loot_table/chests/cliff_hut.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 1,
+        "max": 2
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cooked_mutton",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:torch",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:string",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:leather",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_ingot",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/loot_table/chests/cliffside_base.json
 
 ```json
@@ -18554,8 +23399,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 4,
-        "max": 7
+        "min": 3,
+        "max": 5
       },
       "bonus_rolls": 0,
       "entries": [
@@ -18586,54 +23431,6 @@ final class SpecialHomes {
                 "type": "minecraft:uniform",
                 "min": 2,
                 "max": 6
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:ender_pearl",
-          "weight": 8,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 3
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:golden_apple",
-          "weight": 5,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:diamond",
-          "weight": 5,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 2
               },
               "add": false
             }
@@ -18702,22 +23499,6 @@ final class SpecialHomes {
               "add": false
             }
           ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:netherite_scrap",
-          "weight": 1,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
         }
       ]
     }
@@ -18734,8 +23515,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 4,
-        "max": 7
+        "min": 3,
+        "max": 5
       },
       "bonus_rolls": 0,
       "entries": [
@@ -18914,8 +23695,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 4,
-        "max": 8
+        "min": 3,
+        "max": 6
       },
       "bonus_rolls": 0,
       "entries": [
@@ -18946,22 +23727,6 @@ final class SpecialHomes {
                 "type": "minecraft:uniform",
                 "min": 2,
                 "max": 6
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:diamond",
-          "weight": 5,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 3
               },
               "add": false
             }
@@ -19033,22 +23798,6 @@ final class SpecialHomes {
         },
         {
           "type": "minecraft:item",
-          "name": "minecraft:golden_apple",
-          "weight": 3,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
           "name": "minecraft:sand",
           "weight": 8,
           "functions": [
@@ -19078,142 +23827,14 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 5,
-        "max": 8
+        "min": 4,
+        "max": 6
       },
       "bonus_rolls": 0,
       "entries": [
         {
           "type": "minecraft:item",
-          "name": "minecraft:wind_charge",
-          "weight": 20,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 6,
-                "max": 16
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:mace",
-          "weight": 3,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:heavy_core",
-          "weight": 2,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:breeze_rod",
-          "weight": 8,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 2,
-                "max": 4
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:diamond",
-          "weight": 10,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 4
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:ender_pearl",
-          "weight": 15,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 2,
-                "max": 6
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:golden_apple",
-          "weight": 8,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 3
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:enchanted_book",
-          "weight": 6,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:netherite_ingot",
+          "name": "minecraft:bread",
           "weight": 1,
           "functions": [
             {
@@ -19221,23 +23842,7 @@ final class SpecialHomes {
               "count": {
                 "type": "minecraft:uniform",
                 "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:shulker_shell",
-          "weight": 6,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 2
+                "max": 3
               },
               "add": false
             }
@@ -19258,59 +23863,11 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 5,
-        "max": 8
+        "min": 4,
+        "max": 6
       },
       "bonus_rolls": 0,
       "entries": [
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:wind_charge",
-          "weight": 18,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 6,
-                "max": 16
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:elytra",
-          "weight": 2,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:mace",
-          "weight": 2,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
         {
           "type": "minecraft:item",
           "name": "minecraft:firework_rocket",
@@ -19322,86 +23879,6 @@ final class SpecialHomes {
                 "type": "minecraft:uniform",
                 "min": 4,
                 "max": 12
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:diamond",
-          "weight": 10,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 4
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:ender_pearl",
-          "weight": 15,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 2,
-                "max": 6
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:golden_apple",
-          "weight": 8,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 3
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:shulker_shell",
-          "weight": 6,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 2
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:netherite_ingot",
-          "weight": 1,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
               },
               "add": false
             }
@@ -19422,8 +23899,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 2,
-        "max": 5
+        "min": 1,
+        "max": 3
       },
       "bonus_rolls": 0,
       "entries": [
@@ -19586,8 +24063,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 3,
-        "max": 6
+        "min": 2,
+        "max": 4
       },
       "bonus_rolls": 0,
       "entries": [
@@ -19734,8 +24211,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 3,
-        "max": 6
+        "min": 2,
+        "max": 4
       },
       "bonus_rolls": 0,
       "entries": [
@@ -19821,22 +24298,6 @@ final class SpecialHomes {
         },
         {
           "type": "minecraft:item",
-          "name": "minecraft:elytra",
-          "weight": 1,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
           "name": "minecraft:phantom_membrane",
           "weight": 6,
           "functions": [
@@ -19866,22 +24327,6 @@ final class SpecialHomes {
               "add": false
             }
           ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:music_disc_otherside",
-          "weight": 1,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
         }
       ]
     }
@@ -19898,8 +24343,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 3,
-        "max": 5
+        "min": 2,
+        "max": 3
       },
       "bonus_rolls": 0,
       "entries": [
@@ -20030,22 +24475,6 @@ final class SpecialHomes {
               "add": false
             }
           ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:golden_apple",
-          "weight": 2,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
         }
       ]
     }
@@ -20062,8 +24491,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 4.0,
-        "max": 8.0
+        "min": 3.0,
+        "max": 6.0
       },
       "bonus_rolls": 0.0,
       "entries": [
@@ -20085,22 +24514,6 @@ final class SpecialHomes {
         },
         {
           "type": "minecraft:item",
-          "name": "minecraft:diamond",
-          "weight": 6,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 3
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
           "name": "minecraft:emerald",
           "weight": 12,
           "functions": [
@@ -20110,22 +24523,6 @@ final class SpecialHomes {
                 "type": "minecraft:uniform",
                 "min": 2,
                 "max": 6
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:golden_apple",
-          "weight": 4,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 2
               },
               "add": false
             }
@@ -20151,22 +24548,6 @@ final class SpecialHomes {
           "type": "minecraft:item",
           "name": "minecraft:shield",
           "weight": 6,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:diamond_axe",
-          "weight": 2,
           "functions": [
             {
               "function": "minecraft:set_count",
@@ -20226,8 +24607,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 5,
-        "max": 8
+        "min": 4,
+        "max": 6
       },
       "bonus_rolls": 0,
       "entries": [
@@ -20329,22 +24710,6 @@ final class SpecialHomes {
         },
         {
           "type": "minecraft:item",
-          "name": "minecraft:music_disc_cat",
-          "weight": 2,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
           "name": "minecraft:emerald",
           "weight": 8,
           "functions": [
@@ -20354,22 +24719,6 @@ final class SpecialHomes {
                 "type": "minecraft:uniform",
                 "min": 2,
                 "max": 5
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:golden_apple",
-          "weight": 3,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
               },
               "add": false
             }
@@ -20406,8 +24755,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 6,
-        "max": 10
+        "min": 5,
+        "max": 8
       },
       "bonus_rolls": 0,
       "entries": [
@@ -20445,70 +24794,6 @@ final class SpecialHomes {
         },
         {
           "type": "minecraft:item",
-          "name": "minecraft:golden_apple",
-          "weight": 8,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 3
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:enchanted_golden_apple",
-          "weight": 2,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:gold_block",
-          "weight": 5,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 2
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:diamond",
-          "weight": 8,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 4
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
           "name": "minecraft:emerald",
           "weight": 12,
           "functions": [
@@ -20538,38 +24823,6 @@ final class SpecialHomes {
               "add": false
             }
           ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:netherite_scrap",
-          "weight": 2,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:enchanted_book",
-          "weight": 4,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
         }
       ]
     }
@@ -20586,8 +24839,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 3,
-        "max": 6
+        "min": 2,
+        "max": 4
       },
       "bonus_rolls": 0,
       "entries": [
@@ -20766,8 +25019,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 3.0,
-        "max": 6.0
+        "min": 2.0,
+        "max": 4.0
       },
       "bonus_rolls": 0.0,
       "entries": [
@@ -20892,27 +25145,11 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 4,
-        "max": 7
+        "min": 3,
+        "max": 5
       },
       "bonus_rolls": 0,
       "entries": [
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:golden_apple",
-          "weight": 4,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
         {
           "type": "minecraft:item",
           "name": "minecraft:iron_ingot",
@@ -21024,22 +25261,6 @@ final class SpecialHomes {
               "add": false
             }
           ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:diamond",
-          "weight": 3,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 2
-              },
-              "add": false
-            }
-          ]
         }
       ]
     }
@@ -21056,8 +25277,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 3,
-        "max": 6
+        "min": 2,
+        "max": 4
       },
       "bonus_rolls": 0,
       "entries": [
@@ -21204,8 +25425,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 3,
-        "max": 6
+        "min": 2,
+        "max": 4
       },
       "bonus_rolls": 0,
       "entries": [
@@ -21323,22 +25544,6 @@ final class SpecialHomes {
         },
         {
           "type": "minecraft:item",
-          "name": "minecraft:enchanted_book",
-          "weight": 2,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
           "name": "minecraft:lily_pad",
           "weight": 8,
           "functions": [
@@ -21368,8 +25573,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 3,
-        "max": 5
+        "min": 2,
+        "max": 3
       },
       "bonus_rolls": 0,
       "entries": [
@@ -21516,8 +25721,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 3,
-        "max": 6
+        "min": 2,
+        "max": 4
       },
       "bonus_rolls": 0,
       "entries": [
@@ -21664,8 +25869,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 3.0,
-        "max": 6.0
+        "min": 2.0,
+        "max": 4.0
       },
       "bonus_rolls": 0.0,
       "entries": [
@@ -21769,8 +25974,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 3,
-        "max": 6
+        "min": 2,
+        "max": 4
       },
       "bonus_rolls": 0,
       "entries": [
@@ -21917,8 +26122,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 3,
-        "max": 6
+        "min": 2,
+        "max": 4
       },
       "bonus_rolls": 0,
       "entries": [
@@ -22065,8 +26270,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 3,
-        "max": 6
+        "min": 2,
+        "max": 4
       },
       "bonus_rolls": 0,
       "entries": [
@@ -22213,8 +26418,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 3,
-        "max": 6
+        "min": 2,
+        "max": 4
       },
       "bonus_rolls": 0,
       "entries": [
@@ -22361,8 +26566,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 3,
-        "max": 6
+        "min": 2,
+        "max": 4
       },
       "bonus_rolls": 0,
       "entries": [
@@ -22525,8 +26730,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 3,
-        "max": 6
+        "min": 2,
+        "max": 4
       },
       "bonus_rolls": 0,
       "entries": [
@@ -22550,22 +26755,6 @@ final class SpecialHomes {
           "type": "minecraft:item",
           "name": "minecraft:bow",
           "weight": 6,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:spyglass",
-          "weight": 4,
           "functions": [
             {
               "function": "minecraft:set_count",
@@ -22664,6 +26853,138 @@ final class SpecialHomes {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/loot_table/chests/mace_workshop.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 2,
+        "max": 3
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_ingot",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:coal",
+          "weight": 15,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:stick",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_axe",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:string",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cooked_porkchop",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/loot_table/chests/madison_pantry.json
 
 ```json
@@ -22673,8 +26994,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 4.0,
-        "max": 7.0
+        "min": 3.0,
+        "max": 5.0
       },
       "bonus_rolls": 0.0,
       "entries": [
@@ -22773,8 +27094,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 3,
-        "max": 6
+        "min": 2,
+        "max": 4
       },
       "bonus_rolls": 0,
       "entries": [
@@ -22921,8 +27242,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 4,
-        "max": 8
+        "min": 3,
+        "max": 6
       },
       "bonus_rolls": 0,
       "entries": [
@@ -22985,22 +27306,6 @@ final class SpecialHomes {
                 "type": "minecraft:uniform",
                 "min": 1,
                 "max": 4
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:diamond",
-          "weight": 3,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 2
               },
               "add": false
             }
@@ -23101,8 +27406,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 4,
-        "max": 7
+        "min": 3,
+        "max": 5
       },
       "bonus_rolls": 0,
       "entries": [
@@ -23117,22 +27422,6 @@ final class SpecialHomes {
                 "type": "minecraft:uniform",
                 "min": 8,
                 "max": 24
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:spyglass",
-          "weight": 6,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
               },
               "add": false
             }
@@ -23204,40 +27493,8 @@ final class SpecialHomes {
         },
         {
           "type": "minecraft:item",
-          "name": "minecraft:diamond",
-          "weight": 3,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 2
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
           "name": "minecraft:iron_helmet",
           "weight": 4,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:goat_horn",
-          "weight": 2,
           "functions": [
             {
               "function": "minecraft:set_count",
@@ -23265,139 +27522,11 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 5,
-        "max": 8
+        "min": 4,
+        "max": 6
       },
       "bonus_rolls": 0,
       "entries": [
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:wind_charge",
-          "weight": 20,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 6,
-                "max": 16
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:mace",
-          "weight": 2,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:heavy_core",
-          "weight": 2,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:breeze_rod",
-          "weight": 8,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 4
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:golden_apple",
-          "weight": 10,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 3
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:gold_block",
-          "weight": 6,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 2
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:netherite_scrap",
-          "weight": 4,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 2
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:ancient_debris",
-          "weight": 3,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
         {
           "type": "minecraft:item",
           "name": "minecraft:blaze_rod",
@@ -23409,22 +27538,6 @@ final class SpecialHomes {
                 "type": "minecraft:uniform",
                 "min": 1,
                 "max": 4
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:enchanted_golden_apple",
-          "weight": 1,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
               },
               "add": false
             }
@@ -23445,91 +27558,11 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 4,
-        "max": 7
+        "min": 3,
+        "max": 5
       },
       "bonus_rolls": 0,
       "entries": [
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:wind_charge",
-          "weight": 20,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 4,
-                "max": 12
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:breeze_rod",
-          "weight": 8,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 3
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:mace",
-          "weight": 2,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:heavy_core",
-          "weight": 1,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:golden_apple",
-          "weight": 8,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 2
-              },
-              "add": false
-            }
-          ]
-        },
         {
           "type": "minecraft:item",
           "name": "minecraft:gold_ingot",
@@ -23541,22 +27574,6 @@ final class SpecialHomes {
                 "type": "minecraft:uniform",
                 "min": 2,
                 "max": 8
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:netherite_scrap",
-          "weight": 4,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
               },
               "add": false
             }
@@ -23577,22 +27594,6 @@ final class SpecialHomes {
               "add": false
             }
           ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:ender_pearl",
-          "weight": 8,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 3
-              },
-              "add": false
-            }
-          ]
         }
       ]
     }
@@ -23609,8 +27610,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 4,
-        "max": 7
+        "min": 3,
+        "max": 5
       },
       "bonus_rolls": 0,
       "entries": [
@@ -23657,22 +27658,6 @@ final class SpecialHomes {
                 "type": "minecraft:uniform",
                 "min": 2,
                 "max": 6
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:golden_apple",
-          "weight": 3,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
               },
               "add": false
             }
@@ -23757,8 +27742,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 4.0,
-        "max": 8.0
+        "min": 3.0,
+        "max": 6.0
       },
       "bonus_rolls": 0.0,
       "entries": [
@@ -23789,38 +27774,6 @@ final class SpecialHomes {
                 "type": "minecraft:uniform",
                 "min": 2,
                 "max": 6
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:diamond",
-          "weight": 5,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 3
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:heart_of_the_sea",
-          "weight": 2,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
               },
               "add": false
             }
@@ -23905,8 +27858,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 3,
-        "max": 6
+        "min": 2,
+        "max": 4
       },
       "bonus_rolls": 0,
       "entries": [
@@ -24053,75 +28006,11 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 4,
-        "max": 7
+        "min": 3,
+        "max": 5
       },
       "bonus_rolls": 0,
       "entries": [
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:golden_apple",
-          "weight": 8,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 2
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:ender_pearl",
-          "weight": 10,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 4
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:wind_charge",
-          "weight": 10,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 2,
-                "max": 8
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:diamond_sword",
-          "weight": 4,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
         {
           "type": "minecraft:item",
           "name": "minecraft:iron_sword",
@@ -24185,18 +28074,38 @@ final class SpecialHomes {
               "add": false
             }
           ]
-        },
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/chests/rival_camp.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 1,
+        "max": 2
+      },
+      "bonus_rolls": 0,
+      "entries": [
         {
           "type": "minecraft:item",
-          "name": "minecraft:diamond",
-          "weight": 4,
+          "name": "minecraft:cooked_porkchop",
+          "weight": 12,
           "functions": [
             {
               "function": "minecraft:set_count",
               "count": {
                 "type": "minecraft:uniform",
                 "min": 1,
-                "max": 2
+                "max": 3
               },
               "add": false
             }
@@ -24204,8 +28113,72 @@ final class SpecialHomes {
         },
         {
           "type": "minecraft:item",
-          "name": "minecraft:mace",
-          "weight": 1,
+          "name": "minecraft:arrow",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:string",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_sword",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 1
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:shield",
+          "weight": 3,
           "functions": [
             {
               "function": "minecraft:set_count",
@@ -24233,8 +28206,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 4,
-        "max": 7
+        "min": 3,
+        "max": 5
       },
       "bonus_rolls": 0,
       "entries": [
@@ -24381,27 +28354,11 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 5,
-        "max": 9
+        "min": 4,
+        "max": 7
       },
       "bonus_rolls": 0,
       "entries": [
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:diamond",
-          "weight": 12,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 2,
-                "max": 5
-              },
-              "add": false
-            }
-          ]
-        },
         {
           "type": "minecraft:item",
           "name": "minecraft:emerald",
@@ -24436,87 +28393,7 @@ final class SpecialHomes {
         },
         {
           "type": "minecraft:item",
-          "name": "minecraft:golden_apple",
-          "weight": 8,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 2
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:enchanted_golden_apple",
-          "weight": 1,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:netherite_scrap",
-          "weight": 3,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 2
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:diamond_sword",
-          "weight": 4,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
           "name": "minecraft:iron_chestplate",
-          "weight": 5,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:saddle",
           "weight": 5,
           "functions": [
             {
@@ -24577,8 +28454,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 4,
-        "max": 7
+        "min": 3,
+        "max": 5
       },
       "bonus_rolls": 0,
       "entries": [
@@ -24632,88 +28509,8 @@ final class SpecialHomes {
         },
         {
           "type": "minecraft:item",
-          "name": "minecraft:wind_charge",
-          "weight": 15,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 4,
-                "max": 12
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:golden_apple",
-          "weight": 8,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 2
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:ender_pearl",
-          "weight": 10,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 3
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
           "name": "minecraft:golden_sword",
           "weight": 5,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:breeze_rod",
-          "weight": 4,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 2
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:mace",
-          "weight": 1,
           "functions": [
             {
               "function": "minecraft:set_count",
@@ -24741,8 +28538,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 4,
-        "max": 8
+        "min": 3,
+        "max": 6
       },
       "bonus_rolls": 0,
       "entries": [
@@ -24844,38 +28641,6 @@ final class SpecialHomes {
         },
         {
           "type": "minecraft:item",
-          "name": "minecraft:diamond",
-          "weight": 4,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 2
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:heart_of_the_sea",
-          "weight": 1,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
           "name": "minecraft:cooked_cod",
           "weight": 12,
           "functions": [
@@ -24885,22 +28650,6 @@ final class SpecialHomes {
                 "type": "minecraft:uniform",
                 "min": 2,
                 "max": 5
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:spyglass",
-          "weight": 4,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
               },
               "add": false
             }
@@ -24921,27 +28670,11 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 4.0,
-        "max": 7.0
+        "min": 3.0,
+        "max": 5.0
       },
       "bonus_rolls": 0.0,
       "entries": [
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:diamond",
-          "weight": 15,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 2,
-                "max": 5
-              },
-              "add": false
-            }
-          ]
-        },
         {
           "type": "minecraft:item",
           "name": "minecraft:emerald",
@@ -24953,38 +28686,6 @@ final class SpecialHomes {
                 "type": "minecraft:uniform",
                 "min": 3,
                 "max": 8
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:golden_apple",
-          "weight": 10,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 3
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:wind_charge",
-          "weight": 15,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 8,
-                "max": 24
               },
               "add": false
             }
@@ -25005,54 +28706,6 @@ final class SpecialHomes {
               "add": false
             }
           ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:ender_pearl",
-          "weight": 10,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 2,
-                "max": 6
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:netherite_scrap",
-          "weight": 3,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 2
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:heavy_core",
-          "weight": 1,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
         }
       ]
     }
@@ -25069,8 +28722,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 5,
-        "max": 8
+        "min": 4,
+        "max": 6
       },
       "bonus_rolls": 0,
       "entries": [
@@ -25101,22 +28754,6 @@ final class SpecialHomes {
                 "type": "minecraft:uniform",
                 "min": 2,
                 "max": 8
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:diamond",
-          "weight": 5,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 3
               },
               "add": false
             }
@@ -25201,38 +28838,6 @@ final class SpecialHomes {
               "add": false
             }
           ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:heart_of_the_sea",
-          "weight": 1,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:spyglass",
-          "weight": 4,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
         }
       ]
     }
@@ -25249,8 +28854,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 3,
-        "max": 6
+        "min": 2,
+        "max": 4
       },
       "bonus_rolls": 0,
       "entries": [
@@ -25381,27 +28986,11 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 3,
-        "max": 6
+        "min": 2,
+        "max": 4
       },
       "bonus_rolls": 0,
       "entries": [
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:spyglass",
-          "weight": 8,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
         {
           "type": "minecraft:item",
           "name": "minecraft:amethyst_shard",
@@ -25513,22 +29102,6 @@ final class SpecialHomes {
               "add": false
             }
           ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:ender_eye",
-          "weight": 2,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
         }
       ]
     }
@@ -25545,8 +29118,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 3,
-        "max": 6
+        "min": 2,
+        "max": 4
       },
       "bonus_rolls": 0,
       "entries": [
@@ -25709,63 +29282,15 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 4,
-        "max": 7
+        "min": 3,
+        "max": 5
       },
       "bonus_rolls": 0,
       "entries": [
         {
           "type": "minecraft:item",
-          "name": "minecraft:golden_apple",
-          "weight": 6,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 2
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:ender_pearl",
-          "weight": 10,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 4
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
           "name": "minecraft:iron_sword",
           "weight": 8,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:diamond_sword",
-          "weight": 3,
           "functions": [
             {
               "function": "minecraft:set_count",
@@ -25828,22 +29353,6 @@ final class SpecialHomes {
         },
         {
           "type": "minecraft:item",
-          "name": "minecraft:diamond",
-          "weight": 4,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 2
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
           "name": "minecraft:bamboo",
           "weight": 12,
           "functions": [
@@ -25873,8 +29382,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 3.0,
-        "max": 7.0
+        "min": 2.0,
+        "max": 5.0
       },
       "bonus_rolls": 0.0,
       "entries": [
@@ -26047,8 +29556,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 3.0,
-        "max": 6.0
+        "min": 2.0,
+        "max": 4.0
       },
       "bonus_rolls": 0.0,
       "entries": [
@@ -26195,8 +29704,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 4,
-        "max": 7
+        "min": 3,
+        "max": 5
       },
       "bonus_rolls": 0,
       "entries": [
@@ -26211,22 +29720,6 @@ final class SpecialHomes {
                 "type": "minecraft:uniform",
                 "min": 1,
                 "max": 5
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:enchanted_book",
-          "weight": 6,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
               },
               "add": false
             }
@@ -26343,8 +29836,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 3.0,
-        "max": 6.0
+        "min": 2.0,
+        "max": 4.0
       },
       "bonus_rolls": 0.0,
       "entries": [
@@ -26475,43 +29968,11 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 4,
-        "max": 7
+        "min": 3,
+        "max": 5
       },
       "bonus_rolls": 0,
       "entries": [
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:wind_charge",
-          "weight": 20,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 4,
-                "max": 12
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:golden_apple",
-          "weight": 8,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 2
-              },
-              "add": false
-            }
-          ]
-        },
         {
           "type": "minecraft:item",
           "name": "minecraft:cooked_porkchop",
@@ -26530,56 +29991,8 @@ final class SpecialHomes {
         },
         {
           "type": "minecraft:item",
-          "name": "minecraft:ender_pearl",
-          "weight": 10,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 3
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
           "name": "minecraft:iron_sword",
           "weight": 5,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:breeze_rod",
-          "weight": 4,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 2
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:mace",
-          "weight": 1,
           "functions": [
             {
               "function": "minecraft:set_count",
@@ -26639,8 +30052,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 3.0,
-        "max": 5.0
+        "min": 2.0,
+        "max": 3.0
       },
       "bonus_rolls": 0.0,
       "entries": [
@@ -26664,22 +30077,6 @@ final class SpecialHomes {
           "type": "minecraft:item",
           "name": "minecraft:bow",
           "weight": 6,
-          "functions": [
-            {
-              "function": "minecraft:set_count",
-              "count": {
-                "type": "minecraft:uniform",
-                "min": 1,
-                "max": 1
-              },
-              "add": false
-            }
-          ]
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:spyglass",
-          "weight": 4,
           "functions": [
             {
               "function": "minecraft:set_count",
@@ -26746,6 +30143,122 @@ final class SpecialHomes {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/loot_table/chests/wind_tower.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": {
+        "type": "minecraft:uniform",
+        "min": 1,
+        "max": 2
+      },
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:feather",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:arrow",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cooked_chicken",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_ingot",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:honey_bottle",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/loot_table/chests/windmill.json
 
 ```json
@@ -26755,8 +30268,8 @@ final class SpecialHomes {
     {
       "rolls": {
         "type": "minecraft:uniform",
-        "min": 4,
-        "max": 7
+        "min": 3,
+        "max": 5
       },
       "bonus_rolls": 0,
       "entries": [
@@ -26894,6 +30407,1230 @@ final class SpecialHomes {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/loot_table/tiers/common.json
+
+```json
+{
+  "type": "minecraft:generic",
+  "pools": [
+    {
+      "rolls": 1,
+      "bonus_rolls": 0.0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bread",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "itzbreadloaf:loaf_bread",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cooked_beef",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cooked_porkchop",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cooked_chicken",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:baked_potato",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:apple",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cookie",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:wheat",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:carrot",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:potato",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:wheat_seeds",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:stick",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:torch",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:coal",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 5
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:arrow",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 10
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:string",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:leather",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bone",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:paper",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:oak_log",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:spruce_log",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:cobblestone",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 16
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:dirt",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 4,
+                "max": 12
+              },
+              "add": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/tiers/epic.json
+
+```json
+{
+  "type": "minecraft:generic",
+  "pools": [
+    {
+      "rolls": 1,
+      "bonus_rolls": 0.0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:mace",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_enchantments",
+              "enchantments": {
+                "minecraft:density": {
+                  "type": "minecraft:uniform",
+                  "min": 3,
+                  "max": 5
+                }
+              }
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:mace",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_enchantments",
+              "enchantments": {
+                "minecraft:breach": {
+                  "type": "minecraft:uniform",
+                  "min": 2,
+                  "max": 4
+                }
+              }
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond_sword",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:enchant_with_levels",
+              "levels": {
+                "type": "minecraft:uniform",
+                "min": 25,
+                "max": 30
+              }
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond_chestplate",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:enchant_with_levels",
+              "levels": {
+                "type": "minecraft:uniform",
+                "min": 25,
+                "max": 30
+              }
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond_pickaxe",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:enchant_with_levels",
+              "levels": {
+                "type": "minecraft:uniform",
+                "min": 25,
+                "max": 30
+              }
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:enchanted_book",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:enchant_with_levels",
+              "levels": {
+                "type": "minecraft:uniform",
+                "min": 25,
+                "max": 30
+              }
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:totem_of_undying",
+          "weight": 3
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:heavy_core",
+          "weight": 2
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:ancient_debris",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:netherite_scrap",
+          "weight": 2
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:netherite_upgrade_smithing_template",
+          "weight": 2
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:heart_of_the_sea",
+          "weight": 1
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:music_disc_cat",
+          "weight": 1
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:music_disc_pigstep",
+          "weight": 1
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:music_disc_otherside",
+          "weight": 1
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:music_disc_relic",
+          "weight": 1
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:music_disc_creator",
+          "weight": 1
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/tiers/legendary.json
+
+```json
+{
+  "type": "minecraft:generic",
+  "pools": [
+    {
+      "rolls": 1,
+      "bonus_rolls": 0.0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:enchanted_golden_apple",
+          "weight": 4
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:netherite_ingot",
+          "weight": 4
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:netherite_sword",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:enchant_with_levels",
+              "levels": {
+                "type": "minecraft:uniform",
+                "min": 20,
+                "max": 30
+              }
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:netherite_chestplate",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:enchant_with_levels",
+              "levels": {
+                "type": "minecraft:uniform",
+                "min": 20,
+                "max": 30
+              }
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:netherite_pickaxe",
+          "weight": 1
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:mace",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_enchantments",
+              "enchantments": {
+                "minecraft:wind_burst": {
+                  "type": "minecraft:uniform",
+                  "min": 1,
+                  "max": 3
+                }
+              }
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "itzbreadloaf:master_loaf_trophy",
+          "weight": 1
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/tiers/legendary_end.json
+
+```json
+{
+  "type": "minecraft:generic",
+  "pools": [
+    {
+      "rolls": 1,
+      "bonus_rolls": 0.0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:enchanted_golden_apple",
+          "weight": 4
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:netherite_ingot",
+          "weight": 4
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:netherite_sword",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:enchant_with_levels",
+              "levels": {
+                "type": "minecraft:uniform",
+                "min": 20,
+                "max": 30
+              }
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:netherite_chestplate",
+          "weight": 2,
+          "functions": [
+            {
+              "function": "minecraft:enchant_with_levels",
+              "levels": {
+                "type": "minecraft:uniform",
+                "min": 20,
+                "max": 30
+              }
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:netherite_pickaxe",
+          "weight": 1
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:mace",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_enchantments",
+              "enchantments": {
+                "minecraft:wind_burst": {
+                  "type": "minecraft:uniform",
+                  "min": 1,
+                  "max": 3
+                }
+              }
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "itzbreadloaf:master_loaf_trophy",
+          "weight": 1
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:elytra",
+          "weight": 3
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/tiers/rare.json
+
+```json
+{
+  "type": "minecraft:generic",
+  "pools": [
+    {
+      "rolls": 1,
+      "bonus_rolls": 0.0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond",
+          "weight": 10,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:golden_apple",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:ender_pearl",
+          "weight": 7,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:wind_charge",
+          "weight": 7,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 6
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:spyglass",
+          "weight": 3
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:saddle",
+          "weight": 3
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:breeze_rod",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 2
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:gold_block",
+          "weight": 2
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:ender_eye",
+          "weight": 2
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:shulker_shell",
+          "weight": 2
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:goat_horn",
+          "weight": 1
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bee_nest",
+          "weight": 1
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:enchanted_book",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:enchant_with_levels",
+              "levels": {
+                "type": "minecraft:uniform",
+                "min": 5,
+                "max": 15
+              }
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond_sword",
+          "weight": 3
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond_pickaxe",
+          "weight": 2
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond_axe",
+          "weight": 2
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond_helmet",
+          "weight": 2
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond_chestplate",
+          "weight": 2
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond_leggings",
+          "weight": 2
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:diamond_boots",
+          "weight": 2
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:mace",
+          "weight": 2
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:sentry_armor_trim_smithing_template",
+          "weight": 1
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:coast_armor_trim_smithing_template",
+          "weight": 1
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:wild_armor_trim_smithing_template",
+          "weight": 1
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:dune_armor_trim_smithing_template",
+          "weight": 1
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/tiers/uncommon.json
+
+```json
+{
+  "type": "minecraft:generic",
+  "pools": [
+    {
+      "rolls": 1,
+      "bonus_rolls": 0.0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_ingot",
+          "weight": 12,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:gold_ingot",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:emerald",
+          "weight": 8,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:redstone",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:lapis_lazuli",
+          "weight": 6,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2,
+                "max": 8
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:honey_bottle",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:book",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 3
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:experience_bottle",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 1,
+                "max": 4
+              },
+              "add": false
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:name_tag",
+          "weight": 2
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bucket",
+          "weight": 3
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bow",
+          "weight": 4
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:crossbow",
+          "weight": 3
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:shield",
+          "weight": 3
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_sword",
+          "weight": 4
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_pickaxe",
+          "weight": 3
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_axe",
+          "weight": 3
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:iron_shovel",
+          "weight": 2
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:leather_helmet",
+          "weight": 2
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:leather_chestplate",
+          "weight": 2
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:leather_leggings",
+          "weight": 2
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:leather_boots",
+          "weight": 2
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:chainmail_helmet",
+          "weight": 2
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:chainmail_chestplate",
+          "weight": 2
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:chainmail_leggings",
+          "weight": 2
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:chainmail_boots",
+          "weight": 2
+        },
+        {
+          "type": "minecraft:item",
+          "name": "itzbreadloaf:harleys_blade",
+          "weight": 1,
+          "functions": [
+            {
+              "function": "minecraft:set_enchantments",
+              "enchantments": {
+                "minecraft:sharpness": 2
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/loot_table/traps/arrows.json
+
+```json
+{
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "rolls": 1,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:arrow",
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 6,
+                "max": 12
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/badlands_saloon.json
 
 ```json
@@ -26966,6 +31703,21 @@ final class SpecialHomes {
   "values": [
     "minecraft:plains",
     "minecraft:sunflower_plains",
+    "minecraft:meadow"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/cliff_hut.json
+
+```json
+{
+  "values": [
+    "minecraft:windswept_hills",
+    "minecraft:windswept_gravelly_hills",
+    "minecraft:windswept_forest",
+    "minecraft:stony_peaks",
+    "minecraft:jagged_peaks",
     "minecraft:meadow"
   ]
 }
@@ -27290,6 +32042,19 @@ final class SpecialHomes {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/mace_workshop.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "minecraft:savanna",
+    "minecraft:savanna_plateau"
+  ]
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/madison_house.json
 
 ```json
@@ -27405,6 +32170,25 @@ final class SpecialHomes {
     "minecraft:savanna",
     "minecraft:desert",
     "minecraft:badlands"
+  ]
+}
+```
+
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/rival_camp.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "minecraft:meadow",
+    "minecraft:forest",
+    "minecraft:birch_forest",
+    "minecraft:taiga",
+    "minecraft:snowy_taiga",
+    "minecraft:savanna",
+    "minecraft:snowy_plains",
+    "minecraft:desert"
   ]
 }
 ```
@@ -27611,6 +32395,22 @@ final class SpecialHomes {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/wind_tower.json
+
+```json
+{
+  "values": [
+    "minecraft:plains",
+    "minecraft:sunflower_plains",
+    "minecraft:savanna",
+    "minecraft:meadow",
+    "minecraft:snowy_plains",
+    "minecraft:desert",
+    "minecraft:badlands"
+  ]
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/tags/worldgen/biome/has_structure/windmill.json
 
 ```json
@@ -27627,12 +32427,12 @@ final class SpecialHomes {
 
 ```json
 {
-  "type": "itzbreadloaf:home",
-  "kind": "badlands_saloon",
+  "type": "itzbreadloaf:blueprint",
+  "id": "badlands_saloon",
   "biomes": "#itzbreadloaf:has_structure/badlands_saloon",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }
 ```
 
@@ -27653,12 +32453,12 @@ final class SpecialHomes {
 
 ```json
 {
-  "type": "itzbreadloaf:home",
-  "kind": "bandit_camp",
+  "type": "itzbreadloaf:blueprint",
+  "id": "bandit_camp",
   "biomes": "#itzbreadloaf:has_structure/bandit_camp",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }
 ```
 
@@ -27692,9 +32492,22 @@ final class SpecialHomes {
 
 ```json
 {
-  "type": "itzbreadloaf:home",
-  "kind": "bread_bakery",
+  "type": "itzbreadloaf:blueprint",
+  "id": "bread_bakery",
   "biomes": "#itzbreadloaf:has_structure/bread_bakery",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/cliff_hut.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "cliff_hut",
+  "biomes": "#itzbreadloaf:has_structure/cliff_hut",
   "step": "surface_structures",
   "spawn_overrides": {},
   "terrain_adaptation": "beard_thin"
@@ -27705,12 +32518,12 @@ final class SpecialHomes {
 
 ```json
 {
-  "type": "itzbreadloaf:home",
-  "kind": "cliffside_base",
+  "type": "itzbreadloaf:blueprint",
+  "id": "cliffside_base",
   "biomes": "#itzbreadloaf:has_structure/cliffside_base",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }
 ```
 
@@ -27731,12 +32544,12 @@ final class SpecialHomes {
 
 ```json
 {
-  "type": "itzbreadloaf:home",
-  "kind": "desert_bunker",
+  "type": "itzbreadloaf:blueprint",
+  "id": "desert_bunker",
   "biomes": "#itzbreadloaf:has_structure/desert_bunker",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }
 ```
 
@@ -27783,12 +32596,12 @@ final class SpecialHomes {
 
 ```json
 {
-  "type": "itzbreadloaf:home",
-  "kind": "fishing_dock",
+  "type": "itzbreadloaf:blueprint",
+  "id": "fishing_dock",
   "biomes": "#itzbreadloaf:has_structure/fishing_dock",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }
 ```
 
@@ -27822,12 +32635,12 @@ final class SpecialHomes {
 
 ```json
 {
-  "type": "itzbreadloaf:home",
-  "kind": "fort",
+  "type": "itzbreadloaf:blueprint",
+  "id": "fort",
   "biomes": "#itzbreadloaf:has_structure/fort",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }
 ```
 
@@ -27874,12 +32687,12 @@ final class SpecialHomes {
 
 ```json
 {
-  "type": "itzbreadloaf:home",
-  "kind": "house",
+  "type": "itzbreadloaf:blueprint",
+  "id": "house",
   "biomes": "#itzbreadloaf:has_structure/house",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }
 ```
 
@@ -27887,12 +32700,12 @@ final class SpecialHomes {
 
 ```json
 {
-  "type": "itzbreadloaf:home",
-  "kind": "igloo_hideout",
+  "type": "itzbreadloaf:blueprint",
+  "id": "igloo_hideout",
   "biomes": "#itzbreadloaf:has_structure/igloo_hideout",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }
 ```
 
@@ -27900,12 +32713,12 @@ final class SpecialHomes {
 
 ```json
 {
-  "type": "itzbreadloaf:home",
-  "kind": "jungle_treehouse",
+  "type": "itzbreadloaf:blueprint",
+  "id": "jungle_treehouse",
   "biomes": "#itzbreadloaf:has_structure/jungle_treehouse",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }
 ```
 
@@ -28017,12 +32830,12 @@ final class SpecialHomes {
 
 ```json
 {
-  "type": "itzbreadloaf:home",
-  "kind": "loaf_lighthouse",
+  "type": "itzbreadloaf:blueprint",
+  "id": "loaf_lighthouse",
   "biomes": "#itzbreadloaf:has_structure/loaf_lighthouse",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }
 ```
 
@@ -28030,9 +32843,22 @@ final class SpecialHomes {
 
 ```json
 {
-  "type": "itzbreadloaf:home",
-  "kind": "lookout_tower",
+  "type": "itzbreadloaf:blueprint",
+  "id": "lookout_tower",
   "biomes": "#itzbreadloaf:has_structure/lookout_tower",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/mace_workshop.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "mace_workshop",
+  "biomes": "#itzbreadloaf:has_structure/mace_workshop",
   "step": "surface_structures",
   "spawn_overrides": {},
   "terrain_adaptation": "beard_thin"
@@ -28069,12 +32895,12 @@ final class SpecialHomes {
 
 ```json
 {
-  "type": "itzbreadloaf:home",
-  "kind": "mining_camp",
+  "type": "itzbreadloaf:blueprint",
+  "id": "mining_camp",
   "biomes": "#itzbreadloaf:has_structure/mining_camp",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }
 ```
 
@@ -28082,12 +32908,12 @@ final class SpecialHomes {
 
 ```json
 {
-  "type": "itzbreadloaf:home",
-  "kind": "mountain_outpost",
+  "type": "itzbreadloaf:blueprint",
+  "id": "mountain_outpost",
   "biomes": "#itzbreadloaf:has_structure/mountain_outpost",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }
 ```
 
@@ -28134,8 +32960,8 @@ final class SpecialHomes {
 
 ```json
 {
-  "type": "itzbreadloaf:home",
-  "kind": "pirate_ship",
+  "type": "itzbreadloaf:blueprint",
+  "id": "pirate_ship",
   "biomes": "#itzbreadloaf:has_structure/pirate_ship",
   "step": "surface_structures",
   "spawn_overrides": {},
@@ -28169,6 +32995,19 @@ final class SpecialHomes {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/worldgen/structure/rival_camp.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "rival_camp",
+  "biomes": "#itzbreadloaf:has_structure/rival_camp",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "beard_thin"
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/worldgen/structure/riverside_mill.json
 
 ```json
@@ -28186,12 +33025,12 @@ final class SpecialHomes {
 
 ```json
 {
-  "type": "itzbreadloaf:home",
-  "kind": "ruined_loaf_castle",
+  "type": "itzbreadloaf:blueprint",
+  "id": "ruined_loaf_castle",
   "biomes": "#itzbreadloaf:has_structure/ruined_loaf_castle",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }
 ```
 
@@ -28212,12 +33051,12 @@ final class SpecialHomes {
 
 ```json
 {
-  "type": "itzbreadloaf:home",
-  "kind": "shipwreck_camp",
+  "type": "itzbreadloaf:blueprint",
+  "id": "shipwreck_camp",
   "biomes": "#itzbreadloaf:has_structure/shipwreck_camp",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }
 ```
 
@@ -28238,12 +33077,12 @@ final class SpecialHomes {
 
 ```json
 {
-  "type": "itzbreadloaf:home",
-  "kind": "smugglers_cove",
+  "type": "itzbreadloaf:blueprint",
+  "id": "smugglers_cove",
   "biomes": "#itzbreadloaf:has_structure/smugglers_cove",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }
 ```
 
@@ -28251,12 +33090,12 @@ final class SpecialHomes {
 
 ```json
 {
-  "type": "itzbreadloaf:home",
-  "kind": "snowball_fort",
+  "type": "itzbreadloaf:blueprint",
+  "id": "snowball_fort",
   "biomes": "#itzbreadloaf:has_structure/snowball_fort",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }
 ```
 
@@ -28277,12 +33116,12 @@ final class SpecialHomes {
 
 ```json
 {
-  "type": "itzbreadloaf:home",
-  "kind": "swamp_hut",
+  "type": "itzbreadloaf:blueprint",
+  "id": "swamp_hut",
   "biomes": "#itzbreadloaf:has_structure/swamp_hut",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }
 ```
 
@@ -28290,12 +33129,12 @@ final class SpecialHomes {
 
 ```json
 {
-  "type": "itzbreadloaf:home",
-  "kind": "sweaty_dojo",
+  "type": "itzbreadloaf:blueprint",
+  "id": "sweaty_dojo",
   "biomes": "#itzbreadloaf:has_structure/sweaty_dojo",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }
 ```
 
@@ -28303,12 +33142,12 @@ final class SpecialHomes {
 
 ```json
 {
-  "type": "itzbreadloaf:home",
-  "kind": "tent",
+  "type": "itzbreadloaf:blueprint",
+  "id": "tent",
   "biomes": "#itzbreadloaf:has_structure/tent",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }
 ```
 
@@ -28355,9 +33194,22 @@ final class SpecialHomes {
 
 ```json
 {
-  "type": "itzbreadloaf:home",
-  "kind": "watchtower",
+  "type": "itzbreadloaf:blueprint",
+  "id": "watchtower",
   "biomes": "#itzbreadloaf:has_structure/watchtower",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "terrain_adaptation": "none"
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure/wind_tower.json
+
+```json
+{
+  "type": "itzbreadloaf:home",
+  "kind": "wind_tower",
+  "biomes": "#itzbreadloaf:has_structure/wind_tower",
   "step": "surface_structures",
   "spawn_overrides": {},
   "terrain_adaptation": "beard_thin"
@@ -28368,12 +33220,12 @@ final class SpecialHomes {
 
 ```json
 {
-  "type": "itzbreadloaf:home",
-  "kind": "windmill",
+  "type": "itzbreadloaf:blueprint",
+  "id": "windmill",
   "biomes": "#itzbreadloaf:has_structure/windmill",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }
 ```
 
@@ -28507,6 +33359,29 @@ final class SpecialHomes {
     "spacing": 26,
     "separation": 8,
     "salt": 1022201,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/cliff_hut.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:cliff_hut",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 24,
+    "separation": 8,
+    "salt": 1022502,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
       "chunk_count": 4
@@ -29105,6 +33980,29 @@ final class SpecialHomes {
 }
 ```
 
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/mace_workshop.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:mace_workshop",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 28,
+    "separation": 9,
+    "salt": 1022501,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
 ## src/main/resources/data/itzbreadloaf/worldgen/structure_set/madison_houses.json
 
 ```json
@@ -29319,6 +34217,29 @@ final class SpecialHomes {
     "spacing": 30,
     "separation": 10,
     "salt": 1022310,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/rival_camp.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:rival_camp",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 24,
+    "separation": 8,
+    "salt": 1022504,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
       "chunk_count": 4
@@ -29664,6 +34585,29 @@ final class SpecialHomes {
     "spacing": 24,
     "separation": 8,
     "salt": 1022007,
+    "exclusion_zone": {
+      "other_set": "minecraft:villages",
+      "chunk_count": 4
+    }
+  }
+}
+```
+
+## src/main/resources/data/itzbreadloaf/worldgen/structure_set/wind_tower.json
+
+```json
+{
+  "structures": [
+    {
+      "structure": "itzbreadloaf:wind_tower",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 30,
+    "separation": 10,
+    "salt": 1022503,
     "exclusion_zone": {
       "other_set": "minecraft:villages",
       "chunk_count": 4

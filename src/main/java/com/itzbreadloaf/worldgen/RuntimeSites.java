@@ -44,8 +44,12 @@ public final class RuntimeSites {
 	}
 
 	public static void add(ServerLevel level, HomeKind kind, BoundingBox box) {
+		add(level, kind.getSerializedName(), box);
+	}
+
+	public static void add(ServerLevel level, String kind, BoundingBox box) {
 		Data data = data(level.getServer());
-		data.sites.add(new Site(kind.getSerializedName(), level.dimension().identifier().toString(), box));
+		data.sites.add(new Site(kind, level.dimension().identifier().toString(), box));
 		data.setDirty();
 	}
 

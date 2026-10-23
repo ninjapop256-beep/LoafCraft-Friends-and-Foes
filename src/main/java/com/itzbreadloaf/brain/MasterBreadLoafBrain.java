@@ -225,14 +225,10 @@ public class MasterBreadLoafBrain extends LoafBrain {
 				ModAdvancements.award(killer, ModAdvancements.MACE_MASTER);
 			}
 		}
-		// Guaranteed: his Wind Burst mace and the trophy. 35%: one of his other maces. Not his whole kit.
+		// Guaranteed: his Wind Burst mace and the trophy. Plus his drop table: extra Epic and Legendary rolls.
 		this.player.spawnAtLocation(level, Gear.enchanted(level, Items.MACE, Enchantments.WIND_BURST, 2));
 		this.player.spawnAtLocation(level, new ItemStack(ModItems.MASTER_LOAF_TROPHY));
-		if (this.random.nextFloat() < 0.35F) {
-			this.player.spawnAtLocation(level, this.random.nextBoolean()
-					? Gear.enchanted(level, Items.MACE, Enchantments.DENSITY, 5)
-					: Gear.enchanted(level, Items.MACE, Enchantments.BREACH, 4));
-		}
+		com.itzbreadloaf.loot.LootRarity.dropCharacterLoot(this, this.player, source);
 		this.player.getInventory().clearContent();
 		return false;
 	}

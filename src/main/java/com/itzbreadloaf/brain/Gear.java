@@ -252,10 +252,16 @@ public final class Gear {
 	}
 
 	private static void rollArmor(Player player, ServerLevel level, RandomSource random, Theme theme) {
+		rollArmor(player, level, random, theme, false);
+	}
+
+	/** {@code better}: one tier up on average, more pieces and more full sets (wild FelixSyn). */
+	private static void rollArmor(Player player, ServerLevel level, RandomSource random, Theme theme, boolean better) {
 		float fullSet = random.nextFloat();
-		if (fullSet < FULL_SET_CHANCE) {
+		float fullSetChance = better ? FULL_SET_CHANCE * 2.0F : FULL_SET_CHANCE;
+		if (fullSet < fullSetChance) {
 			// Rare full set anywhere: diamond 3 times out of 4, otherwise netherite.
-			Material material = fullSet < FULL_SET_CHANCE * 0.75F ? Material.DIAMOND : Material.NETHERITE;
+			Material material = fullSet < fullSetChance * 0.75F ? Material.DIAMOND : Material.NETHERITE;
 			for (EquipmentSlot slot : ARMOR_SLOTS) {
 				ItemStack stack = new ItemStack(armorItem(material, slot));
 				maybeTrim(stack, level, random, theme);
@@ -264,10 +270,13 @@ public final class Gear {
 			return;
 		}
 		for (EquipmentSlot slot : ARMOR_SLOTS) {
-			if (random.nextFloat() >= ARMOR_PIECE_CHANCE) {
+			if (random.nextFloat() >= (better ? ARMOR_PIECE_CHANCE + 0.15F : ARMOR_PIECE_CHANCE)) {
 				continue;
 			}
 			Material material = theme.picks[pickPick(random, theme.picks)].material();
+			if (better) {
+				material = upgrade(material, random);
+			}
 			if (theme == Theme.OCEAN && slot == EquipmentSlot.HEAD && random.nextFloat() < TURTLE_HELMET_CHANCE) {
 				material = Material.TURTLE;
 			}
@@ -277,6 +286,58 @@ public final class Gear {
 			}
 			maybeTrim(stack, level, random, theme);
 			player.setItemSlot(slot, stack);
+		}
+	}
+
+	/** One tier better: leather to chainmail, chainmail or gold to iron, iron to diamond half the time... */
+	private static Material upgrade(Material material, RandomSource random) {
+		return switch (material) {
+			case LEATHER -> Material.CHAINMAIL;
+			case CHAINMAIL, GOLDEN -> Material.IRON;
+			case IRON -> random.nextBoolean() ? Material.DIAMOND : Material.IRON;
+			case DIAMOND -> random.nextFloat() < 0.15F ? Material.NETHERITE : Material.DIAMOND;
+			default -> material;
+		};
+	}
+
+	// Wild FelixSyn's weapon tiers (wooden, stone, iron, golden, diamond, netherite): skewed higher than ItzBreadLoaf's.
+	private static final int[] FELIX_TIER_WEIGHTS = {4, 12, 34, 8, 32, 10};
+
+	/**
+	 * Wild FelixSyn's kit, always a bit better than ItzBreadLoaf's: mace 60% (sometimes with Density or Wind Burst),
+	 * sword 25%, axe 10%, spear 5%, with higher tiers; biome armor one tier better; a few wind charges; one golden apple.
+	 */
+	public static void rollWildFelix(Player player, ServerLevel level, RandomSource random, DifficultyInstance difficulty) {
+		for (EquipmentSlot slot : ARMOR_SLOTS) {
+			player.setItemSlot(slot, ItemStack.EMPTY);
+		}
+		player.setItemSlot(EquipmentSlot.OFFHAND, ItemStack.EMPTY);
+		Holder<Biome> biome = level.getBiome(player.blockPosition());
+		int roll = random.nextInt(100);
+		ItemStack weapon;
+		if (roll < 60) {
+			int enchant = random.nextInt(100);
+			weapon = enchant < 15 ? enchanted(level, Items.MACE, net.minecraft.world.item.enchantment.Enchantments.DENSITY, 1 + random.nextInt(3))
+					: enchant < 22 ? enchanted(level, Items.MACE, net.minecraft.world.item.enchantment.Enchantments.WIND_BURST, 1)
+					: new ItemStack(Items.MACE);
+		} else if (roll < 85) {
+			weapon = new ItemStack(SWORDS[pickIndex(random, FELIX_TIER_WEIGHTS)]);
+		} else if (roll < 95) {
+			weapon = new ItemStack(AXES[pickIndex(random, FELIX_TIER_WEIGHTS)]);
+		} else {
+			weapon = new ItemStack(SPEARS[pickIndex(random, FELIX_TIER_WEIGHTS)]);
+		}
+		player.getInventory().setItem(Combat.MELEE_SLOT, weapon);
+		player.getInventory().setSelectedSlot(Combat.MELEE_SLOT);
+		player.getInventory().setItem(4, new ItemStack(Items.WIND_CHARGE, 8 + random.nextInt(9)));
+		player.getInventory().setItem(6, new ItemStack(Items.GOLDEN_APPLE));
+		if (!weapon.is(Items.MACE) && random.nextFloat() < 0.3F) {
+			player.setItemSlot(EquipmentSlot.OFFHAND, new ItemStack(Items.SHIELD));
+		}
+		rollArmor(player, level, random, themeFor(biome), true);
+		maybeEnchant(weapon, level, random, difficulty);
+		for (EquipmentSlot slot : ARMOR_SLOTS) {
+			maybeEnchant(player.getItemBySlot(slot), level, random, difficulty);
 		}
 	}
 

@@ -1,8 +1,8 @@
 {
-  "type": "itzbreadloaf:home",
-  "kind": "cliffside_base",
+  "type": "itzbreadloaf:blueprint",
+  "id": "cliffside_base",
   "biomes": "#itzbreadloaf:has_structure/cliffside_base",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }

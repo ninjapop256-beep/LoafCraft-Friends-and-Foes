@@ -40,7 +40,9 @@ public enum CharacterVariant {
 	HARLEY(CharacterKind.HARLEY, "harley", ""),
 	// Added later (kept at the end so older characters keep their type number)
 	FISHERMAN(CharacterKind.BREADLOAF, "fisherman", "Fisherman"),
-	MERCHANT(CharacterKind.MADISON, "merchant", "Merchant");
+	MERCHANT(CharacterKind.MADISON, "merchant", "Merchant"),
+	/** FelixSyn out in the wild with his own home and rolled gear (the village drifter is FELIXSYN). */
+	WILD_FELIX(CharacterKind.FELIXSYN, "wild_felixsyn", "Wild");
 
 	public final CharacterKind kind;
 	/** Command name (/loafcraft spawn knight). */

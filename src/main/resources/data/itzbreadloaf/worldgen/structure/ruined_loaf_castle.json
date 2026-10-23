@@ -1,8 +1,8 @@
 {
-  "type": "itzbreadloaf:home",
-  "kind": "ruined_loaf_castle",
+  "type": "itzbreadloaf:blueprint",
+  "id": "ruined_loaf_castle",
   "biomes": "#itzbreadloaf:has_structure/ruined_loaf_castle",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }

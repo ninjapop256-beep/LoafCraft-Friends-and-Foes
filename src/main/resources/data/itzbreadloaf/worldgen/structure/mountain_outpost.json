@@ -1,8 +1,8 @@
 {
-  "type": "itzbreadloaf:home",
-  "kind": "mountain_outpost",
+  "type": "itzbreadloaf:blueprint",
+  "id": "mountain_outpost",
   "biomes": "#itzbreadloaf:has_structure/mountain_outpost",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }

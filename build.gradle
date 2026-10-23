@@ -88,3 +88,22 @@ publishing {
 		// retrieving dependencies.
 	}
 }
+
+// Writes the worldgen JSON (structure, structure set, biome tag) for every structure in StructureCatalog.
+tasks.register('exportStructures', JavaExec) {
+	group = 'loafcraft'
+	description = 'Writes worldgen JSON for every StructureCatalog entry into src/main/resources.'
+	dependsOn 'compileJava'
+	classpath = files(sourceSets.main.java.destinationDirectory)
+	mainClass = 'com.itzbreadloaf.worldgen.build.StructureCatalogExport'
+	args file('src/main/resources').absolutePath
+}
+
+// Builds every blueprint outside the game and fails if any floor, chest, bed or resident can't be reached.
+tasks.register('checkStructures', JavaExec) {
+	group = 'loafcraft'
+	description = 'Runs the blueprint reachability check without starting the game.'
+	dependsOn 'classes'
+	classpath = sourceSets.main.runtimeClasspath
+	mainClass = 'com.itzbreadloaf.worldgen.build.StructureCheckMain'
+}

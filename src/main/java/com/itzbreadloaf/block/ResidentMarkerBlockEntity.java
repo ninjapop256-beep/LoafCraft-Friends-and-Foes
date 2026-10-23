@@ -82,8 +82,11 @@ public class ResidentMarkerBlockEntity extends BlockEntity {
 					madison.setPantryPos(pantry);
 				}
 			};
-			if (variant.kind == CharacterKind.FELIXSYN) {
-				// FelixSyn never comes alone: Harley is with him.
+			if (variant == CharacterVariant.WILD_FELIX) {
+				// A wild FelixSyn at his own home (Harley sometimes).
+				com.itzbreadloaf.brain.FelixBrain.spawnWild(serverLevel, Vec3.atBottomCenterOf(spawn), home, radius, bed);
+			} else if (variant.kind == CharacterKind.FELIXSYN) {
+				// The village drifter never comes alone: Harley is with him.
 				com.itzbreadloaf.brain.FelixBrain.spawnDuo(serverLevel, Vec3.atBottomCenterOf(spawn), home);
 			} else if (variant.kind == CharacterKind.MASTER) {
 				// The boss makes an entrance (sound and message).

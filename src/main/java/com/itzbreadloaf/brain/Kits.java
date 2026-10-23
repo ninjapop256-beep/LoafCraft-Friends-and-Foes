@@ -272,24 +272,19 @@ public final class Kits {
 	 * Wind Burst mace, a shield, ender pearls, golden apples, wind charges, Strength II and Swiftness II potions.
 	 */
 	public static void harley(Player player, ServerLevel level, RandomSource random) {
-		Item[] armor = {Items.NETHERITE_HELMET, Items.NETHERITE_CHESTPLATE, Items.NETHERITE_LEGGINGS, Items.NETHERITE_BOOTS};
+		// Full diamond with Protection II (no netherite), a shield, Harley's Blade and a plain mace. No pearls,
+		// no potions, and one golden apple.
+		Item[] armor = {Items.DIAMOND_HELMET, Items.DIAMOND_CHESTPLATE, Items.DIAMOND_LEGGINGS, Items.DIAMOND_BOOTS};
 		EquipmentSlot[] slots = {EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET};
 		for (int i = 0; i < 4; i++) {
-			ItemStack piece = enchant(level, new ItemStack(armor[i]), Enchantments.PROTECTION, 4);
-			player.setItemSlot(slots[i], enchant(level, piece, Enchantments.UNBREAKING, 3));
+			player.setItemSlot(slots[i], enchant(level, new ItemStack(armor[i]), Enchantments.PROTECTION, 2));
 		}
-		player.setItemSlot(EquipmentSlot.OFFHAND, enchant(level, new ItemStack(Items.SHIELD), Enchantments.UNBREAKING, 3));
+		player.setItemSlot(EquipmentSlot.OFFHAND, new ItemStack(Items.SHIELD));
 		Inventory inventory = player.getInventory();
 		inventory.setItem(0, ModItems.harleysBlade(level.registryAccess()));
-		ItemStack mace = enchant(level, new ItemStack(Items.MACE), Enchantments.BREACH, 3);
-		inventory.setItem(2, enchant(level, mace, Enchantments.WIND_BURST, 1));
-		inventory.setItem(4, new ItemStack(Items.WIND_CHARGE, 32));
-		inventory.setItem(5, new ItemStack(Items.ENDER_PEARL, 12));
-		inventory.setItem(6, new ItemStack(Items.GOLDEN_APPLE, 6));
-		inventory.setItem(9, LoafBrain.potion(Items.POTION, Potions.STRONG_STRENGTH));
-		inventory.setItem(10, LoafBrain.potion(Items.POTION, Potions.STRONG_SWIFTNESS));
-		inventory.setItem(11, LoafBrain.potion(Items.POTION, Potions.STRONG_STRENGTH));
-		inventory.setItem(12, LoafBrain.potion(Items.POTION, Potions.STRONG_SWIFTNESS));
+		inventory.setItem(2, new ItemStack(Items.MACE));
+		inventory.setItem(4, new ItemStack(Items.WIND_CHARGE, 8));
+		inventory.setItem(6, new ItemStack(Items.GOLDEN_APPLE, 1));
 		inventory.setSelectedSlot(0);
 	}
 

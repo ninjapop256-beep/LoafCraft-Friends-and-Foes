@@ -56,7 +56,7 @@ public final class BastionThrones {
 			}
 			BoundingBox area = bastion.getBoundingBox();
 			BlockPos center = area.getCenter();
-			int size = HomeKind.BASTION_THRONE_ROOM.width;
+			int size = com.itzbreadloaf.worldgen.build.StructureCatalog.get("bastion_throne_room").width();
 			int x0 = center.getX() - size / 2;
 			int z0 = center.getZ() - size / 2;
 			// Wait until the whole room's area is loaded.
@@ -66,8 +66,8 @@ public final class BastionThrones {
 			data.bastions.add(id);
 			data.setDirty();
 			int floor = findFloor(nether, center, area);
-			BoundingBox built = HomePiece.buildNow(nether, HomeKind.BASTION_THRONE_ROOM, x0, z0, floor, nether.getRandom());
-			RuntimeSites.add(nether, HomeKind.BASTION_THRONE_ROOM, built);
+			BoundingBox built = com.itzbreadloaf.worldgen.build.BlueprintPiece.buildNow(nether, "bastion_throne_room", x0, z0, floor, nether.getRandom());
+			RuntimeSites.add(nether, "bastion_throne_room", built);
 		}
 	}
 

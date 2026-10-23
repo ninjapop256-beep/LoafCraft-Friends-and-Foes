@@ -25,6 +25,8 @@ public class ItzBreadLoaf implements ModInitializer {
 	public void onInitialize() {
 		ModConfig.load();
 		ModSounds.register();
+		com.itzbreadloaf.sound.FelixVoices.register();
+		com.itzbreadloaf.loot.LootRarity.register();
 		ModBlocks.register();
 		ModItems.register();
 		ModStructures.register();

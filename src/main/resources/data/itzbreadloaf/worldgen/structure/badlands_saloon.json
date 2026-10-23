@@ -1,8 +1,8 @@
 {
-  "type": "itzbreadloaf:home",
-  "kind": "badlands_saloon",
+  "type": "itzbreadloaf:blueprint",
+  "id": "badlands_saloon",
   "biomes": "#itzbreadloaf:has_structure/badlands_saloon",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }

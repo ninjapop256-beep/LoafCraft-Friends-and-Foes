@@ -68,8 +68,7 @@ public final class VillageSpawner {
 
 	/** Builds a Village Campsite just outside one side of the village. True if it did. */
 	private static boolean buildCampsite(ServerLevel level, BoundingBox village, RandomSource random) {
-		com.itzbreadloaf.worldgen.HomeKind kind = com.itzbreadloaf.worldgen.HomeKind.VILLAGE_CAMPSITE;
-		int size = Math.max(kind.width, kind.depth);
+		int size = com.itzbreadloaf.worldgen.build.StructureCatalog.get("village_campsite").footprint();
 		BlockPos center = village.getCenter();
 		int[][] corners = {
 				{village.maxX() + 3, center.getZ() - size / 2},
@@ -90,8 +89,8 @@ public final class VillageSpawner {
 			if (!level.getFluidState(top).isEmpty() || !level.getBlockState(top).isFaceSturdy(level, top, Direction.UP)) {
 				continue;
 			}
-			BoundingBox built = com.itzbreadloaf.worldgen.HomePiece.buildNow(level, kind, x0, z0, ground, random);
-			com.itzbreadloaf.worldgen.RuntimeSites.add(level, kind, built);
+			BoundingBox built = com.itzbreadloaf.worldgen.build.BlueprintPiece.buildNow(level, "village_campsite", x0, z0, ground, random);
+			com.itzbreadloaf.worldgen.RuntimeSites.add(level, "village_campsite", built);
 			return true;
 		}
 		return false;

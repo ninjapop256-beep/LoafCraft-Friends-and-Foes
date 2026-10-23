@@ -1,8 +1,8 @@
 {
-  "type": "itzbreadloaf:home",
-  "kind": "snowball_fort",
+  "type": "itzbreadloaf:blueprint",
+  "id": "snowball_fort",
   "biomes": "#itzbreadloaf:has_structure/snowball_fort",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }

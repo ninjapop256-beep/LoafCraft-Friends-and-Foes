@@ -32,6 +32,10 @@ public final class ModConfig {
 	public String harleyDifficulty = "normal";
 	/** Chance (0-1) that a village gets FelixSyn (and Harley) the first time a player visits it. */
 	public double felixVillageChance = 0.4;
+	/** Wild FelixSyn's random natural spawn weight (like itzBreadLoafSpawnWeight). Most live in their own homes. */
+	public int wildFelixSpawnWeight = 2;
+	/** Chance (0-1) that Harley comes along with a wild FelixSyn (she's always with the village drifter). */
+	public double wildFelixHarleyChance = 0.3;
 	/** Harley's best friend: the one real player she adores and gives gifts to (matched by Minecraft name, any case). */
 	public String harleyBestFriend = "FelixSyn";
 	/** Share (0-1) of ItzBreadLoafs and FelixSyns wearing their main skin; the rest wear a random old skin (<name>_alt<N>.png). */
@@ -39,6 +43,13 @@ public final class ModConfig {
 	/** Seconds between Harley's gifts to her best friend (a random time between min and max). */
 	public int harleyGiftMinSeconds = 180;
 	public int harleyGiftMaxSeconds = 300;
+
+	// ---------------------------------------------------------------- FelixSyn's voice
+	/** Volume of FelixSyn's recorded voice lines (1.0 = normal). */
+	public double felixVoiceVolume = 1.0;
+	/** Seconds between his idle lines while he wanders (a random time between min and max). */
+	public int felixIdleVoiceMinSeconds = 20;
+	public int felixIdleVoiceMaxSeconds = 40;
 
 	// ---------------------------------------------------------------- taming and health
 	/** Taming chance: 1 in this many steaks for ItzBreadLoaf. */
@@ -68,8 +79,25 @@ public final class ModConfig {
 	/** Most path searches all characters together may run in one tick (the rest wait a tick or two). */
 	public int maxPathSearchesPerTick = 6;
 
+	// ---------------------------------------------------------------- loot rarity (see LOOT.md)
+	/**
+	 * Odds of each tier per tier roll, out of 1000. One row per loot level (1 basic, 2 standard, 3 hard,
+	 * 4 Master BreadLoaf), columns Common, Uncommon, Rare, Epic, Legendary.
+	 */
+	public int[][] lootTierWeights = {{700, 240, 50, 9, 1}, {600, 250, 100, 40, 10}, {480, 280, 160, 65, 15}, {350, 280, 220, 110, 40}};
+	/** Tier rolls per chest or character drop (min, max), one row per loot level. */
+	public int[][] lootTierRolls = {{1, 2}, {2, 3}, {2, 4}, {3, 5}};
+	/** Loot level (1-4) of each table, by path ("chests/house", "characters/felixsyn"...). Missing ones use the defaults. */
+	public java.util.Map<String, Integer> lootLevels = new java.util.LinkedHashMap<>(com.itzbreadloaf.loot.LootLevels.DEFAULTS);
+	/** Extra tier rolls per level of Looting when killing a character. */
+	public double lootingBonusRolls = 0.5;
+	/** Chance for each armor piece a character wears to drop (normal mobs: 0.085). */
+	public double characterArmorDropChance = 0.085;
+	/** Chance a character drops its weapon. */
+	public double characterWeaponDropChance = 0.15;
+
 	public enum HarleyPreset {
-		EASY(30.0, 0.8, 0.115, 0.5F, 200), NORMAL(40.0, 1.0, 0.125, 0.85F, 120), HARD(50.0, 1.25, 0.135, 1.0F, 80);
+		EASY(20.0, 0.85, 0.11, 0.25F), NORMAL(26.0, 1.0, 0.115, 0.4F), HARD(32.0, 1.15, 0.12, 0.6F);
 
 		public final double health;
 		public final double damageMultiplier;
@@ -77,15 +105,12 @@ public final class ModConfig {
 		public final double speed;
 		/** How often she jumps for a crit when the timing allows. */
 		public final float critChance;
-		/** Ticks between ender pearls. */
-		public final int pearlCooldown;
 
-		HarleyPreset(double health, double damageMultiplier, double speed, float critChance, int pearlCooldown) {
+		HarleyPreset(double health, double damageMultiplier, double speed, float critChance) {
 			this.health = health;
 			this.damageMultiplier = damageMultiplier;
 			this.speed = speed;
 			this.critChance = critChance;
-			this.pearlCooldown = pearlCooldown;
 		}
 	}
 

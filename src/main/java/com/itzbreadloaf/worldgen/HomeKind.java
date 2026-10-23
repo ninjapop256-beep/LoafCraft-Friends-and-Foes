@@ -132,7 +132,17 @@ public enum HomeKind implements StringRepresentable {
 	/** Shipwreck Camp (my idea): Pirates camping by half a ship. */
 	SHIPWRECK_CAMP("shipwreck_camp", 17, 11, 8),
 	/** Snowball Fort (my idea): two snow forts and a snowman. Two ItzBreadLoafs. */
-	SNOWBALL_FORT("snowball_fort", 19, 13, 4);
+	SNOWBALL_FORT("snowball_fort", 19, 13, 4),
+
+	// ---- update 2: wild FelixSyn's homes
+	/** Mace Workshop: stone-and-dark-oak workshop with an anvil, smithing table and mace racks. Wild FelixSyn. */
+	MACE_WORKSHOP("mace_workshop", 13, 11, 8),
+	/** Cliff Hut: a little hut with a ledge for mace drops, on windswept hills and mountains. Wild FelixSyn. */
+	CLIFF_HUT("cliff_hut", 11, 11, 8),
+	/** Wind Tower: a tall thin tower with a ladder all the way up, for jump training. Wild FelixSyn. */
+	WIND_TOWER("wind_tower", 9, 9, 27),
+	/** Rival Camp: always within sight of an ItzBreadLoaf house or tent, so they fight. Wild FelixSyn. */
+	RIVAL_CAMP("rival_camp", 11, 9, 5);
 
 	public static final Codec<HomeKind> CODEC = StringRepresentable.fromEnum(HomeKind::values);
 
@@ -167,6 +177,11 @@ public enum HomeKind implements StringRepresentable {
 	/** Needs land under it (the End has void between islands). */
 	public boolean needsSolidGround() {
 		return this == END_MACE_TOWER || this == END_SKY_PLATFORM;
+	}
+
+	/** Only generates near an ItzBreadLoaf house or tent (the Rival Camp). */
+	public boolean needsRivalNearby() {
+		return this == RIVAL_CAMP;
 	}
 
 	/** Built on the water surface instead of on land. */

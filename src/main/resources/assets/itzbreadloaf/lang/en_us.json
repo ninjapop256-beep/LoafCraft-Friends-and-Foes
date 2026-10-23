@@ -89,5 +89,17 @@
   "advancements.itzbreadloaf.peak_performance.title": "Peak Performance",
   "advancements.itzbreadloaf.peak_performance.description": "Reach a Mountain Outpost",
   "advancements.itzbreadloaf.campfire_stories.title": "Campfire Stories",
-  "advancements.itzbreadloaf.campfire_stories.description": "Find FelixSyn and Harley's campsite at the edge of a village"
+  "advancements.itzbreadloaf.campfire_stories.description": "Find FelixSyn and Harley's campsite at the edge of a village",
+  "subtitles.itzbreadloaf.felixsyn.defend": "FelixSyn defends his friends",
+  "subtitles.itzbreadloaf.felixsyn.hurt": "FelixSyn gets hit",
+  "subtitles.itzbreadloaf.felixsyn.death": "FelixSyn is defeated",
+  "subtitles.itzbreadloaf.felixsyn.idle": "FelixSyn chatters",
+  "subtitles.itzbreadloaf.felixsyn.mace": "FelixSyn smashes",
+  "subtitles.itzbreadloaf.felixsyn.retreat": "FelixSyn backs off",
+  "subtitles.itzbreadloaf.felixsyn.sleep": "FelixSyn yawns",
+  "subtitles.itzbreadloaf.felixsyn.spot_rival": "FelixSyn challenges ItzBreadLoaf",
+  "subtitles.itzbreadloaf.felixsyn.village": "FelixSyn greets the village",
+  "subtitles.itzbreadloaf.felixsyn.win": "FelixSyn celebrates",
+  "subtitles.itzbreadloaf.felixsyn.see_harley": "FelixSyn greets Harley",
+  "subtitles.itzbreadloaf.felixsyn.spot_player": "FelixSyn spots you"
 }

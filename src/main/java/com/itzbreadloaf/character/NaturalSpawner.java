@@ -71,6 +71,23 @@ public final class NaturalSpawner {
 				CharacterManager.create(level, variant, Vec3.atBottomCenterOf(spot), random.nextFloat() * 360.0F, brain -> brain.setWild(true));
 			}
 		}
+		// Wild FelixSyns on the surface (rarer than ItzBreadLoafs; most live in their own homes).
+		int felixWeight = ModConfig.get().wildFelixSpawnWeight;
+		for (ServerPlayer player : felixWeight <= 0 ? java.util.List.<ServerPlayer>of() : CharacterManager.realPlayers(server)) {
+			ServerLevel level = player.level();
+			RandomSource random = level.getRandom();
+			if (level.dimension() != Level.OVERWORLD || level.getDifficulty() == Difficulty.PEACEFUL
+					|| random.nextFloat() >= felixWeight / 200.0F || isUnderground(level, player.blockPosition()) || nearbyFelixes(player) >= 1) {
+				continue;
+			}
+			BlockPos spot = findSpot(level, player.blockPosition(), random);
+			if (spot != null) {
+				LoafCharacter felix = com.itzbreadloaf.brain.FelixBrain.spawnWild(level, Vec3.atBottomCenterOf(spot), null, 0, null);
+				if (felix != null && felix.brain != null) {
+					felix.brain.setWild(true);
+				}
+			}
+		}
 	}
 
 	private static boolean isUnderground(Level level, BlockPos pos) {
@@ -99,6 +116,17 @@ public final class NaturalSpawner {
 			}
 		}
 		return null;
+	}
+
+	private static int nearbyFelixes(ServerPlayer player) {
+		int count = 0;
+		for (LoafCharacter character : CharacterManager.active()) {
+			if (character.kind() == CharacterKind.FELIXSYN && character.player.level() == player.level()
+					&& character.player.distanceTo(player) < 96.0) {
+				count++;
+			}
+		}
+		return count;
 	}
 
 	private static int nearbyBreads(ServerPlayer player) {

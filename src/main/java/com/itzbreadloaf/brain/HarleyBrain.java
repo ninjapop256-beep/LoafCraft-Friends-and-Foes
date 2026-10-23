@@ -35,6 +35,9 @@ import org.jetbrains.annotations.Nullable;
 /**
  * Harley: FelixSyn's duo partner and the best fighter in the mod outside Master BreadLoaf.
  *
+ * Rebalanced: full diamond (Protection II), Harley's Blade is a diamond sword with Sharpness II, 26 health on Normal,
+ * good timing and some strafing but no ender pearls and only one golden apple per fight.
+ *
  * Wild: follows FelixSyn everywhere and fights whatever he fights. If he's killed she goes after his killer for
  * 60 seconds, then wanders off alone. Tame her with golden apples (1 in 5, only while she isn't fighting): then she
  * follows you (through portals too), fights whatever attacks you or whatever you attack, and sits/follows on an
@@ -57,7 +60,8 @@ public class HarleyBrain extends LoafBrain {
 	private @Nullable UUID partner;
 	private @Nullable UUID vengeance;
 	private int vengeanceTicks;
-	private int pearlCooldown;
+	/** Only one golden apple per fight. */
+	private boolean ateApple;
 	private boolean buffed;
 	private int fightTicks;
 	private int nextGiftTick = 200;
@@ -108,14 +112,11 @@ public class HarleyBrain extends LoafBrain {
 		if (Inv.count(this.player, Inv::isFood) < 4) {
 			Inv.give(this.player, new ItemStack(Items.COOKED_BEEF, 8));
 		}
-		if (Inv.count(this.player, stack -> stack.is(Items.ENDER_PEARL)) < 4) {
-			Inv.give(this.player, new ItemStack(Items.ENDER_PEARL, 8));
+		if (Inv.count(this.player, stack -> stack.is(Items.WIND_CHARGE)) < 4) {
+			Inv.give(this.player, new ItemStack(Items.WIND_CHARGE, 8));
 		}
-		if (Inv.count(this.player, stack -> stack.is(Items.WIND_CHARGE)) < 8) {
-			Inv.give(this.player, new ItemStack(Items.WIND_CHARGE, 16));
-		}
-		if (Inv.count(this.player, stack -> stack.is(Items.GOLDEN_APPLE)) < 2) {
-			Inv.give(this.player, new ItemStack(Items.GOLDEN_APPLE, 3));
+		if (Inv.count(this.player, stack -> stack.is(Items.GOLDEN_APPLE)) < 1) {
+			Inv.give(this.player, new ItemStack(Items.GOLDEN_APPLE, 1));
 		}
 	}
 
@@ -187,9 +188,6 @@ public class HarleyBrain extends LoafBrain {
 	@Override
 	protected void tickBehavior() {
 		this.maceJump.tickCooldown();
-		if (this.pearlCooldown > 0) {
-			this.pearlCooldown--;
-		}
 		if (this.vengeanceTicks > 0 && --this.vengeanceTicks == 0) {
 			this.vengeance = null;
 			this.setTarget(null);
@@ -203,6 +201,7 @@ public class HarleyBrain extends LoafBrain {
 		}
 		this.fightTicks = 0;
 		this.buffed = false;
+		this.ateApple = false;
 		this.maceJump.cancel();
 		if (this.tryEat() || this.tickLove()) {
 			return;
@@ -302,25 +301,14 @@ public class HarleyBrain extends LoafBrain {
 			}
 			this.buffed = true;
 		}
-		if (this.player.getHealth() < this.player.getMaxHealth() * 0.45F && distance > 3.0
+		if (!this.ateApple && this.player.getHealth() < this.player.getMaxHealth() * 0.4F && distance > 3.0
 				&& this.eatNow(stack -> stack.is(Items.GOLDEN_APPLE))) {
+			this.ateApple = true;
 			return;
 		}
-		// Pearl in when they're far or running.
-		if (distance > 12.0 && this.pearlCooldown <= 0) {
-			int pearl = Inv.ready(this.player, stack -> stack.is(Items.ENDER_PEARL), 5);
-			if (pearl >= 0) {
-				this.combat.stop();
-				this.controls.selectSlot(pearl);
-				this.combat.aimProjectile(target, 1.5, 0.03);
-				this.controls.useOnce();
-				this.pearlCooldown = preset().pearlCooldown;
-				return;
-			}
-		}
 		// Mace smash when they're close and armored, or now and then to mix it up.
-		boolean armored = target.getArmorValue() >= 12;
-		if (distance < 5.5 && distance > 1.5 && this.maceJump.canStart() && (armored || this.random.nextInt(6) == 0)) {
+		boolean armored = target.getArmorValue() >= 15;
+		if (distance < 5.5 && distance > 1.5 && this.maceJump.canStart() && (armored || this.random.nextInt(10) == 0)) {
 			this.maceJump.start(armored ? 60 : 120);
 			this.maceJump.tick(target, 6.0F);
 			return;
@@ -481,24 +469,25 @@ public class HarleyBrain extends LoafBrain {
 
 	// ---------------------------------------------------------------- death and loot
 
-	/** Each armor piece 10%, and Harley's Blade guaranteed when she was wild. Untouchable for whoever beat her. */
+	/** Each armor piece 8.5% (like normal mobs), Harley's Blade 25% when she was wild. Untouchable for whoever beat her. */
 	@Override
 	public boolean onDeath(DamageSource source) {
 		ServerLevel level = this.player.level();
 		for (EquipmentSlot slot : new EquipmentSlot[]{EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET}) {
-			if (this.random.nextFloat() < 0.10F) {
+			if (this.random.nextFloat() < com.itzbreadloaf.config.ModConfig.get().characterArmorDropChance) {
 				this.player.spawnAtLocation(level, this.player.getItemBySlot(slot).copy());
 			}
 		}
 		if (!this.isTame()) {
-			this.player.spawnAtLocation(level, ModItems.harleysBlade(level.registryAccess()));
+			if (this.random.nextFloat() < 0.25F) {
+				this.player.spawnAtLocation(level, ModItems.harleysBlade(level.registryAccess()));
+			}
 			if (source.getEntity() instanceof ServerPlayer killer && LoafIds.isRealPlayer(killer)) {
 				ModAdvancements.award(killer, ModAdvancements.UNTOUCHABLE);
 			}
 		}
-		if (this.random.nextBoolean()) {
-			this.player.spawnAtLocation(level, new ItemStack(Items.GOLDEN_APPLE, 1 + this.random.nextInt(2)));
-		}
+		// Everything else comes from her drop table and its tier rolls (loot rarity system).
+		com.itzbreadloaf.loot.LootRarity.dropCharacterLoot(this, this.player, source);
 		this.player.getInventory().clearContent();
 		return false;
 	}

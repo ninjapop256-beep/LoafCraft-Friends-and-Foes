@@ -364,5 +364,527 @@
         "attenuation_distance": 16
       }
     ]
+  },
+  "felixsyn.voice.attack_village_or_harley": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.defend",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/attack_village_or_harley",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085055": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.defend",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085055",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_091128": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.defend",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_091128",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_091135": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.defend",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_091135",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.being_hit_felixsym": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.hurt",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/being_hit_felixsym",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090121": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.hurt",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090121",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090127": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.hurt",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090127",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090134": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.hurt",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090134",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090143": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.hurt",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090143",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090149": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.hurt",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090149",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.death_felixsyn": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.death",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/death_felixsyn",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.felixsyn_itzbreadloaf": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.death",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/felixsyn_itzbreadloaf",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090322": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.death",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090322",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090330": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.death",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090330",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090337": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.death",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090337",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.elijah": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/elijah",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.idle_felixsyn": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/idle_felixsyn",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_084807": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_084807",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_084835": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_084835",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_084917": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_084917",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_084935": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_084935",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_084953": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_084953",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085007": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085007",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085028": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085028",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085111": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085111",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085137": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085137",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085152": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085152",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085418": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085418",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085453": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085453",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085506": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085506",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085515": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.idle",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085515",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.mace_attack": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.mace",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/mace_attack",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_084900": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.mace",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_084900",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085947": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.mace",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085947",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.retreat_to_heal_felixsyn": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.retreat",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/retreat_to_heal_felixsyn",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090217": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.retreat",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090217",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090244": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.retreat",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090244",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090251": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.retreat",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090251",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.sleeping": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.sleep",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/sleeping",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_091053": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.sleep",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_091053",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085438": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.spot_rival",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085438",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085544": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.spot_rival",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085544",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085607": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.spot_rival",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085607",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.village": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.village",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/village",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090953": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.village",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090953",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_091002": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.village",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_091002",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085557": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.win",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085557",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085806": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.win",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085806",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090028": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.win",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090028",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090043": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.win",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090043",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090049": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.win",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090049",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.winning_against_itzbreadloaf": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.win",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/winning_against_itzbreadloaf",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.harley_see": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.see_harley",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/harley_see",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090821": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.see_harley",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090821",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090838": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.see_harley",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090838",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_090856": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.see_harley",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_090856",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.see_sm1_felixsyn": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.spot_player",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/see_sm1_felixsyn",
+        "attenuation_distance": 16
+      }
+    ]
+  },
+  "felixsyn.voice.voice_261023_085524": {
+    "subtitle": "subtitles.itzbreadloaf.felixsyn.spot_player",
+    "sounds": [
+      {
+        "name": "itzbreadloaf:felixsyn/voice_261023_085524",
+        "attenuation_distance": 16
+      }
+    ]
   }
 }

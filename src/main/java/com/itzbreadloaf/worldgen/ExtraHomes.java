@@ -61,6 +61,10 @@ final class ExtraHomes {
 			case BERRY_CABIN -> NewHomes.berryCabin(p, level, box, random);
 			case SHIPWRECK_CAMP -> NewHomes.shipwreckCamp(p, level, box, random);
 			case SNOWBALL_FORT -> NewHomes.snowballFort(p, level, box, random);
+			case MACE_WORKSHOP -> FelixHomes.maceWorkshop(p, level, box, random, HomePiece.Palette.forBiome(biome));
+			case CLIFF_HUT -> FelixHomes.cliffHut(p, level, box, random, HomePiece.Palette.forBiome(biome));
+			case WIND_TOWER -> FelixHomes.windTower(p, level, box, random, HomePiece.Palette.forBiome(biome));
+			case RIVAL_CAMP -> FelixHomes.rivalCamp(p, level, box, random, HomePiece.Palette.forBiome(biome));
 			default -> {
 			}
 		}

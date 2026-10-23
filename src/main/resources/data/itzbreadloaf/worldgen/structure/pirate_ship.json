@@ -1,6 +1,6 @@
 {
-  "type": "itzbreadloaf:home",
-  "kind": "pirate_ship",
+  "type": "itzbreadloaf:blueprint",
+  "id": "pirate_ship",
   "biomes": "#itzbreadloaf:has_structure/pirate_ship",
   "step": "surface_structures",
   "spawn_overrides": {},

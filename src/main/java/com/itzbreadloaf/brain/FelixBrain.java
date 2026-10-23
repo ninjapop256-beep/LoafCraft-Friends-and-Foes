@@ -44,12 +44,50 @@ public class FelixBrain extends LoafBrain {
 	private int hangoutTicks;
 	private int nextRivalMessage;
 	private int nextDrifterCheck;
+	// Voice lines (see FelixVoices for which recording plays when).
+	private int nextIdleVoice = 200;
+	private int nextSpotVoice;
+	private int nextVillageVoice;
+	private int harleyApartSince;
+	private boolean wasRetreating;
+	private boolean sleepVoiced;
+	/** The ItzBreadLoaf he's fighting, to celebrate when it goes down. */
+	private @Nullable LivingEntity rivalTarget;
 
 	public FelixBrain(LoafCharacter character) {
 		super(character);
 		this.maceJump = new MaceJump(this.player, this.controls, this.combat);
 		this.combat.critChance = 0.6F;
 		this.combat.retreatBelow = (float) com.itzbreadloaf.config.ModConfig.get().felixRetreatHealth;
+	}
+
+	/**
+	 * A wild FelixSyn (natural spawns and his own homes): rolled gear, and Harley only comes along sometimes
+	 * (wildFelixHarleyChance, 30%).
+	 */
+	public static @Nullable LoafCharacter spawnWild(ServerLevel level, Vec3 pos, @Nullable BlockPos home, int radius, @Nullable BlockPos bed) {
+		LoafCharacter felix = CharacterManager.create(level, CharacterVariant.WILD_FELIX, pos, level.getRandom().nextFloat() * 360.0F,
+				brain -> {
+					if (home != null) {
+						brain.setupHome(home, radius, bed);
+					}
+				});
+		if (felix != null && level.getRandom().nextFloat() < com.itzbreadloaf.config.ModConfig.get().wildFelixHarleyChance) {
+			UUID felixId = felix.player.getUUID();
+			CharacterManager.create(level, CharacterVariant.HARLEY, pos.add(1.0, 0.0, 0.0), level.getRandom().nextFloat() * 360.0F, brain -> {
+				if (home != null) {
+					brain.setupHome(home, radius, null);
+				}
+				if (brain instanceof HarleyBrain harley) {
+					harley.setPartner(felixId);
+				}
+			});
+		}
+		return felix;
+	}
+
+	public boolean isWild() {
+		return this.variant == CharacterVariant.WILD_FELIX;
 	}
 
 	/** FelixSyn spawns with Harley at his side (villages, the spawn egg, /loafcraft spawn felixsyn). */
@@ -89,7 +127,12 @@ public class FelixBrain extends LoafBrain {
 
 	@Override
 	protected void rollGear() {
-		Kits.felixSyn(this.player, this.player.level(), this.random);
+		if (this.isWild()) {
+			Gear.rollWildFelix(this.player, this.player.level(), this.random,
+					this.player.level().getCurrentDifficultyAt(this.player.blockPosition()));
+		} else {
+			Kits.felixSyn(this.player, this.player.level(), this.random);
+		}
 	}
 
 	@Override
@@ -99,6 +142,77 @@ public class FelixBrain extends LoafBrain {
 		}
 		if (Inv.count(this.player, stack -> stack.is(Items.WIND_CHARGE)) < 8) {
 			Inv.give(this.player, new ItemStack(Items.WIND_CHARGE, 16));
+		}
+	}
+
+	// ---------------------------------------------------------------- voice
+
+	private void voice(com.itzbreadloaf.sound.FelixVoices.Moment moment) {
+		net.minecraft.sounds.SoundEvent sound = com.itzbreadloaf.sound.FelixVoices.random(moment, this.random);
+		if (sound != null) {
+			this.playSound(sound, (float) com.itzbreadloaf.config.ModConfig.get().felixVoiceVolume, 1.0F);
+		}
+	}
+
+	@Override
+	public @Nullable net.minecraft.sounds.SoundEvent hurtSound() {
+		return com.itzbreadloaf.sound.FelixVoices.random(com.itzbreadloaf.sound.FelixVoices.Moment.HURT, this.random);
+	}
+
+	@Override
+	public net.minecraft.sounds.SoundEvent deathSound() {
+		net.minecraft.sounds.SoundEvent sound = com.itzbreadloaf.sound.FelixVoices.random(com.itzbreadloaf.sound.FelixVoices.Moment.DEATH, this.random);
+		return sound != null ? sound : super.deathSound();
+	}
+
+	/** Lines that react to what's going on: spotting a player, Harley showing up, backing off, beating a rival. */
+	private void tickVoice() {
+		boolean retreating = this.combat.isRetreating();
+		if (retreating && !this.wasRetreating) {
+			this.voice(com.itzbreadloaf.sound.FelixVoices.Moment.RETREAT);
+		}
+		this.wasRetreating = retreating;
+		if (this.rivalTarget != null && (!this.rivalTarget.isAlive() || this.rivalTarget.isRemoved())) {
+			if (this.rivalTarget.isDeadOrDying() && this.rivalTarget.distanceTo(this.player) < 32.0) {
+				this.voice(com.itzbreadloaf.sound.FelixVoices.Moment.WIN);
+			}
+			this.rivalTarget = null;
+		}
+		if (this.ticks % 20 != 0) {
+			return;
+		}
+		HarleyBrain harley = this.partnerBrain();
+		if (harley != null && harley.player.level() == this.player.level()) {
+			double apart = harley.player.distanceTo(this.player);
+			if (apart > 16.0) {
+				this.harleyApartSince = this.harleyApartSince == 0 ? this.ticks : this.harleyApartSince;
+			} else if (apart < 6.0 && this.harleyApartSince != 0 && this.ticks - this.harleyApartSince > 1200) {
+				this.voice(com.itzbreadloaf.sound.FelixVoices.Moment.SEE_HARLEY);
+				this.harleyApartSince = 0;
+			} else if (apart < 6.0) {
+				this.harleyApartSince = 0;
+			}
+		}
+		if (this.target == null && this.ticks >= this.nextSpotVoice) {
+			for (ServerPlayer viewer : this.player.level().players()) {
+				if (LoafIds.isRealPlayer(viewer) && viewer.distanceTo(this.player) < 10.0 && this.player.hasLineOfSight(viewer)) {
+					this.voice(com.itzbreadloaf.sound.FelixVoices.Moment.SPOT_PLAYER);
+					this.nextSpotVoice = this.ticks + 2400;
+					this.nextIdleVoice = Math.max(this.nextIdleVoice, this.ticks + 200);
+					break;
+				}
+			}
+		}
+	}
+
+	/** Targets someone and says the line for it (only when it's a new target). */
+	private void targetWithVoice(LivingEntity target, com.itzbreadloaf.sound.FelixVoices.Moment moment) {
+		if (target == this.target) {
+			return;
+		}
+		this.setTarget(target);
+		if (this.target == target) {
+			this.voice(moment);
 		}
 	}
 
@@ -123,7 +237,8 @@ public class FelixBrain extends LoafBrain {
 	@Override
 	protected void tickBehavior() {
 		this.maceJump.tickCooldown();
-		if (this.ticks >= this.nextDrifterCheck) {
+		this.tickVoice();
+		if (!this.isWild() && this.ticks >= this.nextDrifterCheck) {
 			this.nextDrifterCheck = this.ticks + 40;
 			for (ServerPlayer viewer : this.player.level().players()) {
 				if (LoafIds.isRealPlayer(viewer) && viewer.distanceTo(this.player) < 12.0) {
@@ -143,10 +258,21 @@ public class FelixBrain extends LoafBrain {
 			return;
 		}
 		if (this.player.level().isDarkOutside()) {
+			// Wild ones have a bed at home; the drifter sleeps rough.
+			if (this.goToBed()) {
+				return;
+			}
 			this.sleepRough();
 			return;
 		}
 		this.controls.setSneaking(false);
+		this.sleepVoiced = false;
+		if (this.ticks >= this.nextIdleVoice) {
+			int min = Math.max(5, com.itzbreadloaf.config.ModConfig.get().felixIdleVoiceMinSeconds);
+			int max = Math.max(min, com.itzbreadloaf.config.ModConfig.get().felixIdleVoiceMaxSeconds);
+			this.nextIdleVoice = this.ticks + 20 * (min + this.random.nextInt(max - min + 1));
+			this.voice(com.itzbreadloaf.sound.FelixVoices.Moment.IDLE);
+		}
 		if (this.returnHome()) {
 			return;
 		}
@@ -168,21 +294,24 @@ public class FelixBrain extends LoafBrain {
 		HarleyBrain harley = this.partnerBrain();
 		if (harley != null && harley.lastAttacker != null && harley.lastAttacker.isAlive() && harley.ticks - harley.lastHurtTick < 200
 				&& harley.lastAttacker != this.player) {
-			this.setTarget(harley.lastAttacker);
+			this.targetWithVoice(harley.lastAttacker, com.itzbreadloaf.sound.FelixVoices.Moment.DEFEND);
 			return;
 		}
 		// Players who attack villagers.
 		for (AbstractVillager villager : this.player.level().getEntitiesOfClass(AbstractVillager.class, this.player.getBoundingBox().inflate(16.0))) {
 			if (villager.getLastHurtByMob() instanceof Player bully && LoafIds.isRealPlayer(bully) && !bully.isCreative()
 					&& villager.tickCount - villager.getLastHurtByMobTimestamp() < 100) {
-				this.setTarget(bully);
+				this.targetWithVoice(bully, com.itzbreadloaf.sound.FelixVoices.Moment.DEFEND);
 				return;
 			}
 		}
 		// Sworn rivals: any ItzBreadLoaf he can see within 24 blocks (but not a tamed one sitting on its owner's orders).
 		LivingEntity rival = findRival(this.player, CharacterKind.BREADLOAF);
 		if (rival != null) {
-			this.setTarget(rival);
+			this.targetWithVoice(rival, com.itzbreadloaf.sound.FelixVoices.Moment.SPOT_RIVAL);
+			if (this.target == rival) {
+				this.rivalTarget = rival;
+			}
 		}
 	}
 
@@ -233,6 +362,7 @@ public class FelixBrain extends LoafBrain {
 		double distance = this.player.distanceTo(target);
 		if (distance < 6.0 && distance > 1.5 && this.maceJump.canStart() && this.random.nextInt(4) == 0) {
 			this.maceJump.start(100 + this.random.nextInt(60));
+			this.voice(com.itzbreadloaf.sound.FelixVoices.Moment.MACE);
 			this.maceJump.tick(target, 6.0F);
 			return;
 		}
@@ -251,9 +381,16 @@ public class FelixBrain extends LoafBrain {
 			BlockPos center = this.home != null ? this.home : this.player.blockPosition();
 			this.hangoutSpot = switch (this.random.nextInt(3)) {
 				case 0 -> this.findBlock(center, 24, 8, state -> state.is(Blocks.BELL));
-				case 1 -> this.findBlock(center, 24, 6, state -> state.getFluidState().isSource() && state.is(Blocks.WATER));
+				case 1 -> this.dryBesideWater(center);
 				default -> null;
 			};
+		}
+		// Greets the village when he gets to the bell.
+		if (this.hangoutSpot != null && this.ticks >= this.nextVillageVoice
+				&& this.player.level().getBlockState(this.hangoutSpot).is(Blocks.BELL)
+				&& this.player.position().distanceTo(Vec3.atCenterOf(this.hangoutSpot)) <= 3.5) {
+			this.voice(com.itzbreadloaf.sound.FelixVoices.Moment.VILLAGE);
+			this.nextVillageVoice = this.ticks + 3600;
 		}
 		if (this.hangoutSpot != null && this.player.position().distanceTo(Vec3.atCenterOf(this.hangoutSpot)) > 3.0) {
 			this.nav.moveTo(this.hangoutSpot, 2.5, Navigator.Speed.WALK);
@@ -262,8 +399,43 @@ public class FelixBrain extends LoafBrain {
 		this.wander(HOME_RADIUS * 0.6);
 	}
 
+	/**
+	 * A dry spot right beside water (the well, a pond) to hang out at. It used to walk to the water block itself,
+	 * which is how FelixSyn and Harley ended up stuck in village wells.
+	 */
+	private @Nullable BlockPos dryBesideWater(BlockPos center) {
+		BlockPos water = this.findBlock(center, 24, 6, state -> state.getFluidState().isSource() && state.is(Blocks.WATER));
+		if (water == null) {
+			return null;
+		}
+		ServerLevel level = this.player.level();
+		for (int radius = 2; radius <= 4; radius++) {
+			for (int dx = -radius; dx <= radius; dx++) {
+				for (int dz = -radius; dz <= radius; dz++) {
+					if (Math.max(Math.abs(dx), Math.abs(dz)) != radius) {
+						continue;
+					}
+					for (int dy = -1; dy <= 2; dy++) {
+						BlockPos feet = water.offset(dx, dy, dz);
+						BlockPos below = feet.below();
+						if (level.getFluidState(feet).isEmpty() && level.getFluidState(below).isEmpty()
+								&& level.getBlockState(feet).isAir() && level.getBlockState(feet.above()).isAir()
+								&& level.getBlockState(below).isFaceSturdy(level, below, net.minecraft.core.Direction.UP)) {
+							return feet;
+						}
+					}
+				}
+			}
+		}
+		return null;
+	}
+
 	/** Night: no bed, so he curls up on a hay bale if there is one nearby, otherwise right where he is. */
 	private void sleepRough() {
+		if (!this.sleepVoiced) {
+			this.sleepVoiced = true;
+			this.voice(com.itzbreadloaf.sound.FelixVoices.Moment.SLEEP);
+		}
 		BlockPos center = this.home != null ? this.home : this.player.blockPosition();
 		BlockPos hay = this.findBlock(center, 20, 6, state -> state.is(Blocks.HAY_BLOCK));
 		if (hay != null && this.player.position().distanceTo(Vec3.atBottomCenterOf(hay.above())) > 1.2) {
@@ -301,17 +473,20 @@ public class FelixBrain extends LoafBrain {
 			harley.onPartnerKilled(killer);
 		}
 		ServerLevel level = this.player.level();
+		// Loot rarity system: his drop table + tier rolls, armor 8.5% each. Sometimes some of his wind charges
+		// (25%), rarely his own mace (5%).
+		com.itzbreadloaf.loot.LootRarity.dropCharacterLoot(this, this.player, source);
+		com.itzbreadloaf.loot.LootRarity.dropGear(this.player, this.random, false);
+		boolean windCharges = this.random.nextFloat() < 0.25F;
+		boolean mace = this.random.nextFloat() < 0.05F;
 		for (int i = 0; i < 36; i++) {
 			ItemStack stack = this.player.getInventory().getItem(i);
-			boolean drop = stack.is(Items.MACE) && this.random.nextFloat() < 0.4F
-					|| stack.is(Items.WIND_CHARGE) || stack.is(Items.GOLDEN_APPLE) && this.random.nextBoolean();
-			if (drop) {
+			if (windCharges && stack.is(Items.WIND_CHARGE)) {
+				this.player.spawnAtLocation(level, stack.copyWithCount(Math.max(1, stack.getCount() / 2)));
+				windCharges = false;
+			} else if (mace && stack.is(Items.MACE)) {
 				this.player.spawnAtLocation(level, stack.copy());
-			}
-		}
-		for (EquipmentSlot slot : new EquipmentSlot[]{EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET}) {
-			if (this.random.nextFloat() < 0.25F) {
-				this.player.spawnAtLocation(level, this.player.getItemBySlot(slot).copy());
+				mace = false;
 			}
 		}
 		this.player.getInventory().clearContent();

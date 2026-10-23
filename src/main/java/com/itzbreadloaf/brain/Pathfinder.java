@@ -38,6 +38,9 @@ public final class Pathfinder {
 	private final Long2ByteOpenHashMap openCache = new Long2ByteOpenHashMap();
 	/** 0 = unknown, 1 = standable, 2 = not, 3 = swim. */
 	private final Long2ByteOpenHashMap standCache = new Long2ByteOpenHashMap();
+	/** Water spots already checked for being a trap (1 = trap, 2 = fine). */
+	private final Long2ByteOpenHashMap trapCache = new Long2ByteOpenHashMap();
+	private BlockPos goal = BlockPos.ZERO;
 
 	private Pathfinder(ServerLevel level) {
 		this.level = level;
@@ -75,6 +78,7 @@ public final class Pathfinder {
 	}
 
 	private @Nullable Path search(BlockPos start, BlockPos goal, double reach, int maxRange) {
+		this.goal = goal;
 		BlockPos begin = this.settle(start);
 		PriorityQueue<Node> open = new PriorityQueue<>();
 		Long2ObjectOpenHashMap<Node> best = new Long2ObjectOpenHashMap<>();
@@ -222,6 +226,66 @@ public final class Pathfinder {
 				out.add(move(down, 1.5));
 			}
 		}
+		// Never step or drop from land into a water trap (a village well, a flooded pit): a small pool with no
+		// edge low enough to climb back out. Already swimming is fine, so is a trap the goal itself is in.
+		if (!swimming) {
+			out.removeIf(next -> {
+				BlockPos to = BlockPos.of(next[0]);
+				return this.standable(to) == 3 && this.isWaterTrap(to);
+			});
+		}
+	}
+
+	/**
+	 * True for water you can't get out of: floods the pool's surface (up to 4 blocks out) looking for a bank you
+	 * could swim to and step onto (land no higher than one block above the water). A pool that runs past 4 blocks
+	 * is open water (a lake, a river), not a trap.
+	 */
+	private boolean isWaterTrap(BlockPos water) {
+		if (water.distManhattan(this.goal) <= 4) {
+			return false;
+		}
+		BlockPos surface = water;
+		for (int i = 0; i < 8 && this.isWater(surface.above()); i++) {
+			surface = surface.above();
+		}
+		long key = surface.asLong();
+		byte cached = this.trapCache.get(key);
+		if (cached != 0) {
+			return cached == 1;
+		}
+		boolean trap = true;
+		java.util.ArrayDeque<BlockPos> queue = new java.util.ArrayDeque<>();
+		java.util.Set<BlockPos> seen = new java.util.HashSet<>();
+		queue.add(surface);
+		seen.add(surface);
+		search:
+		while (!queue.isEmpty()) {
+			BlockPos at = queue.poll();
+			if (Math.abs(at.getX() - surface.getX()) > 4 || Math.abs(at.getZ() - surface.getZ()) > 4) {
+				trap = false;
+				break;
+			}
+			for (int[] dir : DIRECTIONS) {
+				if (dir[0] != 0 && dir[1] != 0) {
+					continue;
+				}
+				BlockPos side = at.offset(dir[0], 0, dir[1]);
+				if (this.isWater(side)) {
+					if (seen.add(side)) {
+						queue.add(side);
+					}
+					continue;
+				}
+				// A bank: stand at water level, or one block up (the jump you can make out of water).
+				if (this.standable(side) == 1 || this.standable(side.above()) == 1 && this.open(at.above()) == 1) {
+					trap = false;
+					break search;
+				}
+			}
+		}
+		this.trapCache.put(key, trap ? (byte) 1 : (byte) 2);
+		return trap;
 	}
 
 	private static long[] move(BlockPos pos, double cost) {

@@ -16,6 +16,9 @@ import net.minecraft.world.level.storage.loot.LootTable;
 public final class ModStructures {
 	public static StructureType<HomeStructure> HOME;
 	public static StructurePieceType HOME_PIECE;
+	/** Structures built from blueprints (see worldgen/build). */
+	public static StructureType<com.itzbreadloaf.worldgen.build.BlueprintStructure> BLUEPRINT;
+	public static StructurePieceType BLUEPRINT_PIECE;
 
 	public static final ResourceKey<LootTable> HOUSE_CHEST = lootTable("chests/house");
 	public static final ResourceKey<LootTable> TENT_CHEST = lootTable("chests/tent");
@@ -44,5 +47,9 @@ public final class ModStructures {
 		HOME = Registry.register(BuiltInRegistries.STRUCTURE_TYPE, ItzBreadLoaf.id("home"), () -> HomeStructure.CODEC);
 		HOME_PIECE = Registry.register(BuiltInRegistries.STRUCTURE_PIECE, ItzBreadLoaf.id("home_piece"),
 				(StructurePieceType.ContextlessType) HomePiece::new);
+		BLUEPRINT = Registry.register(BuiltInRegistries.STRUCTURE_TYPE, ItzBreadLoaf.id("blueprint"),
+				() -> com.itzbreadloaf.worldgen.build.BlueprintStructure.CODEC);
+		BLUEPRINT_PIECE = Registry.register(BuiltInRegistries.STRUCTURE_PIECE, ItzBreadLoaf.id("blueprint_piece"),
+				(StructurePieceType.ContextlessType) com.itzbreadloaf.worldgen.build.BlueprintPiece::new);
 	}
 }

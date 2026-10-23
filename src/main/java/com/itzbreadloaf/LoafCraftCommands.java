@@ -85,6 +85,12 @@ public final class LoafCraftCommands {
 								.then(Commands.literal("pause").executes(c -> pause(c, true)))
 								.then(Commands.literal("resume").executes(c -> pause(c, false)))))
 						.then(Commands.literal("action").then(actions(name())))
+						.then(Commands.literal("checkstructures").executes(c -> {
+							for (String line : com.itzbreadloaf.worldgen.build.StructureCheck.run(c.getSource().getServer())) {
+								c.getSource().sendSuccess(() -> Component.literal(line), false);
+							}
+							return 1;
+						}))
 						.then(Commands.literal("boss")
 								.executes(c -> boss(c, c.getSource().getPosition()))
 								.then(Commands.argument("pos", Vec3Argument.vec3()).executes(c -> boss(c, Vec3Argument.getVec3(c, "pos")))))
@@ -124,6 +130,8 @@ public final class LoafCraftCommands {
 		CommandSourceStack source = context.getSource();
 		LoafCharacter character = kind.kind == CharacterKind.MASTER
 				? BossSpawner.spawnBoss(source.getLevel(), BlockPos.containing(pos))
+				: kind == CharacterVariant.WILD_FELIX
+				? com.itzbreadloaf.brain.FelixBrain.spawnWild(source.getLevel(), pos, BlockPos.containing(pos), 12, null)
 				: kind.kind == CharacterKind.FELIXSYN
 				? com.itzbreadloaf.brain.FelixBrain.spawnDuo(source.getLevel(), pos, BlockPos.containing(pos))
 				: CharacterManager.create(source.getLevel(), kind, pos, source.getRotation().y, null);

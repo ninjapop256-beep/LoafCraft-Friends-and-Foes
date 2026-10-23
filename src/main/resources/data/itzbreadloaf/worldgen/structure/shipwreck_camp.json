@@ -1,8 +1,8 @@
 {
-  "type": "itzbreadloaf:home",
-  "kind": "shipwreck_camp",
+  "type": "itzbreadloaf:blueprint",
+  "id": "shipwreck_camp",
   "biomes": "#itzbreadloaf:has_structure/shipwreck_camp",
   "step": "surface_structures",
   "spawn_overrides": {},
-  "terrain_adaptation": "beard_thin"
+  "terrain_adaptation": "none"
 }

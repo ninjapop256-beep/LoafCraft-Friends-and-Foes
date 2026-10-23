@@ -36,7 +36,7 @@ public class HomeStructure extends Structure {
 	@Override
 	protected Optional<GenerationStub> findGenerationPoint(GenerationContext context) {
 		ChunkPos chunk = context.chunkPos();
-		if (this.yieldsToNeighbor(context)) {
+		if (this.yieldsToNeighbor(context) || this.kind.needsRivalNearby() && !this.rivalHomeNearby(context)) {
 			return Optional.empty();
 		}
 		int x = chunk.getMiddleBlockX();
@@ -67,30 +67,36 @@ public class HomeStructure extends Structure {
 				builder.addPiece(new HomePiece(this.kind, context.random(), chunk.getMinBlockX(), chunk.getMinBlockZ())));
 	}
 
-	/**
-	 * Keeps LoafCraft structures off each other: if a bigger LoafCraft structure (from any of our structure sets) would
-	 * start close enough to overlap this one, this one doesn't generate. Bigger wins; equal sizes go to the earlier kind.
-	 * It works out where the other sets place their structures from the world seed, the same way the game does, and
-	 * checks the biome there. (Vanilla villages are kept away with "exclusion_zone" in each structure_set file.)
-	 */
+	/** Separation from other structures (ours, vanilla's and other mods'): see {@link com.itzbreadloaf.worldgen.build.PlacementRules}. */
 	private boolean yieldsToNeighbor(GenerationContext context) {
+		return com.itzbreadloaf.worldgen.build.PlacementRules.yields(context, this);
+	}
+
+	public HomeKind kind() {
+		return this.kind;
+	}
+
+	/**
+	 * Rival Camp: true if an ItzBreadLoaf house or tent will start 24-96 blocks away (close enough to see, far enough
+	 * not to overlap), worked out from the world seed like {@link #yieldsToNeighbor}.
+	 */
+	private boolean rivalHomeNearby(GenerationContext context) {
 		ChunkPos here = context.chunkPos();
-		int mySize = Math.max(this.kind.width, this.kind.depth);
 		for (StructureSet set : context.registryAccess().lookupOrThrow(Registries.STRUCTURE_SET)) {
 			if (!(set.placement() instanceof RandomSpreadStructurePlacement spread)) {
 				continue;
 			}
 			for (StructureSet.StructureSelectionEntry entry : set.structures()) {
-				if (!(entry.structure().value() instanceof HomeStructure other) || other.kind == this.kind || !other.outranks(this)) {
+				if (!(entry.structure().value() instanceof HomeStructure other)
+						|| other.kind != HomeKind.HOUSE && other.kind != HomeKind.TENT) {
 					continue;
 				}
-				int reach = (mySize + Math.max(other.kind.width, other.kind.depth)) / 2 + 6;
-				int reachChunks = reach / 16 + 1;
 				int spacing = spread.spacing();
-				for (int cx = Math.floorDiv(here.x - reachChunks, spacing); cx <= Math.floorDiv(here.x + reachChunks, spacing); cx++) {
-					for (int cz = Math.floorDiv(here.z - reachChunks, spacing); cz <= Math.floorDiv(here.z + reachChunks, spacing); cz++) {
+				for (int cx = Math.floorDiv(here.x - 6, spacing); cx <= Math.floorDiv(here.x + 6, spacing); cx++) {
+					for (int cz = Math.floorDiv(here.z - 6, spacing); cz <= Math.floorDiv(here.z + 6, spacing); cz++) {
 						ChunkPos start = spread.getPotentialStructureChunk(context.seed(), cx * spacing, cz * spacing);
-						if (Math.abs(start.x - here.x) * 16 > reach || Math.abs(start.z - here.z) * 16 > reach) {
+						double blocks = Math.sqrt(Math.pow((start.x - here.x) * 16.0, 2) + Math.pow((start.z - here.z) * 16.0, 2));
+						if (blocks < 24.0 || blocks > 96.0) {
 							continue;
 						}
 						Holder<Biome> biome = context.biomeSource().getNoiseBiome(QuartPos.fromBlock(start.getMiddleBlockX()),
@@ -103,12 +109,6 @@ public class HomeStructure extends Structure {
 			}
 		}
 		return false;
-	}
-
-	private boolean outranks(HomeStructure other) {
-		int mine = Math.max(this.kind.width, this.kind.depth);
-		int theirs = Math.max(other.kind.width, other.kind.depth);
-		return mine != theirs ? mine > theirs : this.kind.ordinal() < other.kind.ordinal();
 	}
 
 	@Override

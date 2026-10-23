@@ -95,6 +95,9 @@ public abstract class LoafBrain {
 	protected int lastHurtTick = -1000;
 	protected @Nullable LivingEntity lastAttacker;
 	private int nextChatterTick = 600;
+	/** Stuck-in-water rescue: where it was and for how long it hasn't got anywhere. */
+	private @Nullable Vec3 waterStuckFrom;
+	private int waterStuckTicks;
 	/** How long the way home has been blocked (to retry, and teleport home if nobody is watching). */
 	private int homeFailTicks;
 	private int eatTicks;
@@ -279,6 +282,7 @@ public abstract class LoafBrain {
 		} else {
 			this.controls.setSneaking(false);
 			this.tickChatter();
+			this.tickWaterRescue();
 			this.tickBehavior();
 			this.nav.tick();
 		}
@@ -384,7 +388,18 @@ public abstract class LoafBrain {
 
 	/** Called when they die. Return true to drop the whole inventory like a player. */
 	public boolean onDeath(DamageSource source) {
-		return !this.baby;
+		if (this.baby) {
+			return false;
+		}
+		if (this.isTame()) {
+			// A tamed character's inventory is mostly what its owner gave it: all of it drops.
+			return true;
+		}
+		// Wild: its own drop table with tier rolls (loot rarity system), plus armor and weapon like a normal mob.
+		com.itzbreadloaf.loot.LootRarity.dropCharacterLoot(this, this.player, source);
+		com.itzbreadloaf.loot.LootRarity.dropGear(this.player, this.random, true);
+		this.player.getInventory().clearContent();
+		return false;
 	}
 
 	// ================================================================ owner and sitting
@@ -615,6 +630,65 @@ public abstract class LoafBrain {
 			}
 		}
 		return false;
+	}
+
+	// ================================================================ water rescue
+
+	/**
+	 * Fell into a well or a pit full of water: swim up the whole time, and after 5 seconds without getting anywhere,
+	 * step out onto the nearest dry block.
+	 */
+	private void tickWaterRescue() {
+		if (!this.player.isInWater()) {
+			this.waterStuckFrom = null;
+			this.waterStuckTicks = 0;
+			return;
+		}
+		if (this.waterStuckFrom == null || this.player.position().distanceToSqr(this.waterStuckFrom) > 4.0) {
+			this.waterStuckFrom = this.player.position();
+			this.waterStuckTicks = 0;
+			return;
+		}
+		if (!this.nav.isMoving()) {
+			this.controls.holdJump(true);
+		}
+		if (++this.waterStuckTicks < 100) {
+			return;
+		}
+		this.waterStuckTicks = 0;
+		this.waterStuckFrom = null;
+		BlockPos dry = this.findDrySpot(this.player.blockPosition(), 6);
+		if (dry != null) {
+			this.player.teleportTo(dry.getX() + 0.5, dry.getY(), dry.getZ() + 0.5);
+			this.nav.stop();
+		}
+	}
+
+	/** The closest spot within the radius with solid ground, room for a player, and no water. */
+	private @Nullable BlockPos findDrySpot(BlockPos center, int radius) {
+		ServerLevel level = this.player.level();
+		BlockPos best = null;
+		double bestDistance = Double.MAX_VALUE;
+		for (int dx = -radius; dx <= radius; dx++) {
+			for (int dz = -radius; dz <= radius; dz++) {
+				for (int dy = -2; dy <= 4; dy++) {
+					BlockPos feet = center.offset(dx, dy, dz);
+					BlockPos below = feet.below();
+					if (!level.getFluidState(feet).isEmpty() || !level.getFluidState(below).isEmpty()
+							|| !level.getBlockState(feet).getCollisionShape(level, feet).isEmpty()
+							|| !level.getBlockState(feet.above()).getCollisionShape(level, feet.above()).isEmpty()
+							|| !level.getBlockState(below).isFaceSturdy(level, below, net.minecraft.core.Direction.UP)) {
+						continue;
+					}
+					double distance = feet.distSqr(center);
+					if (distance < bestDistance) {
+						bestDistance = distance;
+						best = feet;
+					}
+				}
+			}
+		}
+		return best;
 	}
 
 	// ================================================================ idle chatter

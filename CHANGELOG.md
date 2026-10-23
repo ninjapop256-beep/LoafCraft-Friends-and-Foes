@@ -6,6 +6,89 @@ Newest changes first. Existing worlds keep working; new structures only appear i
 
 ---
 
+## Unreleased (update 2, in progress)
+
+### Fixes
+- **No more characters stuck in village wells.**
+  - FelixSyn used to walk to the nearest water block as a "hangout spot", and in villages that's the well; Harley followed him in. He now hangs out on dry ground beside the water instead.
+  - Characters won't walk or drop into small enclosed pools with no edge to climb out of.
+  - Anyone who still ends up stuck in water swims up, and after 5 seconds steps out onto the nearest dry block.
+
+### Harley rebalance
+- Full **diamond** armor with Protection II (no more netherite), a plain shield and a plain mace.
+- **Harley's Blade** is now a diamond sword with Sharpness II only.
+- **26 health** on Normal (was 40); Easy 20, Hard 32.
+- No ender pearls and no potions, and only **one golden apple per fight**. Crits are less frequent, and she uses mace smashes less often.
+- **Drops:** each armor piece 8.5%, Harley's Blade 25% when she was wild, and a golden apple 10%.
+
+### New structure system
+- **Blueprints:** structures are now drawn in memory, checked, and then placed.
+  - Reusable pieces: rooms, doors, windows, gable/hip/flat roofs, straight and spiral stairs, ladders, towers, furniture sets, gardens, fields, paths and fences.
+  - Biome palettes pick the wood, stone, ground, path, lights and flowers for 20+ biome types, including the Nether and End.
+- **Every structure listed in one place:** id, name, category, biomes, rarity, residents, loot level and lore book. `./gradlew exportStructures` writes the worldgen files from it.
+- **Ground leveling:** under and around every new structure, the terrain is cleared, filled underneath and sloped around the edges, so nothing floats or ends up half-buried.
+- **Wider spacing rules:** structures now also stay off vanilla and other mods' structures, not just each other and villages.
+- **Reachability check:** every floor, chest, bed and resident must be reachable.
+  - `./gradlew checkStructures` runs it without starting the game.
+  - `/loafcraft checkstructures` runs it in game.
+- **Lookout Tower rebuilt:** it now has a ladder inside all the way to the top, three floors and a fenced lookout under a roof. Its id is unchanged.
+
+### Remade structures (batch 1: ItzBreadLoaf's places)
+- **26 structures rebuilt** on the new system with the same ids, rarity and biomes, so they show up in the same places in existing worlds. See `REMAKE.md` for what was wrong with each and what changed.
+  - House, Tent, Bread Fort, Watchtower, Bandit Camp, Bread Bakery, Mining Camp, Jungle Treehouse, Desert Bunker, Igloo Hideout, Ruined Loaf Castle, Sweaty Dojo, Bread Mill, Swamp Hut, Mountain Outpost, Badlands Saloon, Cliffside Cave Base, Snowball Fort, Lookout Tower.
+  - Pirate Ship, Fishing Dock, Loaf Lighthouse, Smugglers' Cove and Shipwreck Camp.
+  - Village Campsite and Bastion Throne Room, which are built while you play.
+- **Tents are walk-in now** (3 tall with an aisle), and campfires sit beside doorways instead of blocking them.
+- **Fort towers:** every tower has a door and a ladder up to its crenellated top. Every Knight and the Captain has a bed in the barracks.
+- **Village Campsite:** FelixSyn and Harley get a real tent with their beds, plus training dummies and a jump platform over hay for mace practice.
+- **Bastion Throne Room:** bigger, with gold trim, soul-lantern pillars and a proper throne. It no longer changes the terrain around it inside the bastion.
+- **Desert Bunker arrow trap:** it now fires only arrows from its own loot table, so it can't give out chest loot.
+- Every remade structure passes the reachability check in 12 test builds (different seeds and biomes).
+
+### Wild FelixSyns
+- **Two kinds of FelixSyn:** the village drifter (as before, always with Harley), and **wild FelixSyns** that spawn out in the world and live in their own homes. Harley comes along with a wild one 30% of the time.
+- **Wild gear, always a bit better than ItzBreadLoaf's:**
+  - Weapon: mace 60% (sometimes with Density or Wind Burst), sword 25%, axe 10%, spear 5%, with higher tiers.
+  - Biome-themed armor one tier better, with more pieces and more full sets.
+  - A few wind charges and a golden apple.
+- **Still fights every ItzBreadLoaf on sight.** Wild ones sleep in their own beds.
+- **4 new homes:**
+  - Mace Workshop (plains, savanna)
+  - Cliff Hut with a jumping ledge (windswept hills, mountains)
+  - Wind Tower with a ladder all the way to the top and a hay landing pad (open biomes)
+  - Rival Camp, which only generates 24–96 blocks from an ItzBreadLoaf house or tent
+- **Materials match the biome.**
+- **New config options:** `wildFelixSpawnWeight`, `wildFelixHarleyChance`.
+
+### Loot rarity system
+- **One shared system** for every LoafCraft chest and character drop, with five tiers: Common, Uncommon, Rare, Epic, Legendary. Maces, god apples, netherite, totems and elytras **only** come from Rare-or-better rolls.
+- **Loot levels:** basic houses roll mostly Common and Uncommon. Forts, castles, the Giant Loaf and Master BreadLoaf's places roll better tiers more often.
+- **Elytras** only drop from End structures.
+- **Character drops:**
+  - Each character drops its own themed items plus tier rolls.
+  - Armor drops 8.5% per piece, and their weapon 15%.
+  - Looting gives bonus rolls.
+  - FelixSyn sometimes drops wind charges, and rarely his own mace.
+  - Tamed characters still drop everything they carry.
+- **Master BreadLoaf** keeps his guaranteed Wind Burst mace and trophy, plus 2 extra Epic/Legendary rolls.
+- **Config:** every chance and loot level is in the config. The item lists are loot tables a datapack can replace. See LOOT.md.
+
+### FelixSyn's voice
+- **58 recorded voice lines**, each registered as its own sound, play when he:
+  - idles (every 20–40 seconds)
+  - spots you
+  - spots an ItzBreadLoaf
+  - does a mace smash
+  - gets hit
+  - dies
+  - backs off to heal
+  - goes to sleep
+  - reaches the village bell
+  - meets Harley again
+  - beats an ItzBreadLoaf
+  - defends Harley or a villager
+- **New config options:** `felixVoiceVolume`, `felixIdleVoiceMinSeconds`, `felixIdleVoiceMaxSeconds`.
+
 ## Skins from NameMC
 
 - **FelixSyn wears his real skin**: his current NameMC skin.
