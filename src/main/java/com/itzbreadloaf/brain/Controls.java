@@ -15,6 +15,12 @@ import org.jetbrains.annotations.Nullable;
  * Each tick: the brain sets what it wants (walk direction, where to look, buttons), then {@link #apply()} turns the
  * look into a real yaw/pitch (turning at most {@link #MAX_TURN} degrees per tick, like a fast mouse) and converts
  * the wanted walk direction into forward/strafe input relative to where the player is now facing.
+ *
+ * Human aim ({@link #humanAim}): instead of snapping, the view moves like a hand on a mouse: it speeds toward the
+ * point (capped at the fighter's aim speed), overshoots a little and corrects, lags behind a target that's moving,
+ * and never sits perfectly still (a small wobble the size of the fighter's aim error).
+ *
+ * Hotbar switches can take time ({@link #switchSlot}): a few ticks, like pressing a number key or scrolling.
  */
 public final class Controls {
 	public static final float MAX_TURN = 45.0F;
@@ -33,6 +39,15 @@ public final class Controls {
 	private boolean holdingUse;
 	private boolean holdingAttack;
 	private int lastSlot = -1;
+	private boolean humanLook;
+	private float aimSpeed = 30.0F;
+	private float aimError = 3.0F;
+	private float yawVelocity;
+	private float pitchVelocity;
+	private float wobbleYaw;
+	private float wobblePitch;
+	private int pendingSlot = -1;
+	private int pendingTicks;
 
 	public Controls(ServerPlayer player, EntityPlayerActionPack pack) {
 		this.player = player;
@@ -45,6 +60,7 @@ public final class Controls {
 		this.walkScale = 1.0F;
 		this.wantYaw = null;
 		this.snapLook = false;
+		this.humanLook = false;
 	}
 
 	// ---------------------------------------------------------------- movement
@@ -102,6 +118,33 @@ public final class Controls {
 	public void aimAt(Vec3 point) {
 		this.lookAt(point);
 		this.snapLook = true;
+	}
+
+	/**
+	 * Aim at a point like a person with a mouse: at most {@code speed} degrees per tick, overshooting and correcting,
+	 * with a wobble of about {@code error} degrees.
+	 */
+	public void humanAim(Vec3 point, float speed, float error) {
+		this.lookAt(point);
+		this.humanLook = true;
+		this.aimSpeed = Math.max(4.0F, speed);
+		this.aimError = Math.max(0.0F, error);
+	}
+
+	/** {@link #humanAim} for a direction instead of a point. */
+	public void humanLook(float yaw, float pitch, float speed, float error) {
+		this.look(yaw, pitch);
+		this.humanLook = true;
+		this.aimSpeed = Math.max(4.0F, speed);
+		this.aimError = Math.max(0.0F, error);
+	}
+
+	/** How far (degrees) the view is from where it's being asked to look, or 0 with no look this tick. */
+	public float aimOffset() {
+		if (this.wantYaw == null) {
+			return 0.0F;
+		}
+		return Math.abs(Mth.wrapDegrees(this.wantYaw - this.player.getYRot())) + Math.abs(this.wantPitch - this.player.getXRot());
 	}
 
 	public boolean hasLook() {
@@ -163,8 +206,36 @@ public final class Controls {
 		this.pack.start(ActionType.SWAP_HANDS, Action.once());
 	}
 
-	/** Hotbar slot 0-8 (Carpet's slots are 1-9). */
+	/**
+	 * Switch to a hotbar slot after {@code delayTicks} (a person pressing a key or scrolling). Asking again for the
+	 * same slot doesn't restart the wait. Switching resets the attack charge, as it does for players.
+	 */
+	public void switchSlot(int slot, int delayTicks) {
+		int clamped = Mth.clamp(slot, 0, 8);
+		if (clamped == this.player.getInventory().getSelectedSlot()) {
+			// Already holding it: any other switch on its way is called off.
+			this.pendingSlot = -1;
+			return;
+		}
+		if (clamped == this.pendingSlot) {
+			return;
+		}
+		if (delayTicks <= 0) {
+			this.selectSlot(clamped);
+			return;
+		}
+		this.pendingSlot = clamped;
+		this.pendingTicks = delayTicks;
+	}
+
+	/** A slot switch is still on its way. */
+	public boolean isSwitching() {
+		return this.pendingSlot >= 0;
+	}
+
+	/** Hotbar slot 0-8 (Carpet's slots are 1-9), right now. Cancels any slower switch on its way. */
 	public void selectSlot(int slot) {
+		this.pendingSlot = -1;
 		int clamped = Mth.clamp(slot, 0, 8);
 		if (clamped != this.player.getInventory().getSelectedSlot() || clamped != this.lastSlot) {
 			this.pack.setSlot(clamped + 1);
@@ -187,17 +258,44 @@ public final class Controls {
 	// ---------------------------------------------------------------- end of tick
 
 	public void apply() {
+		if (this.pendingSlot >= 0 && --this.pendingTicks <= 0) {
+			int slot = this.pendingSlot;
+			this.selectSlot(slot);
+		}
 		if (this.wantYaw != null) {
 			float yaw = this.player.getYRot();
 			float pitch = this.player.getXRot();
-			float dYaw = Mth.wrapDegrees(this.wantYaw - yaw);
-			float dPitch = this.wantPitch - pitch;
-			if (!this.snapLook) {
-				dYaw = Mth.clamp(dYaw, -MAX_TURN, MAX_TURN);
-				dPitch = Mth.clamp(dPitch, -MAX_TURN, MAX_TURN);
+			float dYaw;
+			float dPitch;
+			if (this.humanLook && !this.snapLook) {
+				// The hand never holds perfectly still: a drifting wobble about the size of the aim error.
+				var random = this.player.getRandom();
+				this.wobbleYaw += (random.nextFloat() - 0.5F) * this.aimError * 0.6F - this.wobbleYaw * 0.15F;
+				this.wobblePitch += (random.nextFloat() - 0.5F) * this.aimError * 0.3F - this.wobblePitch * 0.15F;
+				this.wobbleYaw = Mth.clamp(this.wobbleYaw, -this.aimError * 1.5F, this.aimError * 1.5F);
+				this.wobblePitch = Mth.clamp(this.wobblePitch, -this.aimError, this.aimError);
+				float toYaw = Mth.wrapDegrees(this.wantYaw + this.wobbleYaw - yaw);
+				float toPitch = this.wantPitch + this.wobblePitch - pitch;
+				// A spring that's a little loose: speeds up toward the point, overshoots ~15% and settles in ~6 ticks.
+				this.yawVelocity = Mth.clamp(this.yawVelocity * 0.35F + toYaw * 0.55F, -this.aimSpeed, this.aimSpeed);
+				this.pitchVelocity = Mth.clamp(this.pitchVelocity * 0.35F + toPitch * 0.55F, -this.aimSpeed, this.aimSpeed);
+				dYaw = this.yawVelocity;
+				dPitch = this.pitchVelocity;
+			} else {
+				dYaw = Mth.wrapDegrees(this.wantYaw - yaw);
+				dPitch = this.wantPitch - pitch;
+				if (!this.snapLook) {
+					dYaw = Mth.clamp(dYaw, -MAX_TURN, MAX_TURN);
+					dPitch = Mth.clamp(dPitch, -MAX_TURN, MAX_TURN);
+				}
+				this.yawVelocity = dYaw * 0.5F;
+				this.pitchVelocity = dPitch * 0.5F;
 			}
 			this.pack.look(yaw + dYaw, Mth.clamp(pitch + dPitch, -90.0F, 90.0F));
 			this.player.setYHeadRot(this.player.getYRot());
+		} else {
+			this.yawVelocity *= 0.5F;
+			this.pitchVelocity *= 0.5F;
 		}
 		float forward = 0.0F;
 		float strafe = 0.0F;

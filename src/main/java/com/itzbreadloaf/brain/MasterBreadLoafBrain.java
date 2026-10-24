@@ -1,7 +1,6 @@
 package com.itzbreadloaf.brain;
 
 import com.itzbreadloaf.ModAdvancements;
-import com.itzbreadloaf.character.CharacterKind;
 import com.itzbreadloaf.character.CharacterManager;
 import com.itzbreadloaf.character.LoafCharacter;
 import com.itzbreadloaf.character.LoafIds;
@@ -38,43 +37,46 @@ import net.minecraft.world.item.alchemy.Potions;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
-import org.jetbrains.annotations.Nullable;
 
 /**
- * Master BreadLoaf: a boss who fights like a PvP mace player, entirely with real player inputs.
+ * Master BreadLoaf: a boss who fights like a PvP mace player, entirely with real player inputs. Nerfed hard (AI
+ * overhaul part 2) so an average player in full diamond can beat him on Normal; see AI_DESIGN.md section 6.
  *
- * Kit (real hotbar): 1 Sharpness V netherite sword, 2 Wind Burst II mace, 3 Density V mace, 4 Breach IV mace,
- * 5 wind charges, 6 firework rockets, 7 ender pearls, 8 golden apples, 9 elytra; real potions in the inventory
- * (Strength II, Swiftness II, Fire Resistance, Splash Healing II); full netherite with Protection IV.
+ * Kit (real hotbar, Normal): 1 diamond sword (his hits do 55% damage on Normal), 2 Wind Burst I mace, 3 wind charges, 4 firework rockets,
+ * 5 ender pearls, 6 one golden apple, 9 elytra; one Speed I potion (Hard adds Strength I); diamond armor with
+ * Protection II. The Easy/Normal/Hard numbers live in {@link ModConfig.BossPreset}.
  *
- * Elytra mace dive: right-click the elytra (it swaps with the chestplate), jump, start gliding, climb on firework
- * rockets until well above the target, glide over them, warn (charge-up sound and sparks), right-click the
- * chestplate back on (the glide stops), pick a mace for the fall and the target's armor, and smash on the way down.
- * Wind-charge jumps: look down, jump, throw a wind charge at his feet, smash. Pearls to close long gaps.
+ * Limits: no hit of his deals more than 16 damage (LivingEntityMixin), at least 8 seconds between mace smashes,
+ * Wind Burst chains of at most 2 hits, elytra dives at most every 20 seconds (and some fail on purpose), a
+ * 1-second wind-up with a loud sound and particles before every smash and every dive, a 300-400 ms reaction delay
+ * to new targets, and some sword swings that miss.
  *
- * Phase 1 (100-60%): sword on the ground, an occasional dive and wind jump.
- * Phase 2 (60-25%): dives and wind jumps much more often.
- * Phase 3 (under 25%): faster, constant mace pressure, calls in 2 ItzBreadLoafs.
+ * Phase 1 (over half health): sword on the ground, a warned smash every 8+ seconds.
+ * Phase 2 (half health and below): a little faster. Nothing else changes, and nobody is summoned.
  */
 public class MasterBreadLoafBrain extends LoafBrain {
 	public static final int SLOT_SWORD = 0;
-	public static final int SLOT_WIND_BURST_MACE = 1;
-	public static final int SLOT_DENSITY_MACE = 2;
-	public static final int SLOT_BREACH_MACE = 3;
-	public static final int SLOT_WIND_CHARGE = 4;
-	public static final int SLOT_ROCKET = 5;
-	public static final int SLOT_PEARL = 6;
-	public static final int SLOT_GOLDEN_APPLE = 7;
+	public static final int SLOT_MACE = 1;
+	public static final int SLOT_WIND_CHARGE = 2;
+	public static final int SLOT_ROCKET = 3;
+	public static final int SLOT_PEARL = 4;
+	public static final int SLOT_GOLDEN_APPLE = 5;
 	public static final int SLOT_ELYTRA = 8;
 	/** How high above the target he climbs before a dive. */
 	public static final double DIVE_HEIGHT = 18.0;
 	public static final double BOSS_BAR_RANGE = 64.0;
 	public static final double HUNT_RANGE = 48.0;
+	/** Ticks of warning (charge-up sound and particles, standing still or hanging in the air) before a smash or dive. */
+	public static final int WINDUP_TICKS = 20;
+	/** Smashes in one Wind Burst chain. */
+	public static final int MAX_CHAIN = 2;
+	/** Bumped when his kit changes, so Master BreadLoafs saved in old worlds get the new kit. */
+	private static final int KIT_VERSION = 2;
 
-	private static final Identifier PHASE3_SPEED_ID = Identifier.fromNamespaceAndPath("itzbreadloaf", "boss_phase3_speed");
+	private static final Identifier PHASE2_SPEED_ID = Identifier.fromNamespaceAndPath("itzbreadloaf", "boss_phase3_speed");
 	private static final Identifier DAMAGE_PRESET_ID = Identifier.fromNamespaceAndPath("itzbreadloaf", "boss_damage_preset");
 
-	private enum State { GROUND, DRINK, WIND_JUMP, TAKEOFF, CLIMB, CRUISE, TELEGRAPH, DROP, RECOVER }
+	private enum State { GROUND, DRINK, WIND_JUMP, TAKEOFF, CLIMB, CRUISE, TELEGRAPH, DROP, RECOVER, TECHNIQUE }
 
 	private final ServerBossEvent bossEvent = (ServerBossEvent) new ServerBossEvent(
 			net.minecraft.network.chat.Component.literal("Master BreadLoaf"),
@@ -83,19 +85,43 @@ public class MasterBreadLoafBrain extends LoafBrain {
 
 	private State state = State.GROUND;
 	private int stateTicks;
-	private int specialCooldown = 100;
+	/** Ticks until the next mace smash is allowed (8+ seconds after the last one ends). */
+	private int smashCooldown = 100;
+	/** Ticks until the next elytra dive or pearl catch (20+ seconds). */
+	private int techniqueCooldown = 200;
 	private int pearlCooldown;
 	private int lastRocketTick = -100;
 	private int buffStep;
-	private boolean summonedHelpers;
 	private boolean drinkStarted;
 	private int smashChain;
 	private boolean telegraphed;
 	private double diveTopY;
+	/** This dive is one he fails on purpose: he comes down next to the target instead of on them. */
+	private boolean diveMisses;
+	private Vec3 missOffset = Vec3.ZERO;
+	private int kitVersion = KIT_VERSION;
+	private LivingEntity reactingTo;
+	private int reactionTicks;
+	private int idleTicks;
+	/** His pearl catches (the shared mace moves, held to his limits). */
+	private final MaceTechniques techniques;
 
 	public MasterBreadLoafBrain(LoafCharacter character) {
 		super(character);
 		this.combat.useShield = false;
+		this.techniques = new MaceTechniques(this.player, this.controls, this.combat, this.random);
+	}
+
+	/** The shared mace moves, always held to his nerf: the warning first, his fall cap, 2-hit chains, failures. */
+	@Override
+	public MaceTechniques techniques() {
+		ModConfig.BossPreset preset = preset();
+		this.techniques.limits.maxFall = preset.maxSmashFall;
+		this.techniques.limits.maxChain = MAX_CHAIN;
+		this.techniques.limits.warnTicks = WINDUP_TICKS;
+		this.techniques.limits.warn = this::windupWarning;
+		this.techniques.limits.failChance = preset.techniqueFailChance;
+		return this.techniques;
 	}
 
 	// ---------------------------------------------------------------- stats and kit
@@ -112,38 +138,52 @@ public class MasterBreadLoafBrain extends LoafBrain {
 	@Override
 	public void applyAttributes() {
 		super.applyAttributes();
-		this.setBase(Attributes.KNOCKBACK_RESISTANCE, 0.5);
+		this.setBase(Attributes.KNOCKBACK_RESISTANCE, 0.3);
 		AttributeInstance damage = this.player.getAttribute(Attributes.ATTACK_DAMAGE);
 		if (damage != null) {
 			damage.addOrReplacePermanentModifier(new AttributeModifier(DAMAGE_PRESET_ID, preset().damageMultiplier - 1.0,
 					AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL));
 		}
+		this.combat.whiffChance = preset().whiffChance;
+		this.combat.critChance = preset().critChance;
 	}
 
 	@Override
 	protected void rollGear() {
 		ServerLevel level = this.player.level();
-		this.player.setItemSlot(EquipmentSlot.HEAD, Gear.enchanted(level, Items.NETHERITE_HELMET, Enchantments.PROTECTION, 4));
-		this.player.setItemSlot(EquipmentSlot.CHEST, Gear.enchanted(level, Items.NETHERITE_CHESTPLATE, Enchantments.PROTECTION, 4));
-		this.player.setItemSlot(EquipmentSlot.LEGS, Gear.enchanted(level, Items.NETHERITE_LEGGINGS, Enchantments.PROTECTION, 4));
-		this.player.setItemSlot(EquipmentSlot.FEET, Gear.enchanted(level, Items.NETHERITE_BOOTS, Enchantments.PROTECTION, 4));
-		this.player.setItemSlot(EquipmentSlot.OFFHAND, ItemStack.EMPTY);
+		ModConfig.BossPreset preset = preset();
 		var inventory = this.player.getInventory();
-		inventory.setItem(SLOT_SWORD, Gear.enchanted(level, Items.NETHERITE_SWORD, Enchantments.SHARPNESS, 5));
-		inventory.setItem(SLOT_WIND_BURST_MACE, Gear.enchanted(level, Items.MACE, Enchantments.WIND_BURST, 2));
-		inventory.setItem(SLOT_DENSITY_MACE, Gear.enchanted(level, Items.MACE, Enchantments.DENSITY, 5));
-		inventory.setItem(SLOT_BREACH_MACE, Gear.enchanted(level, Items.MACE, Enchantments.BREACH, 4));
-		inventory.setItem(SLOT_WIND_CHARGE, new ItemStack(Items.WIND_CHARGE, 64));
-		inventory.setItem(SLOT_ROCKET, new ItemStack(Items.FIREWORK_ROCKET, 64));
-		inventory.setItem(SLOT_PEARL, new ItemStack(Items.ENDER_PEARL, 16));
-		inventory.setItem(SLOT_GOLDEN_APPLE, new ItemStack(Items.GOLDEN_APPLE, 3));
+		inventory.clearContent();
+		this.player.setItemSlot(EquipmentSlot.HEAD, Gear.enchanted(level, Items.DIAMOND_HELMET, Enchantments.PROTECTION, preset.protection));
+		this.player.setItemSlot(EquipmentSlot.CHEST, Gear.enchanted(level, Items.DIAMOND_CHESTPLATE, Enchantments.PROTECTION, preset.protection));
+		this.player.setItemSlot(EquipmentSlot.LEGS, Gear.enchanted(level, Items.DIAMOND_LEGGINGS, Enchantments.PROTECTION, preset.protection));
+		this.player.setItemSlot(EquipmentSlot.FEET, Gear.enchanted(level, Items.DIAMOND_BOOTS, Enchantments.PROTECTION, preset.protection));
+		this.player.setItemSlot(EquipmentSlot.OFFHAND, ItemStack.EMPTY);
+		inventory.setItem(SLOT_SWORD, preset.sharpness > 0
+				? Gear.enchanted(level, Items.DIAMOND_SWORD, Enchantments.SHARPNESS, preset.sharpness) : new ItemStack(Items.DIAMOND_SWORD));
+		inventory.setItem(SLOT_MACE, Gear.enchanted(level, Items.MACE, Enchantments.WIND_BURST, 1));
+		inventory.setItem(SLOT_WIND_CHARGE, new ItemStack(Items.WIND_CHARGE, 32));
+		inventory.setItem(SLOT_ROCKET, new ItemStack(Items.FIREWORK_ROCKET, 32));
+		inventory.setItem(SLOT_PEARL, new ItemStack(Items.ENDER_PEARL, 8));
 		inventory.setItem(SLOT_ELYTRA, new ItemStack(Items.ELYTRA));
-		inventory.setItem(9, PotionContents.createItemStack(Items.POTION, Potions.STRONG_STRENGTH));
-		inventory.setItem(10, PotionContents.createItemStack(Items.POTION, Potions.STRONG_SWIFTNESS));
-		inventory.setItem(11, PotionContents.createItemStack(Items.POTION, Potions.LONG_FIRE_RESISTANCE));
-		inventory.setItem(12, PotionContents.createItemStack(Items.SPLASH_POTION, Potions.STRONG_HEALING));
-		inventory.setItem(13, PotionContents.createItemStack(Items.SPLASH_POTION, Potions.STRONG_HEALING));
+		this.refillForNextFight();
 		inventory.setSelectedSlot(SLOT_SWORD);
+		this.kitVersion = KIT_VERSION;
+	}
+
+	/** One golden apple and the start-of-fight potions, given again once a fight is over. */
+	private void refillForNextFight() {
+		var inventory = this.player.getInventory();
+		if (Inv.count(this.player, stack -> stack.is(Items.GOLDEN_APPLE)) == 0) {
+			inventory.setItem(SLOT_GOLDEN_APPLE, new ItemStack(Items.GOLDEN_APPLE, 1));
+		}
+		if (Inv.count(this.player, stack -> stack.is(Items.POTION) && hasPotion(stack, Potions.SWIFTNESS)) == 0) {
+			Inv.give(this.player, PotionContents.createItemStack(Items.POTION, Potions.SWIFTNESS));
+		}
+		if (preset().strength > 0 && Inv.count(this.player, stack -> stack.is(Items.POTION) && hasPotion(stack, Potions.STRENGTH)) == 0) {
+			Inv.give(this.player, PotionContents.createItemStack(Items.POTION, Potions.STRENGTH));
+		}
+		this.buffStep = 0;
 	}
 
 	@Override
@@ -175,10 +215,13 @@ public class MasterBreadLoafBrain extends LoafBrain {
 		return false;
 	}
 
-	/** 1, 2 or 3, from his health. */
+	/** 1 over half health, 2 at half health and below. */
 	public int phase() {
-		float fraction = this.player.getHealth() / this.player.getMaxHealth();
-		return fraction > 0.6F ? 1 : fraction > 0.25F ? 2 : 3;
+		return this.player.getHealth() > this.player.getMaxHealth() * 0.5F ? 1 : 2;
+	}
+
+	private static boolean isChestplate(ItemStack stack) {
+		return stack.is(Items.DIAMOND_CHESTPLATE) || stack.is(Items.NETHERITE_CHESTPLATE);
 	}
 
 	// ---------------------------------------------------------------- lifecycle
@@ -188,12 +231,18 @@ public class MasterBreadLoafBrain extends LoafBrain {
 		super.onActivated();
 		// Despawned mid-dive: put the chestplate back on.
 		if (this.player.getItemBySlot(EquipmentSlot.CHEST).is(Items.ELYTRA)) {
-			int chest = Inv.find(this.player, stack -> stack.is(Items.NETHERITE_CHESTPLATE));
+			int chest = Inv.find(this.player, MasterBreadLoafBrain::isChestplate);
 			if (chest >= 0) {
 				ItemStack chestplate = this.player.getInventory().getItem(chest);
 				this.player.getInventory().setItem(chest, this.player.getItemBySlot(EquipmentSlot.CHEST));
 				this.player.setItemSlot(EquipmentSlot.CHEST, chestplate);
 			}
+		}
+		// Saved before the nerf: netherite, three maces and 200 health. New kit, new health.
+		if (this.kitVersion < KIT_VERSION) {
+			this.rollGear();
+			this.restock();
+			this.applyAttributes();
 		}
 		this.bossEvent.setName(this.player.getDisplayName());
 	}
@@ -243,8 +292,11 @@ public class MasterBreadLoafBrain extends LoafBrain {
 		if (this.ticks % 10 == 0) {
 			this.updateBossBar();
 		}
-		if (this.specialCooldown > 0) {
-			this.specialCooldown--;
+		if (this.smashCooldown > 0) {
+			this.smashCooldown--;
+		}
+		if (this.techniqueCooldown > 0) {
+			this.techniqueCooldown--;
 		}
 		if (this.pearlCooldown > 0) {
 			this.pearlCooldown--;
@@ -254,6 +306,7 @@ public class MasterBreadLoafBrain extends LoafBrain {
 		}
 		LivingEntity target = this.target;
 		if (target == null) {
+			this.reactingTo = null;
 			if (this.state != State.GROUND && this.state != State.RECOVER) {
 				this.setState(State.RECOVER);
 			}
@@ -261,13 +314,29 @@ public class MasterBreadLoafBrain extends LoafBrain {
 				this.recover();
 				return;
 			}
+			// A fight is over after 30 quiet seconds: one golden apple and the potions again for the next one.
+			if (++this.idleTicks == 600) {
+				this.refillForNextFight();
+			}
 			this.controls.selectSlot(SLOT_SWORD);
 			if (!this.tryEat()) {
 				this.wander(10.0);
 			}
 			return;
 		}
-		this.phaseEffects(target);
+		this.idleTicks = 0;
+		// Reaction time: a new target is noticed 300-400 ms later (Normal). Until then he only turns toward them.
+		if (target != this.reactingTo) {
+			this.reactingTo = target;
+			ModConfig.BossPreset preset = preset();
+			this.reactionTicks = preset.reactionMin + this.random.nextInt(Math.max(1, preset.reactionMax - preset.reactionMin + 1));
+		}
+		if (this.reactionTicks > 0 && this.state == State.GROUND) {
+			this.reactionTicks--;
+			this.controls.lookAt(target.getEyePosition());
+			return;
+		}
+		this.phaseEffects();
 		this.stateTicks++;
 		switch (this.state) {
 			case GROUND -> this.ground(target);
@@ -279,6 +348,11 @@ public class MasterBreadLoafBrain extends LoafBrain {
 			case TELEGRAPH -> this.telegraphOver(target);
 			case DROP -> this.drop(target);
 			case RECOVER -> this.recover();
+			case TECHNIQUE -> {
+				if (!this.techniques.tick(target)) {
+					this.setState(State.RECOVER);
+				}
+			}
 		}
 	}
 
@@ -320,32 +394,17 @@ public class MasterBreadLoafBrain extends LoafBrain {
 		}
 	}
 
-	/** Buffs at the start of a fight, healing when low, phase 3 speed and helpers. */
-	private void phaseEffects(LivingEntity target) {
-		if (this.phase() == 3) {
-			AttributeInstance speed = this.player.getAttribute(Attributes.MOVEMENT_SPEED);
-			if (speed != null && !speed.hasModifier(PHASE3_SPEED_ID)) {
-				speed.addPermanentModifier(new AttributeModifier(PHASE3_SPEED_ID, 0.15, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL));
-			}
-			if (!this.summonedHelpers) {
-				this.summonedHelpers = true;
-				this.summonHelpers(target);
-			}
+	/** Phase 2: a little faster. That's all (no summons, no extra damage). */
+	private void phaseEffects() {
+		AttributeInstance speed = this.player.getAttribute(Attributes.MOVEMENT_SPEED);
+		if (speed == null) {
+			return;
 		}
-	}
-
-	private void summonHelpers(LivingEntity target) {
-		this.playSound(SoundEvents.EVOKER_PREPARE_SUMMON, 1.5F, 0.8F);
-		ServerLevel level = this.player.level();
-		for (int i = 0; i < 2; i++) {
-			Vec3 spot = this.findSpotNear(this.player.blockPosition().offset(i == 0 ? 2 : -2, 0, 1), 1);
-			if (spot == null) {
-				spot = this.player.position();
-			}
-			LoafCharacter helper = CharacterManager.create(level, CharacterKind.BREADLOAF, spot, this.player.getYRot(), brain -> brain.setWild(true));
-			if (helper != null) {
-				helper.brain.setTarget(target);
-			}
+		if (this.phase() == 2) {
+			speed.addOrReplacePermanentModifier(new AttributeModifier(PHASE2_SPEED_ID, preset().phase2Speed,
+					AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL));
+		} else if (speed.hasModifier(PHASE2_SPEED_ID)) {
+			speed.removeModifier(PHASE2_SPEED_ID);
 		}
 	}
 
@@ -353,38 +412,48 @@ public class MasterBreadLoafBrain extends LoafBrain {
 
 	private void ground(LivingEntity target) {
 		double distance = this.player.distanceTo(target);
-		int phase = this.phase();
 
-		// Drink buffs (Strength II, Swiftness II, Fire Resistance) at the start of the fight.
-		if (this.buffStep < 3 && distance > 5.0) {
+		// Start of the fight: Speed I (and Strength I on Hard), drunk at a distance.
+		int buffs = preset().strength > 0 ? 2 : 1;
+		if (this.buffStep < buffs && distance > 5.0) {
 			if (this.startDrinking(this.buffPotion(this.buffStep))) {
 				this.buffStep++;
 				return;
 			}
 			this.buffStep++;
 		}
-		// Low health: Splash Healing II at his feet, then golden apples.
-		if (this.player.getHealth() < this.player.getMaxHealth() * 0.4F && this.stateTicks > 40) {
-			if (this.throwHealing() || distance > 6.0 && this.startDrinking(stack -> stack.is(Items.GOLDEN_APPLE))) {
-				return;
-			}
+		// Low health: his one golden apple, eaten at a distance. No healing potions.
+		if (this.player.getHealth() < this.player.getMaxHealth() * 0.35F && this.stateTicks > 40 && distance > 6.0
+				&& this.startDrinking(stack -> stack.is(Items.GOLDEN_APPLE))) {
+			return;
 		}
 		// Far away (or out of walking reach): ender pearl.
 		boolean unreachable = this.nav.isAtDeadEnd() || this.nav.failed();
 		if ((distance > 24.0 || unreachable && distance > 6.0) && this.pearlCooldown <= 0 && this.throwPearl(target)) {
 			return;
 		}
-		// Special moves.
-		if (this.specialCooldown <= 0 && this.player.onGround()) {
-			boolean dive = this.random.nextFloat() < (phase == 1 ? 0.5F : 0.65F) && this.hasRoomAbove(6) && distance < 40.0;
+		// A mace smash every 8+ seconds: an elytra dive (every 20+ seconds) or a wind-charge jump.
+		if (this.smashCooldown <= 0 && this.player.onGround()) {
+			boolean dive = this.techniqueCooldown <= 0 && this.random.nextFloat() < 0.5F && this.hasRoomAbove(6) && distance < 40.0;
+			boolean pearlCatch = !dive && this.techniqueCooldown <= 0 && distance > 3.0 && distance < 10.0
+					&& this.random.nextFloat() < 0.6F && this.techniques().canStart(MaceTechniques.Technique.PEARL_CATCH, target);
 			if (dive) {
 				this.setState(State.TAKEOFF);
 				this.diveTopY = target.getY() + DIVE_HEIGHT;
+				this.techniqueCooldown = preset().techniqueCooldown;
+				this.diveMisses = this.random.nextFloat() < preset().techniqueFailChance;
+				double angle = this.random.nextDouble() * Math.PI * 2.0;
+				this.missOffset = this.diveMisses ? new Vec3(Math.cos(angle) * 4.5, 0.0, Math.sin(angle) * 4.5) : Vec3.ZERO;
+			} else if (pearlCatch) {
+				// A pearl catch, at most every 20 seconds (it shares the dive's cooldown), warned like everything else.
+				this.techniqueCooldown = preset().techniqueCooldown;
+				this.techniques().start(MaceTechniques.Technique.PEARL_CATCH, target, 0);
+				this.setState(State.TECHNIQUE);
 			} else {
 				this.setState(State.WIND_JUMP);
-				this.smashChain = 0;
 			}
-			this.specialCooldown = phase == 1 ? 260 : phase == 2 ? 140 : 90;
+			this.smashChain = 0;
+			this.smashCooldown = preset().smashCooldown;
 			return;
 		}
 		this.controls.selectSlot(SLOT_SWORD);
@@ -392,11 +461,9 @@ public class MasterBreadLoafBrain extends LoafBrain {
 	}
 
 	private Predicate<ItemStack> buffPotion(int step) {
-		return switch (step) {
-			case 0 -> stack -> stack.is(Items.POTION) && hasPotion(stack, Potions.STRONG_STRENGTH);
-			case 1 -> stack -> stack.is(Items.POTION) && hasPotion(stack, Potions.STRONG_SWIFTNESS);
-			default -> stack -> stack.is(Items.POTION) && hasPotion(stack, Potions.LONG_FIRE_RESISTANCE);
-		};
+		return step == 0
+				? stack -> stack.is(Items.POTION) && hasPotion(stack, Potions.SWIFTNESS)
+				: stack -> stack.is(Items.POTION) && hasPotion(stack, Potions.STRENGTH);
 	}
 
 	private static boolean hasPotion(ItemStack stack, net.minecraft.core.Holder<net.minecraft.world.item.alchemy.Potion> potion) {
@@ -404,7 +471,7 @@ public class MasterBreadLoafBrain extends LoafBrain {
 		return contents != null && contents.is(potion);
 	}
 
-	/** Moves a drink (or food) into hotbar slot 8 and holds right-click until it's finished. */
+	/** Moves a drink (or food) into the golden apple slot and holds right-click until it's finished. */
 	private boolean startDrinking(Predicate<ItemStack> what) {
 		int slot = Inv.ready(this.player, what, SLOT_GOLDEN_APPLE);
 		if (slot < 0) {
@@ -433,28 +500,16 @@ public class MasterBreadLoafBrain extends LoafBrain {
 		}
 	}
 
-	/** Splash Healing II thrown straight down at his own feet. */
-	private boolean throwHealing() {
-		int slot = Inv.ready(this.player, stack -> stack.is(Items.SPLASH_POTION), SLOT_GOLDEN_APPLE);
-		if (slot < 0) {
-			return false;
-		}
-		this.controls.selectSlot(slot);
-		this.controls.lookInstantly(this.player.getYRot(), 90.0F);
-		this.controls.useOnce();
-		this.stateTicks = 0;
-		this.particles(ParticleTypes.HEART, 5);
-		return true;
-	}
-
 	private boolean throwPearl(LivingEntity target) {
 		if (this.player.getInventory().getItem(SLOT_PEARL).isEmpty()) {
 			return false;
 		}
 		this.controls.selectSlot(SLOT_PEARL);
+		// Not a perfect throw: aimed at a spot up to 3 blocks off.
 		this.combat.aimProjectile(target, 1.5, 0.03);
+		this.controls.lookInstantly(this.player.getYRot() + (this.random.nextFloat() - 0.5F) * 8.0F, this.player.getXRot());
 		this.controls.useOnce();
-		this.pearlCooldown = 120;
+		this.pearlCooldown = 160;
 		this.playSound(SoundEvents.ENDER_PEARL_THROW, 1.0F, 0.6F);
 		return true;
 	}
@@ -462,44 +517,54 @@ public class MasterBreadLoafBrain extends LoafBrain {
 	// ---------------------------------------------------------------- wind charge mace jump
 
 	private void windJump(LivingEntity target) {
-		if (this.stateTicks == 1) {
+		// 1 second of warning first: he stops, the charge-up sound plays and sparks fly.
+		if (this.stateTicks <= WINDUP_TICKS) {
 			this.controls.selectSlot(SLOT_WIND_CHARGE);
-		}
-		if (this.stateTicks <= 6) {
-			// Look down, jump, throw the wind charge at our feet: up we go.
-			this.controls.lookInstantly(Controls.yawTo(this.player.position(), target.position()), 90.0F);
-			if (this.player.onGround() && this.stateTicks <= 2) {
-				this.controls.jumpOnce();
-			} else if (!this.player.onGround() && this.stateTicks >= 3 && this.stateTicks <= 5) {
-				this.controls.useOnce();
-				this.stateTicks = 6;
+			this.controls.lookAt(target.getEyePosition());
+			if (this.stateTicks == 1) {
+				this.windupWarning(true);
+			} else if (this.stateTicks % 4 == 0) {
+				this.windupWarning(false);
 			}
 			return;
 		}
-		this.airSmash(target, this.stateTicks > 12 && this.player.onGround());
+		int t = this.stateTicks - WINDUP_TICKS;
+		if (t <= 6) {
+			// Look down, jump, throw the wind charge at our feet: up we go.
+			this.controls.lookInstantly(Controls.yawTo(this.player.position(), target.position()), 90.0F);
+			if (this.player.onGround() && t <= 2) {
+				this.controls.jumpOnce();
+			} else if (!this.player.onGround() && t >= 3 && t <= 5) {
+				this.controls.useOnce();
+				this.stateTicks = WINDUP_TICKS + 6;
+			}
+			return;
+		}
+		this.airSmash(target, t > 12 && this.player.onGround());
 	}
 
 	/**
-	 * In the air above or near the target: pick a mace for the fall, warn once at the top, drift toward them and
-	 * smash on the way down. Wind Burst throws him back up after a hit, so he can chain smashes.
+	 * In the air above or near the target: mace out, a warning as the fall starts, drift toward them and smash on the
+	 * way down. Wind Burst throws him back up after a hit, but he smashes at most twice per chain.
 	 */
 	private void airSmash(LivingEntity target, boolean landed) {
-		Vec3 aim = this.combat.aimPoint(target);
+		Vec3 aim = this.combat.aimPoint(target).add(this.missOffset);
 		double distance = this.player.getEyePosition().distanceTo(aim);
 		boolean falling = this.player.getDeltaMovement().y < 0.0 && !this.player.onGround();
-		if (!this.telegraphed && falling) {
-			this.telegraph(true);
+		boolean canSmash = this.smashChain < MAX_CHAIN;
+		if (canSmash && !this.telegraphed && falling) {
+			this.windupWarning(true);
 		}
-		this.selectMaceFor(target, this.player.getY() - target.getY());
+		this.controls.selectSlot(canSmash ? SLOT_MACE : SLOT_SWORD);
 		this.controls.aimAt(aim);
-		this.controls.walkToward(target.position());
+		this.controls.walkToward(target.position().add(this.missOffset));
 		this.controls.setSprinting(false);
-		// Fairness: cap how far a smash counts as a fall (mace damage grows with the fall).
+		// Fairness: cap how far a smash counts as a fall (mace damage grows with the fall). The 16-damage cap is on top.
 		if (this.player.fallDistance > preset().maxSmashFall) {
 			this.player.fallDistance = preset().maxSmashFall;
 		}
-		// No full-charge wait: switching to a mace mid-air resets the charge, which then can't refill before landing.
-		if (falling && distance <= this.combat.reach() - 0.1 && this.player.fallDistance > 1.5) {
+		// No full-charge wait: the smash bonus isn't scaled by the attack charge (only the mace's base damage is).
+		if (canSmash && falling && distance <= this.combat.reach() - 0.1 && this.player.fallDistance > 1.5) {
 			this.controls.attackOnce();
 			this.smashChain++;
 			this.telegraphed = false;
@@ -509,26 +574,15 @@ public class MasterBreadLoafBrain extends LoafBrain {
 		}
 	}
 
-	/** Breach against heavy armor, Density for big drops, Wind Burst otherwise. */
-	public void selectMaceFor(LivingEntity target, double dropHeight) {
-		int slot = target.getArmorValue() >= 15 ? SLOT_BREACH_MACE : dropHeight >= 6.0 ? SLOT_DENSITY_MACE : SLOT_WIND_BURST_MACE;
-		if (this.player.getInventory().getItem(slot).isEmpty()) {
-			slot = Inv.find(this.player, stack -> stack.is(Items.MACE));
-			slot = Inv.toHotbar(this.player, slot, SLOT_WIND_BURST_MACE);
-		}
-		if (slot >= 0) {
-			this.controls.selectSlot(slot);
-		}
-	}
-
-	/** Warning before every smash so players can dodge: a charge-up sound and sparks. */
-	private void telegraph(boolean withSound) {
+	/** The warning before every smash and dive: a loud charge-up sound, sparks and portal particles. */
+	private void windupWarning(boolean withSound) {
 		this.telegraphed = true;
 		ServerLevel level = this.player.level();
-		level.sendParticles(ParticleTypes.ELECTRIC_SPARK, this.player.getX(), this.player.getY(1.0), this.player.getZ(), 10, 0.5, 0.6, 0.5, 0.05);
-		level.sendParticles(ParticleTypes.REVERSE_PORTAL, this.player.getX(), this.player.getY(0.5), this.player.getZ(), 6, 0.4, 0.5, 0.4, 0.02);
+		level.sendParticles(ParticleTypes.ELECTRIC_SPARK, this.player.getX(), this.player.getY(1.0), this.player.getZ(), 16, 0.6, 0.7, 0.6, 0.08);
+		level.sendParticles(ParticleTypes.REVERSE_PORTAL, this.player.getX(), this.player.getY(0.5), this.player.getZ(), 12, 0.5, 0.6, 0.5, 0.04);
 		if (withSound) {
-			this.playSound(SoundEvents.BREEZE_CHARGE, 1.5F, 0.7F);
+			this.playSound(SoundEvents.BREEZE_CHARGE, 3.0F, 0.6F);
+			this.playSound(SoundEvents.WARDEN_SONIC_CHARGE, 2.0F, 1.4F);
 		}
 	}
 
@@ -591,14 +645,15 @@ public class MasterBreadLoafBrain extends LoafBrain {
 		}
 	}
 
-	/** Glide to a point above the target, rocketing when slow or too low. */
+	/** Glide to a point above the target (or beside them, on a dive he fails on purpose). */
 	private void cruise(LivingEntity target) {
 		if (!this.player.isFallFlying()) {
 			this.setState(State.DROP);
 			return;
 		}
-		Vec3 over = new Vec3(target.getX(), this.diveTopY, target.getZ());
-		double horizontal = Math.sqrt(Math.pow(target.getX() - this.player.getX(), 2) + Math.pow(target.getZ() - this.player.getZ(), 2));
+		Vec3 spot = target.position().add(this.missOffset);
+		Vec3 over = new Vec3(spot.x, this.diveTopY, spot.z);
+		double horizontal = Math.sqrt(Math.pow(spot.x - this.player.getX(), 2) + Math.pow(spot.z - this.player.getZ(), 2));
 		float pitch = this.player.getY() < this.diveTopY - 3.0 ? -25.0F : horizontal > 20.0 ? 5.0F : 15.0F;
 		this.controls.look(Controls.yawTo(this.player.position(), over), pitch);
 		double speed = this.player.getDeltaMovement().horizontalDistance();
@@ -610,23 +665,23 @@ public class MasterBreadLoafBrain extends LoafBrain {
 		}
 	}
 
-	/** Over the target: pull up to bleed speed, sparks and the charge-up sound, then drop. */
+	/** Over the target: pull up to bleed speed, 1 second of sparks and the charge-up sound, then drop. */
 	private void telegraphOver(LivingEntity target) {
 		this.controls.look(Controls.yawTo(this.player.position(), target.position()), -35.0F);
 		if (this.stateTicks == 1) {
-			this.telegraph(true);
+			this.windupWarning(true);
 		} else if (this.stateTicks % 4 == 0) {
-			this.telegraph(false);
+			this.windupWarning(false);
 		}
-		if (this.stateTicks >= 10 || !this.player.isFallFlying()) {
+		if (this.stateTicks >= WINDUP_TICKS || !this.player.isFallFlying()) {
 			this.setState(State.DROP);
 		}
 	}
 
-	/** Chestplate back on (stops the glide), mace out, smash. */
+	/** Chestplate back on (stops the glide, so the fall starts counting), mace out, smash. */
 	private void drop(LivingEntity target) {
 		if (this.player.getItemBySlot(EquipmentSlot.CHEST).is(Items.ELYTRA)) {
-			int chestplate = Inv.ready(this.player, stack -> stack.is(Items.NETHERITE_CHESTPLATE), SLOT_ELYTRA);
+			int chestplate = Inv.ready(this.player, MasterBreadLoafBrain::isChestplate, SLOT_ELYTRA);
 			if (chestplate >= 0 && this.stateTicks <= 6) {
 				this.controls.selectSlot(chestplate);
 				this.controls.look(this.player.getYRot(), -60.0F);
@@ -640,10 +695,10 @@ public class MasterBreadLoafBrain extends LoafBrain {
 		this.airSmash(target, this.player.onGround() && this.stateTicks > 4);
 	}
 
-	/** After a special move: back to the sword (and the chestplate, if the elytra is still on). */
+	/** After a smash or dive: back to the sword (and the chestplate, if the elytra is still on); the 8-second wait restarts. */
 	private void recover() {
 		if (this.player.getItemBySlot(EquipmentSlot.CHEST).is(Items.ELYTRA) && this.player.onGround()) {
-			int chestplate = Inv.ready(this.player, stack -> stack.is(Items.NETHERITE_CHESTPLATE), SLOT_ELYTRA);
+			int chestplate = Inv.ready(this.player, MasterBreadLoafBrain::isChestplate, SLOT_ELYTRA);
 			if (chestplate >= 0 && this.stateTicks < 10) {
 				this.controls.selectSlot(chestplate);
 				this.controls.look(this.player.getYRot(), -60.0F);
@@ -653,6 +708,10 @@ public class MasterBreadLoafBrain extends LoafBrain {
 				return;
 			}
 		}
+		this.missOffset = Vec3.ZERO;
+		this.diveMisses = false;
+		this.techniques.cancel();
+		this.smashCooldown = Math.max(this.smashCooldown, preset().smashCooldown);
 		this.controls.selectSlot(SLOT_SWORD);
 		this.setState(State.GROUND);
 	}
@@ -669,7 +728,7 @@ public class MasterBreadLoafBrain extends LoafBrain {
 	public void save(CompoundTag tag) {
 		super.save(tag);
 		tag.putInt("BuffStep", this.buffStep);
-		tag.putBoolean("SummonedHelpers", this.summonedHelpers);
+		tag.putInt("KitVersion", this.kitVersion);
 		tag.store("FallDamaged", UUIDUtil.CODEC_SET, Set.copyOf(this.tookFallDamage));
 	}
 
@@ -677,8 +736,44 @@ public class MasterBreadLoafBrain extends LoafBrain {
 	public void load(CompoundTag tag) {
 		super.load(tag);
 		this.buffStep = tag.getIntOr("BuffStep", 0);
-		this.summonedHelpers = tag.getBooleanOr("SummonedHelpers", false);
+		// No KitVersion tag: saved before the nerf.
+		this.kitVersion = tag.getIntOr("KitVersion", 1);
 		this.tookFallDamage.clear();
 		tag.read("FallDamaged", UUIDUtil.CODEC_SET).ifPresent(this.tookFallDamage::addAll);
+	}
+
+	// ---------------------------------------------------------------- personality (AI overhaul part 6)
+
+	/** Master BreadLoaf: a proud showman of a boss. */
+	@Override
+	protected String[] lines(com.itzbreadloaf.brain.ai.Situation situation) {
+		return switch (situation) {
+			case GREET_PLAYER -> new String[]{"..."};
+			case GREET_FRIEND -> new String[]{"..."};
+			case FIGHT_START -> new String[]{"so, you've come to challenge me.", "show me what you've got.", "let's see if you're ready."};
+			case RIVAL -> new String[]{"..."};
+			case FIGHT_WON -> new String[]{"train harder. come back stronger.", "not today."};
+			case LOW_HEALTH -> new String[]{"impressive... but not enough!", "you're stronger than you look."};
+			case DEFEND_FRIEND -> new String[]{"..."};
+			case SCARED_FOR_FRIEND -> new String[]{"..."};
+			case REST -> new String[]{"..."};
+			case MORNING -> new String[]{"..."};
+			case NIGHT -> new String[]{"..."};
+			case RAIN -> new String[]{"..."};
+			case ITEM -> new String[]{"..."};
+			case WATCH -> new String[]{"..."};
+		};
+	}
+
+	@Override
+	protected String[] moodLines(com.itzbreadloaf.brain.ai.Mood mood) {
+		return switch (mood) {
+			case HAPPY -> new String[]{"heh."};
+			case BORED -> new String[]{"is anyone strong enough?"};
+			case TIRED -> new String[]{"..."};
+			case CURIOUS -> new String[]{"hm. a challenger?"};
+			case SCARED -> new String[]{"..."};
+			case ANGRY -> new String[]{"now you'll see my real strength!"};
+		};
 	}
 }

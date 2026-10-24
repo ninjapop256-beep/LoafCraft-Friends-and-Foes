@@ -41,7 +41,7 @@ import net.minecraft.world.level.saveddata.SavedDataType;
  * Where Master BreadLoaf appears. Never in the Overworld naturally.
  * - Nether fortresses and bastion remnants: when a player first enters one, a single roll (25%); at most one per structure.
  * - End cities: one per city, on its highest part (end ship / top tower).
- * - The Ender Dragon fight: once per dragon, when it drops to half health.
+ * - The Ender Dragon fight: once per dragon, after the dragon dies (never during the fight).
  * Which structures and dragons were already handled is saved with the world.
  */
 public final class BossSpawner {
@@ -113,7 +113,8 @@ public final class BossSpawner {
 
 	private static void checkDragon(ServerLevel level) {
 		for (EnderDragon dragon : level.getDragons()) {
-			if (dragon.isAlive() && dragon.getHealth() <= dragon.getMaxHealth() * 0.5F) {
+			// Only once the dragon is dead (its 10-second death animation; this runs every 5 seconds), never during the fight.
+			if (dragon.isDeadOrDying() || dragon.dragonDeathTime > 0) {
 				Data data = data(level);
 				if (data.dragons.add(dragon.getUUID())) {
 					data.setDirty();

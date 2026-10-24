@@ -271,11 +271,14 @@ public class BreadLoafBrain extends LoafBrain {
 		}
 		if (this.isTame()) {
 			if (!this.followOwner()) {
-				this.lookAround(8.0);
+				this.idleWithOwner();
 			}
 			return;
 		}
 		if (this.goToBed() || this.returnHome()) {
+			return;
+		}
+		if (this.tickRoutine() || this.tickIdleActions()) {
 			return;
 		}
 		double radius = switch (this.variant) {
@@ -299,6 +302,20 @@ public class BreadLoafBrain extends LoafBrain {
 				this.controls.swapHands();
 			}
 		}
+	}
+
+	/**
+	 * Work hours: most ItzBreadLoafs train (a training dummy near home, or shadow-boxing); village ones and the plain
+	 * kind bake at a furnace, smoker or crafting table. Archers stay at their post, miners and fishermen keep doing
+	 * their own thing.
+	 */
+	@Override
+	protected boolean doWork() {
+		return switch (this.variant) {
+			case ARCHER, MINER, FISHERMAN -> false;
+			case VILLAGER, BREADLOAF -> this.activities.bake() || this.activities.train();
+			default -> this.activities.train();
+		};
 	}
 
 	private void chooseTarget() {
@@ -716,5 +733,40 @@ public class BreadLoafBrain extends LoafBrain {
 		super.load(tag);
 		this.duties.load(tag);
 		this.groupId = tag.read("Group", UUIDUtil.CODEC).orElse(null);
+	}
+
+	// ---------------------------------------------------------------- personality (AI overhaul part 6)
+
+	/** ItzBreadLoaf: loud, scrappy, a little reckless, and all about bread. */
+	@Override
+	protected String[] lines(com.itzbreadloaf.brain.ai.Situation situation) {
+		return switch (situation) {
+			case GREET_PLAYER -> new String[]{"yo! good to see ya!", "heyyy, it's you!", "*crouch crouch* hi!", "my favorite person!"};
+			case GREET_FRIEND -> new String[]{"what's up, %s!", "%s! my buddy!", "yo %s, wanna spar later?"};
+			case FIGHT_START -> new String[]{"let's go!", "you picked the wrong loaf!", "time to get toasted!", "come on then!"};
+			case RIVAL -> new String[]{"FelixSyn! you again?!", "this time you're going down, Felix!", "my bread, my rules!", "you still owe me a loaf!"};
+			case FIGHT_WON -> new String[]{"GG! too easy!", "and stay down!", "who's the best? me!", "bread wins again!"};
+			case LOW_HEALTH -> new String[]{"ow ow ow!", "okay, okay, ouch!", "I need bread, now!"};
+			case DEFEND_FRIEND -> new String[]{"hey! back off my friend!", "nobody touches my crew!", "you want some too?!"};
+			case SCARED_FOR_FRIEND -> new String[]{"hey! you okay?!", "watch out!"};
+			case REST -> new String[]{"phew... that was close", "*catches his breath*", "I totally had that"};
+			case MORNING -> new String[]{"rise and grind!", "smells like fresh bread!", "*stretches* another great day!"};
+			case NIGHT -> new String[]{"zombies better stay away from me", "*looks up* whoa, stars"};
+			case RAIN -> new String[]{"my bread's getting soggy!", "ugh, rain!"};
+			case ITEM -> new String[]{"ooh, is that %s? nice!", "can I have that %s?", "cool %s!"};
+			case WATCH -> new String[]{"whatcha building?", "need a hand?", "ooh, can I help?"};
+		};
+	}
+
+	@Override
+	protected String[] moodLines(com.itzbreadloaf.brain.ai.Mood mood) {
+		return switch (mood) {
+			case HAPPY -> new String[]{"best day ever!", "*does a little jump*", "life is good!"};
+			case BORED -> new String[]{"booooored...", "anyone wanna spar? anyone?", "*kicks a pebble*"};
+			case TIRED -> new String[]{"*yawns* need a nap", "so... sleepy..."};
+			case CURIOUS -> new String[]{"huh? what's that?", "ooh, what's going on?"};
+			case SCARED -> new String[]{"uh oh... uh oh!", "nope nope nope"};
+			case ANGRY -> new String[]{"that's it, I'm mad now!", "grrr!", "you're gonna regret that!"};
+		};
 	}
 }

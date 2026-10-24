@@ -101,7 +101,177 @@ public final class LoafCraftCommands {
 								.then(Commands.literal("food").then(Commands.argument("value", FloatArgumentType.floatArg(0.0F, 20.0F))
 										.executes(c -> setData(c, "food"))))
 								.then(Commands.literal("saturation").then(Commands.argument("value", FloatArgumentType.floatArg(0.0F, 20.0F))
-										.executes(c -> setData(c, "saturation"))))))));
+										.executes(c -> setData(c, "saturation"))))))
+						.then(Commands.literal("mood").then(name()
+								.executes(LoafCraftCommands::showMind)
+								.then(Commands.argument("mood", StringArgumentType.word()).suggests(MOODS)
+										.executes(LoafCraftCommands::setMood))))
+						.then(Commands.literal("technique").then(name()
+								.then(Commands.argument("technique", StringArgumentType.word()).suggests(TECHNIQUES)
+										.executes(c -> technique(c, null))
+										.then(Commands.argument("target", net.minecraft.commands.arguments.EntityArgument.entity())
+												.executes(c -> technique(c, net.minecraft.commands.arguments.EntityArgument.getEntity(c, "target")))))))
+						.then(Commands.literal("debug").then(Commands.literal("ai").executes(LoafCraftCommands::debugAi)))
+						.then(Commands.literal("duel").then(Commands.argument("first", StringArgumentType.word()).suggests(NAMES)
+								.then(Commands.argument("second", StringArgumentType.word()).suggests(NAMES)
+										.executes(LoafCraftCommands::duel))))));
+	}
+
+	/**
+	 * /loafcraft debug ai: every active character's goal, mood, detail level and AI time per tick, plus totals and the
+	 * path searches and cache hits since the last time it was run.
+	 */
+	private static int debugAi(CommandContext<CommandSourceStack> context) {
+		var active = CharacterManager.active();
+		if (active.isEmpty()) {
+			reply(context, "No characters are active right now.");
+			return 0;
+		}
+		double total = 0.0;
+		int full = 0;
+		int simple = 0;
+		int paused = 0;
+		for (LoafCharacter character : active) {
+			var brain = character.brain;
+			if (brain == null) {
+				continue;
+			}
+			total += brain.aiMicros();
+			switch (brain.detail()) {
+				case FULL -> full++;
+				case SIMPLE -> simple++;
+				case PAUSED -> paused++;
+			}
+			String line = String.format(java.util.Locale.ROOT, "%s [%s] %s, %s, %.0f us/tick", character.record.profileName(),
+					brain.detail().name().toLowerCase(java.util.Locale.ROOT), brain.describeGoal(), brain.mood().mood().id(), brain.aiMicros());
+			context.getSource().sendSuccess(() -> Component.literal(line), false);
+		}
+		int searches = com.itzbreadloaf.brain.Navigator.searchesCount;
+		int hits = com.itzbreadloaf.brain.Navigator.cacheHits;
+		com.itzbreadloaf.brain.Navigator.searchesCount = 0;
+		com.itzbreadloaf.brain.Navigator.cacheHits = 0;
+		String summary = String.format(java.util.Locale.ROOT, "%d characters (%d full, %d simple, %d paused): %.2f ms of AI per tick. Paths since last check: %d searched, %d from cache.",
+				active.size(), full, simple, paused, total / 1000.0, searches, hits);
+		context.getSource().sendSuccess(() -> Component.literal(summary).withStyle(net.minecraft.ChatFormatting.GOLD), false);
+		return active.size();
+	}
+
+	/** /loafcraft duel <first> <second>: makes two characters fight each other (up to 2 minutes, or until one goes down). */
+	private static int duel(CommandContext<CommandSourceStack> context) {
+		LoafCharacter first = CharacterManager.byName(StringArgumentType.getString(context, "first"));
+		LoafCharacter second = CharacterManager.byName(StringArgumentType.getString(context, "second"));
+		if (first == null || second == null || first.brain == null || second.brain == null) {
+			context.getSource().sendFailure(Component.literal("Both characters need to be spawned right now (a real player within ~4 chunks)."));
+			return 0;
+		}
+		if (first == second) {
+			context.getSource().sendFailure(Component.literal("A character can't duel itself."));
+			return 0;
+		}
+		if (first.player.level() != second.player.level() || first.player.distanceTo(second.player) > 48.0) {
+			context.getSource().sendFailure(Component.literal("They need to be in the same dimension and within 48 blocks of each other."));
+			return 0;
+		}
+		first.brain.startDuel(second.player);
+		second.brain.startDuel(first.player);
+		reply(context, first.record.profileName() + " and " + second.record.profileName() + " are dueling!");
+		return 1;
+	}
+
+	private static final SuggestionProvider<CommandSourceStack> TECHNIQUES = (context, builder) -> SharedSuggestionProvider.suggest(
+			java.util.Arrays.stream(com.itzbreadloaf.brain.MaceTechniques.Technique.values()).map(com.itzbreadloaf.brain.MaceTechniques.Technique::id), builder);
+
+	/**
+	 * /loafcraft technique <name> <technique> [target]: makes FelixSyn, Harley or Master BreadLoaf do a mace move now
+	 * (testing). Without a target, the nearest living thing within 24 blocks. Hands them anything the move needs that
+	 * they don't have (a mace, wind charges, pearls, rockets, an elytra).
+	 */
+	private static int technique(CommandContext<CommandSourceStack> context, @org.jetbrains.annotations.Nullable net.minecraft.world.entity.Entity targetArg)
+			throws CommandSyntaxException {
+		LoafCharacter character = character(context);
+		var brain = character.brain;
+		String id = StringArgumentType.getString(context, "technique");
+		var technique = com.itzbreadloaf.brain.MaceTechniques.Technique.byId(id);
+		if (technique == null) {
+			context.getSource().sendFailure(Component.literal("Unknown technique. Try pearl_catch, diagonal_pearl, elytra_mace, wind_chain or wind_jump."));
+			return 0;
+		}
+		if (brain.techniques() == null) {
+			context.getSource().sendFailure(Component.literal(character.record.profileName() + " doesn't do mace moves (FelixSyn, Harley and Master BreadLoaf do)."));
+			return 0;
+		}
+		var player = character.player;
+		net.minecraft.world.entity.LivingEntity target = targetArg instanceof net.minecraft.world.entity.LivingEntity living ? living : null;
+		if (target == null) {
+			double best = 24.0;
+			for (var entity : player.level().getEntitiesOfClass(net.minecraft.world.entity.LivingEntity.class, player.getBoundingBox().inflate(24.0),
+					e -> e != player && e.isAlive() && !e.isSpectator())) {
+				double d = entity.distanceTo(player);
+				if (d < best) {
+					best = d;
+					target = entity;
+				}
+			}
+		}
+		if (target == null) {
+			context.getSource().sendFailure(Component.literal("Nothing to aim at within 24 blocks. Give a target, e.g. @p or an armor stand."));
+			return 0;
+		}
+		java.util.List<String> given = new java.util.ArrayList<>();
+		java.util.function.BiConsumer<net.minecraft.world.item.Item, Integer> ensure = (item, count) -> {
+			if (com.itzbreadloaf.brain.Inv.count(player, stack -> stack.is(item)) < count) {
+				com.itzbreadloaf.brain.Inv.give(player, new net.minecraft.world.item.ItemStack(item, count));
+				given.add(count + " " + net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(item).getPath());
+			}
+		};
+		ensure.accept(net.minecraft.world.item.Items.MACE, 1);
+		ensure.accept(net.minecraft.world.item.Items.WIND_CHARGE, 4);
+		if (technique == com.itzbreadloaf.brain.MaceTechniques.Technique.PEARL_CATCH
+				|| technique == com.itzbreadloaf.brain.MaceTechniques.Technique.DIAGONAL_PEARL) {
+			ensure.accept(net.minecraft.world.item.Items.ENDER_PEARL, 2);
+		}
+		if (technique == com.itzbreadloaf.brain.MaceTechniques.Technique.ELYTRA_MACE) {
+			ensure.accept(net.minecraft.world.item.Items.FIREWORK_ROCKET, 8);
+			if (!player.getItemBySlot(net.minecraft.world.entity.EquipmentSlot.CHEST).is(net.minecraft.world.item.Items.ELYTRA)) {
+				ensure.accept(net.minecraft.world.item.Items.ELYTRA, 1);
+			}
+			if (player.getItemBySlot(net.minecraft.world.entity.EquipmentSlot.CHEST).isEmpty()) {
+				player.setItemSlot(net.minecraft.world.entity.EquipmentSlot.CHEST, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.IRON_CHESTPLATE));
+				given.add("an iron chestplate (worn)");
+			}
+		}
+		brain.forceTechnique(technique, target);
+		String note = given.isEmpty() ? "" : " (gave them " + String.join(", ", given) + ")";
+		String targetName = target.getName().getString();
+		reply(context, character.record.profileName() + ": " + technique.id() + " at " + targetName + note);
+		return 1;
+	}
+
+	private static final SuggestionProvider<CommandSourceStack> MOODS = (context, builder) -> SharedSuggestionProvider.suggest(
+			java.util.Arrays.stream(com.itzbreadloaf.brain.ai.Mood.values()).map(com.itzbreadloaf.brain.ai.Mood::id), builder);
+
+	/** /loafcraft mood <name>: mood, routine, skill preset, play style and how many players they remember. */
+	private static int showMind(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+		LoafCharacter character = character(context);
+		var brain = character.brain;
+		reply(context, character.record.profileName() + ": " + brain.mood().mood().id() + " (" + Math.round(brain.mood().strength() * 100)
+				+ "%), routine " + brain.routineActivity().id() + ", skill " + com.itzbreadloaf.config.ModConfig.get().aiPresetFor(character.kind())
+				+ ", play style " + brain.playStyle().id());
+		return 1;
+	}
+
+	/** /loafcraft mood <name> <mood>: holds that mood for 2 minutes (testing). */
+	private static int setMood(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+		LoafCharacter character = character(context);
+		String id = StringArgumentType.getString(context, "mood");
+		com.itzbreadloaf.brain.ai.Mood mood = com.itzbreadloaf.brain.ai.Mood.byId(id);
+		if (!mood.id().equalsIgnoreCase(id)) {
+			context.getSource().sendFailure(Component.literal("Unknown mood. Try happy, bored, tired, scared, angry or curious."));
+			return 0;
+		}
+		character.brain.setMood(mood, 2400);
+		reply(context, character.record.profileName() + " is now " + mood.id() + " (for 2 minutes)");
+		return 1;
 	}
 
 	private static RequiredArgumentBuilder<CommandSourceStack, String> name() {

@@ -243,7 +243,8 @@ public final class Kits {
 
 	/**
 	 * FelixSyn: diamond armor (each piece 30% netherite) with Protection II-III, a Density + Wind Burst mace, a diamond or
-	 * netherite sword as backup, wind charges, golden apples, Strength and Healing potions.
+	 * netherite sword as backup, wind charges, ender pearls, firework rockets and an elytra (for his mace moves), golden
+	 * apples, Strength and Healing potions.
 	 */
 	public static void felixSyn(Player player, ServerLevel level, RandomSource random) {
 		Item[][] pieces = {
@@ -260,7 +261,11 @@ public final class Kits {
 		ItemStack sword = new ItemStack(random.nextBoolean() ? Items.NETHERITE_SWORD : Items.DIAMOND_SWORD);
 		inventory.setItem(0, enchant(level, sword, Enchantments.SHARPNESS, 3));
 		inventory.setItem(4, new ItemStack(Items.WIND_CHARGE, 24));
+		// For his pearl catches, diagonal pearls and elytra mace dives (AI overhaul part 5).
+		inventory.setItem(5, new ItemStack(Items.ENDER_PEARL, 8));
 		inventory.setItem(6, new ItemStack(Items.GOLDEN_APPLE, 3));
+		inventory.setItem(7, new ItemStack(Items.FIREWORK_ROCKET, 16));
+		inventory.setItem(8, new ItemStack(Items.ELYTRA));
 		inventory.setItem(9, LoafBrain.potion(Items.POTION, Potions.STRENGTH));
 		inventory.setItem(10, LoafBrain.potion(Items.SPLASH_POTION, Potions.STRONG_HEALING));
 		inventory.setItem(11, LoafBrain.potion(Items.SPLASH_POTION, Potions.STRONG_HEALING));

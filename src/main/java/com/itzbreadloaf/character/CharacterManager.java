@@ -83,6 +83,15 @@ public final class CharacterManager {
 			if (attacker != null && !attacker.isGone() && entity != attacker.player) {
 				attacker.brain.onDealtDamage(entity, damageTaken);
 			}
+			// Characters nearby glance at the commotion.
+			if (damageTaken > 0.0F) {
+				for (LoafCharacter nearby : active()) {
+					if (nearby != character && nearby != attacker && nearby.brain != null && !nearby.isGone()
+							&& nearby.player.level() == entity.level() && nearby.player.distanceToSqr(entity) < 144.0) {
+						nearby.brain.noticeCommotion(entity);
+					}
+				}
+			}
 		});
 		ServerLivingEntityEvents.ALLOW_DEATH.register((entity, source, amount) -> {
 			LoafCharacter character = get(entity);
@@ -368,7 +377,7 @@ public final class CharacterManager {
 				continue;
 			}
 			try {
-				character.brain.tick();
+				character.brain.serverTick(server.getTickCount());
 			} catch (RuntimeException e) {
 				ItzBreadLoaf.LOGGER.error("{}'s brain crashed, pausing it", character.record.profileName(), e);
 				character.brain.setPaused(true);

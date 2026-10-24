@@ -115,7 +115,9 @@ public final class ModConfig {
 	public double maceDropChance = 0.008;
 
 	public enum HarleyPreset {
-		EASY(20.0, 0.85, 0.11, 0.25F), NORMAL(26.0, 1.0, 0.115, 0.4F), HARD(32.0, 1.15, 0.12, 0.6F);
+		// Crit chance is per swing since the AI overhaul (it used to be rolled every tick of the ~2-tick window, which
+		// made it about 1-(1-c)^2): these keep her crit rate where it was.
+		EASY(20.0, 0.85, 0.11, 0.44F), NORMAL(26.0, 1.0, 0.115, 0.64F), HARD(32.0, 1.15, 0.12, 0.84F);
 
 		public final double health;
 		public final double damageMultiplier;
@@ -140,20 +142,66 @@ public final class ModConfig {
 		};
 	}
 
+	/**
+	 * Master BreadLoaf's difficulty (the big nerf: an average player in full diamond can beat Normal). Every preset keeps
+	 * the 16-damage cap per hit ({@link #BOSS_MAX_HIT_DAMAGE}) and the 1-second warning before every smash and dive.
+	 */
 	public enum BossPreset {
-		EASY(150, 0.7, 4.0F), NORMAL(200, 1.0, 6.0F), HARD(300, 1.3, 9.0F);
+		// Tuned with tools/boss_fight_sim.py (1.21.11 damage, armor and Protection rules): on Normal an average player in
+		// plain full diamond with a sword, shield and 8 golden apples wins about 70% of fights.
+		//   health, damage, prot, sharp, strength, smashCd, techCd, fail,  react ticks, whiff, fall, phase2, crit
+		EASY(70, 0.40, 1, 0, 0, 300, 600, 0.35F, 7, 9, 0.18F, 3.0F, 0.05, 0.15F),
+		NORMAL(100, 0.55, 2, 0, 0, 240, 400, 0.25F, 6, 8, 0.12F, 3.0F, 0.08, 0.25F),
+		HARD(120, 0.50, 3, 0, 1, 240, 400, 0.15F, 5, 7, 0.08F, 4.0F, 0.12, 0.30F);
 
 		public final double health;
 		public final double damageMultiplier;
+		/** Protection level on his diamond armor. */
+		public final int protection;
+		/** Sharpness level on his diamond sword (0 = none). */
+		public final int sharpness;
+		/** Strength potion level he drinks at the start (0 = none). */
+		public final int strength;
+		/** Ticks between mace smashes (at least 160 = 8 seconds). */
+		public final int smashCooldown;
+		/** Ticks between elytra dives and pearl catches (at least 400 = 20 seconds). */
+		public final int techniqueCooldown;
+		/** Chance he fails a dive or pearl catch on purpose. */
+		public final float techniqueFailChance;
+		/** Reaction delay to a new target, in ticks (1 tick = 50 ms). */
+		public final int reactionMin;
+		public final int reactionMax;
+		/** Chance a sword swing misses on purpose. */
+		public final float whiffChance;
 		/** Largest fall distance a mace smash counts (mace damage grows with the fall). */
 		public final float maxSmashFall;
+		/** Extra speed in phase 2 (under half health). */
+		public final double phase2Speed;
+		/** How often he jumps for a sword crit when the timing allows. */
+		public final float critChance;
 
-		BossPreset(double health, double damageMultiplier, float maxSmashFall) {
+		BossPreset(double health, double damageMultiplier, int protection, int sharpness, int strength, int smashCooldown,
+				int techniqueCooldown, float techniqueFailChance, int reactionMin, int reactionMax, float whiffChance,
+				float maxSmashFall, double phase2Speed, float critChance) {
 			this.health = health;
 			this.damageMultiplier = damageMultiplier;
+			this.protection = protection;
+			this.sharpness = sharpness;
+			this.strength = strength;
+			this.smashCooldown = Math.max(160, smashCooldown);
+			this.techniqueCooldown = Math.max(400, techniqueCooldown);
+			this.techniqueFailChance = techniqueFailChance;
+			this.reactionMin = reactionMin;
+			this.reactionMax = reactionMax;
+			this.whiffChance = whiffChance;
 			this.maxSmashFall = maxSmashFall;
+			this.phase2Speed = phase2Speed;
+			this.critChance = critChance;
 		}
 	}
+
+	/** No single hit from Master BreadLoaf deals more than this (8 hearts), whatever the preset or fall height. */
+	public static final float BOSS_MAX_HIT_DAMAGE = 16.0F;
 
 	public BossPreset bossPreset() {
 		return switch (this.bossDifficulty == null ? "" : this.bossDifficulty.toLowerCase(java.util.Locale.ROOT)) {
@@ -161,6 +209,69 @@ public final class ModConfig {
 			case "hard" -> BossPreset.HARD;
 			default -> BossPreset.NORMAL;
 		};
+	}
+
+	// ---------------------------------------------------------------- AI overhaul (part 3)
+
+	/** Fighting skill preset for every character: "easy", "normal" or "hard". Harley uses harleyDifficulty, Master BreadLoaf bossDifficulty. */
+	public String aiDifficulty = "normal";
+	/** Per-character preset, overriding aiDifficulty: e.g. {"felixsyn": "hard"}. Keys: itzbreadloaf, imlilylol, madison, master_breadloaf, felixsyn, harley. */
+	public java.util.Map<String, String> aiDifficultyOverrides = new java.util.LinkedHashMap<>();
+	/** The skill numbers for each character and preset (filled in with the defaults; edit freely). */
+	public java.util.Map<String, java.util.Map<String, com.itzbreadloaf.brain.ai.SkillProfile>> skillProfiles = new java.util.LinkedHashMap<>();
+	/** Play style per character, or "auto" to pick from who they are (ItzBreadLoaf's types differ). E.g. {"itzbreadloaf": "turtle"}. */
+	public java.util.Map<String, String> playStyleOverrides = new java.util.LinkedHashMap<>();
+	/** Moods (happy, bored, tired, scared, angry, curious) that change how characters act. */
+	public boolean moods = true;
+	/** Daily routines: wake up, work, see friends, free time, head home, sleep. */
+	public boolean routines = true;
+	/** Characters within this many blocks of a real player think every tick (full AI). */
+	public double aiFullDetailRange = 32.0;
+	/** Out to this range they think every 4th tick (simple AI); beyond it they stand still until a player comes closer. */
+	public double aiSimpleDetailRange = 56.0;
+	/** Personality lines: greetings, mood lines, fight and rivalry trash-talk, morning and rain comments (actionBarMessages turns off every line). */
+	public boolean personalityLines = true;
+
+	/** The preset name used for a character. */
+	public String aiPresetFor(com.itzbreadloaf.character.CharacterKind kind) {
+		String preset = this.aiDifficultyOverrides == null ? null : this.aiDifficultyOverrides.get(kind.id);
+		if (preset == null || preset.isBlank()) {
+			preset = switch (kind) {
+				case HARLEY -> this.harleyDifficulty;
+				case MASTER -> this.bossDifficulty;
+				default -> this.aiDifficulty;
+			};
+		}
+		preset = preset == null ? "normal" : preset.toLowerCase(java.util.Locale.ROOT);
+		return preset.equals("easy") || preset.equals("hard") ? preset : "normal";
+	}
+
+	/** The skill profile a character fights with right now. */
+	public com.itzbreadloaf.brain.ai.SkillProfile skillFor(com.itzbreadloaf.character.CharacterKind kind) {
+		String preset = this.aiPresetFor(kind);
+		var byPreset = this.skillProfiles == null ? null : this.skillProfiles.get(kind.id);
+		var profile = byPreset == null ? null : byPreset.get(preset);
+		return profile != null ? profile : com.itzbreadloaf.brain.ai.SkillProfile.fallback(kind, preset);
+	}
+
+	/** Fills in any missing skill profiles with the defaults (so they show up in the file). */
+	private void fillDefaults() {
+		if (this.skillProfiles == null) {
+			this.skillProfiles = new java.util.LinkedHashMap<>();
+		}
+		if (this.aiDifficultyOverrides == null) {
+			this.aiDifficultyOverrides = new java.util.LinkedHashMap<>();
+		}
+		if (this.playStyleOverrides == null) {
+			this.playStyleOverrides = new java.util.LinkedHashMap<>();
+		}
+		com.itzbreadloaf.brain.ai.SkillProfile.defaults().forEach((kind, presets) -> {
+			var existing = this.skillProfiles.computeIfAbsent(kind, k -> new java.util.LinkedHashMap<>());
+			presets.forEach(existing::putIfAbsent);
+		});
+		for (com.itzbreadloaf.character.CharacterKind kind : com.itzbreadloaf.character.CharacterKind.values()) {
+			this.playStyleOverrides.putIfAbsent(kind.id, "auto");
+		}
 	}
 
 	public static ModConfig get() {
@@ -179,6 +290,7 @@ public final class ModConfig {
 				ItzBreadLoaf.LOGGER.warn("Could not read {}, using defaults", path, e);
 			}
 		}
+		instance.fillDefaults();
 		// Write it back so new options show up in old files.
 		try (Writer writer = Files.newBufferedWriter(path)) {
 			GSON.toJson(instance, writer);

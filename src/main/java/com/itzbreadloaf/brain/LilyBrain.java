@@ -273,7 +273,7 @@ public class LilyBrain extends NeutralBrain {
 		if (this.goToBed() || this.returnHome()) {
 			return;
 		}
-		if (this.tickIdle()) {
+		if (this.tickRoutine() || this.tickIdle() || this.tickIdleActions()) {
 			return;
 		}
 		this.wander(HOME_RADIUS);
@@ -320,23 +320,69 @@ public class LilyBrain extends NeutralBrain {
 		return true;
 	}
 
+	/**
+	 * Work hours: Bookworm Lily reads, Gardener Lily plants and tends flowers, Witchy Lily works at her brewing stand
+	 * or cauldron, Archer Lily patrols, and plain Lily reads or gardens.
+	 */
+	@Override
+	protected boolean doWork() {
+		return switch (this.variant) {
+			case BOOKWORM -> this.tickIdle(this.random.nextInt(4) == 0 ? Idle.SIT : Idle.READ);
+			case GARDENER -> this.tickIdle(this.random.nextInt(3) == 0 ? Idle.LOOK_AT_FLOWER : Idle.PLANT);
+			case WITCHY -> this.activities.useStation(state -> state.is(Blocks.BREWING_STAND) || state.is(Blocks.CAULDRON)
+					|| state.is(Blocks.WATER_CAULDRON), HOME_RADIUS + 4) || this.tickIdle(Idle.LOOK_AT_FLOWER);
+			case ARCHER_LILY -> this.activities.patrol();
+			default -> this.tickIdle(this.random.nextBoolean() ? Idle.READ : Idle.PLANT);
+		};
+	}
+
+	/** Friends time: cousin Madison first, any other friend otherwise. */
+	@Override
+	protected boolean socialize() {
+		return this.tickIdle(Idle.VISIT_MADISON) || this.activities.visitFriend();
+	}
+
 	/** Lily's quiet idle actions (and her type's hobby). True while doing one. */
 	private boolean tickIdle() {
+		return this.tickIdle(null);
+	}
+
+	/** With {@code forced}: start that one (the routine asked for it) instead of a random one now and then. */
+	private boolean tickIdle(@Nullable Idle forced) {
 		if (this.idle == Idle.NONE) {
-			int chance = this.variant == CharacterVariant.GARDENER ? 120 : 300;
-			if (this.random.nextInt(chance) != 0 || !this.player.onGround()) {
-				return false;
-			}
-			this.idle = switch (this.variant) {
-				case BOOKWORM -> this.random.nextInt(3) == 0 ? Idle.SIT : Idle.READ;
-				case GARDENER -> this.random.nextInt(3) == 0 ? Idle.LOOK_AT_FLOWER : Idle.PLANT;
-				default -> new Idle[]{Idle.SIT, Idle.LOOK_AT_FLOWER, Idle.TOGGLE_FLOWER}[this.random.nextInt(3)];
-			};
-			// Sometimes she goes to see cousin Madison instead, if Madison is around.
-			if (this.random.nextInt(4) == 0) {
-				this.cousin = this.findMadison();
-				if (this.cousin != null) {
-					this.idle = Idle.VISIT_MADISON;
+			if (forced != null) {
+				if (!this.player.onGround()) {
+					return false;
+				}
+				if (forced != Idle.VISIT_MADISON && this.random.nextInt(40) != 0) {
+					// A short pause between one thing and the next.
+					this.lookAround(6.0);
+					return true;
+				}
+				this.idle = forced;
+				if (forced == Idle.VISIT_MADISON) {
+					this.cousin = this.findMadison();
+					if (this.cousin == null) {
+						this.idle = Idle.NONE;
+						return false;
+					}
+				}
+			} else {
+				int chance = this.variant == CharacterVariant.GARDENER ? 120 : 300;
+				if (this.random.nextInt(chance) != 0 || !this.player.onGround()) {
+					return false;
+				}
+				this.idle = switch (this.variant) {
+					case BOOKWORM -> this.random.nextInt(3) == 0 ? Idle.SIT : Idle.READ;
+					case GARDENER -> this.random.nextInt(3) == 0 ? Idle.LOOK_AT_FLOWER : Idle.PLANT;
+					default -> new Idle[]{Idle.SIT, Idle.LOOK_AT_FLOWER, Idle.TOGGLE_FLOWER}[this.random.nextInt(3)];
+				};
+				// Sometimes she goes to see cousin Madison instead, if Madison is around.
+				if (this.random.nextInt(4) == 0) {
+					this.cousin = this.findMadison();
+					if (this.cousin != null) {
+						this.idle = Idle.VISIT_MADISON;
+					}
 				}
 			}
 			switch (this.idle) {
@@ -492,7 +538,42 @@ public class LilyBrain extends NeutralBrain {
 		}
 		// No staring: she glances around instead.
 		if (!this.tickIdle()) {
-			this.lookAround(4.0);
+			this.idleWithOwner();
 		}
+	}
+
+	// ---------------------------------------------------------------- personality (AI overhaul part 6)
+
+	/** ImLilyLol: shy, gentle and thoughtful. */
+	@Override
+	protected String[] lines(com.itzbreadloaf.brain.ai.Situation situation) {
+		return switch (situation) {
+			case GREET_PLAYER -> new String[]{"oh! h-hi...", "*waves shyly*", "hi... good to see you", "oh, it's you! hi..."};
+			case GREET_FRIEND -> new String[]{"hi %s...", "%s! hi!", "*waves at %s*"};
+			case FIGHT_START -> new String[]{"p-please stop!", "I'll defend myself!", "leave me alone!"};
+			case RIVAL -> new String[]{"..."};
+			case FIGHT_WON -> new String[]{"s-sorry... you started it", "phew... is it over?"};
+			case LOW_HEALTH -> new String[]{"help!", "I need to get away...", "ow..."};
+			case DEFEND_FRIEND -> new String[]{"don't hurt them!", "stop it right now!"};
+			case SCARED_FOR_FRIEND -> new String[]{"oh no! are you okay?", "someone help!", "please be okay..."};
+			case REST -> new String[]{"*sits down for a bit*", "that was scary..."};
+			case MORNING -> new String[]{"good morning...", "the flowers are waking up too"};
+			case NIGHT -> new String[]{"the stars are so pretty tonight...", "I should be in bed..."};
+			case RAIN -> new String[]{"oh no, my book's getting wet!", "*hurries inside*"};
+			case ITEM -> new String[]{"oh... is that %s?", "that %s is really pretty", "can I see your %s?"};
+			case WATCH -> new String[]{"that looks nice...", "*watches quietly*"};
+		};
+	}
+
+	@Override
+	protected String[] moodLines(com.itzbreadloaf.brain.ai.Mood mood) {
+		return switch (mood) {
+			case HAPPY -> new String[]{"*hums a little tune*", "*smiles*"};
+			case BORED -> new String[]{"maybe I'll read something...", "*sighs softly*"};
+			case TIRED -> new String[]{"*yawns softly*", "so sleepy..."};
+			case CURIOUS -> new String[]{"oh? what's that?", "hm..."};
+			case SCARED -> new String[]{"eek!", "oh no oh no..."};
+			case ANGRY -> new String[]{"that's NOT okay!", "I'm really upset now!"};
+		};
 	}
 }

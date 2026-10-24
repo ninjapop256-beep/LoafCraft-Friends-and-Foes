@@ -55,6 +55,27 @@ public final class Navigator {
 	/** Path search budget shared by every character (server thread only). */
 	private static long budgetTick = -1;
 	private static int searchesThisTick;
+	/**
+	 * Recent paths, shared by every character (server thread only): the same start and goal block within 5 seconds
+	 * reuses the path instead of searching again (characters walking to the same bell, bed or friend).
+	 */
+	private static final java.util.LinkedHashMap<Long, CachedPath> PATH_CACHE = new java.util.LinkedHashMap<>(64, 0.75F, true) {
+		@Override
+		protected boolean removeEldestEntry(java.util.Map.Entry<Long, CachedPath> eldest) {
+			return this.size() > 256;
+		}
+	};
+	private static final int CACHE_TICKS = 100;
+	/** Searches and cache hits, for /loafcraft debug ai. */
+	public static int searchesCount;
+	public static int cacheHits;
+
+	private record CachedPath(Pathfinder.Path path, long time) {
+	}
+
+	private static long cacheKey(BlockPos start, BlockPos goal, double reach) {
+		return start.asLong() * 31L ^ goal.asLong() * 17L ^ Math.round(reach * 4.0);
+	}
 
 	public Navigator(ServerPlayer player, Controls controls) {
 		this.player = player;
@@ -179,7 +200,8 @@ public final class Navigator {
 			return;
 		}
 
-		boolean goalMoved = this.pathGoal != null && this.pathGoal.distanceToSqr(goal) > 2.25;
+		// The path is kept until the goal has moved 2 blocks (a target strafing around doesn't cost a new search).
+		boolean goalMoved = this.pathGoal != null && this.pathGoal.distanceToSqr(goal) > 4.0;
 		this.repathTimer--;
 		if ((this.path == null || goalMoved || this.partial) && this.repathTimer <= 0 && !this.failed) {
 			this.repath(goal);
@@ -224,8 +246,22 @@ public final class Navigator {
 
 	private void repath(Vec3 goal) {
 		ServerLevel level = this.player.level();
-		// Spread path searches out: only a few per tick for all characters together, and each one on its own beat.
 		long now = level.getGameTime();
+		BlockPos start = this.player.blockPosition();
+		BlockPos end = BlockPos.containing(goal);
+		double searchReach = Math.max(0.9, this.reach);
+		long key = cacheKey(start, end, searchReach) ^ level.dimension().identifier().hashCode();
+		CachedPath cached = PATH_CACHE.get(key);
+		if (cached != null && now - cached.time() <= CACHE_TICKS) {
+			cacheHits++;
+			this.repathTimer = REPATH_TICKS + (this.player.getId() & 7);
+			this.pathGoal = goal;
+			this.path = cached.path().nodes();
+			this.partial = !cached.path().complete();
+			this.index = 0;
+			return;
+		}
+		// Spread path searches out: only a few per tick for all characters together, and each one on its own beat.
 		if (now != budgetTick) {
 			budgetTick = now;
 			searchesThisTick = 0;
@@ -236,8 +272,11 @@ public final class Navigator {
 		}
 		searchesThisTick++;
 		this.repathTimer = REPATH_TICKS + (this.player.getId() & 7);
-		Pathfinder.Path found = Pathfinder.find(level, this.player.blockPosition(), BlockPos.containing(goal),
-				Math.max(0.9, this.reach), MAX_RANGE);
+		Pathfinder.Path found = Pathfinder.find(level, start, end, searchReach, MAX_RANGE);
+		searchesCount++;
+		if (found != null) {
+			PATH_CACHE.put(key, new CachedPath(found, now));
+		}
 		this.pathGoal = goal;
 		if (found == null) {
 			this.path = null;

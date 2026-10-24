@@ -57,7 +57,7 @@ public class HarleyBrain extends LoafBrain {
 	public static final int TAME_CHANCE = 5;
 	private static final Identifier DAMAGE_PRESET_ID = Identifier.fromNamespaceAndPath("itzbreadloaf", "harley_damage_preset");
 
-	private final MaceJump maceJump;
+	private final MaceTechniques techniques;
 	private @Nullable UUID partner;
 	private @Nullable UUID vengeance;
 	private int vengeanceTicks;
@@ -73,7 +73,7 @@ public class HarleyBrain extends LoafBrain {
 
 	public HarleyBrain(LoafCharacter character) {
 		super(character);
-		this.maceJump = new MaceJump(this.player, this.controls, this.combat);
+		this.techniques = new MaceTechniques(this.player, this.controls, this.combat, this.random);
 		// The best duelist: almost never backs off.
 		this.combat.retreatBelow = (float) com.itzbreadloaf.config.ModConfig.get().harleyRetreatHealth;
 	}
@@ -152,7 +152,13 @@ public class HarleyBrain extends LoafBrain {
 
 	@Override
 	public boolean allowDamage(DamageSource source, float amount) {
-		return !(this.maceJump.isActive() && source.is(net.minecraft.tags.DamageTypeTags.IS_FALL));
+		return !(this.techniques.isActive() && source.is(net.minecraft.tags.DamageTypeTags.IS_FALL)
+				&& !source.is(net.minecraft.world.damagesource.DamageTypes.ENDER_PEARL));
+	}
+
+	@Override
+	public MaceTechniques techniques() {
+		return this.techniques;
 	}
 
 	// ---------------------------------------------------------------- partner
@@ -188,7 +194,7 @@ public class HarleyBrain extends LoafBrain {
 
 	@Override
 	protected void tickBehavior() {
-		this.maceJump.tickCooldown();
+		this.techniques.tickCooldown();
 		if (this.vengeanceTicks > 0 && --this.vengeanceTicks == 0) {
 			this.vengeance = null;
 			this.setTarget(null);
@@ -203,7 +209,7 @@ public class HarleyBrain extends LoafBrain {
 		this.fightTicks = 0;
 		this.buffed = false;
 		this.ateApple = false;
-		this.maceJump.cancel();
+		this.techniques.cancel();
 		if (this.tryEat() || this.tickLove()) {
 			return;
 		}
@@ -213,26 +219,37 @@ public class HarleyBrain extends LoafBrain {
 		if (this.isTame()) {
 			// If her owner is her best friend and another Harley is already following him, she stays put.
 			if (this.owner != null && isBestFriend(this.getOwnerPlayer()) && this.followSpotTaken(this.owner) || !this.followOwner()) {
-				this.lookAround(8.0);
+				this.idleWithOwner();
 			}
 			return;
 		}
 		LoafCharacter felix = this.partnerCharacter();
 		if (felix != null && felix.player.level() == this.player.level()) {
 			double distance = this.player.distanceTo(felix.player);
-			if (distance > 4.0) {
+			if (distance > 6.0 || distance > 4.0 && felix.brain != null && felix.brain.nav().isMoving()) {
 				this.nav.follow(felix.player, 2.5, distance > 10.0 ? Navigator.Speed.SPRINT : Navigator.Speed.WALK);
-			} else {
+			} else if (!this.tickRoutine() && !this.tickIdleActions()) {
 				this.nav.stop();
 				this.controls.setSneaking(felix.player.isShiftKeyDown());
 				this.lookAround(6.0);
 			}
 			return;
 		}
-		if (this.returnHome()) {
+		if (this.returnHome() || this.tickRoutine() || this.tickIdleActions()) {
 			return;
 		}
 		this.wander(16.0);
+	}
+
+	/** Work hours: sparring with FelixSyn when he's around and not busy, training on her own otherwise. */
+	@Override
+	protected boolean doWork() {
+		LoafCharacter felix = this.partnerCharacter();
+		if (felix != null && felix.brain != null && felix.brain.getTarget() == null && felix.player.level() == this.player.level()
+				&& felix.player.distanceTo(this.player) < 12.0) {
+			return this.activities.spar(felix.player);
+		}
+		return this.activities.train();
 	}
 
 	private void chooseTarget() {
@@ -305,8 +322,8 @@ public class HarleyBrain extends LoafBrain {
 			this.setTarget(null);
 			return;
 		}
-		if (this.maceJump.isActive()) {
-			this.maceJump.tick(target, 6.0F);
+		if (this.techniques.isActive()) {
+			this.techniques.tick(target);
 			return;
 		}
 		// Strength and Swiftness at the start of a fight (if there's a moment to drink).
@@ -326,14 +343,23 @@ public class HarleyBrain extends LoafBrain {
 		}
 		// Mace smash when they're close and armored, or now and then to mix it up.
 		boolean armored = target.getArmorValue() >= 15;
-		if (distance < 5.5 && distance > 1.5 && this.maceJump.canStart() && (armored || this.random.nextInt(10) == 0)) {
-			this.maceJump.start(armored ? 60 : 120);
-			this.maceJump.tick(target, 6.0F);
-			return;
+		// The duelist keeps it simple: a wind jump or a wind-charge chain (at most 2 hits), against armor or now and then.
+		if (this.techniques.isReady() && (armored || this.random.nextInt(10) == 0)) {
+			MaceTechniques.Technique move = this.techniques.choose(target, distance, this.playStyle());
+			if (move == MaceTechniques.Technique.WIND_JUMP || move == MaceTechniques.Technique.WIND_CHAIN) {
+				this.techniques.limits.maxFall = 6.0F;
+				this.techniques.limits.maxChain = 2;
+				this.techniques.limits.warnTicks = 0;
+				this.techniques.limits.warn = null;
+				this.techniques.limits.failChance = this.skill().techniqueFailChance;
+				this.techniques.start(move, target, armored ? 60 : 120);
+				this.techniques.tick(target);
+				return;
+			}
 		}
 		int blade = Inv.ready(this.player, stack -> stack.is(ModItems.HARLEYS_BLADE) || stack.is(net.minecraft.tags.ItemTags.SWORDS), 0);
 		if (blade >= 0) {
-			this.controls.selectSlot(blade);
+			this.controls.switchSlot(blade, this.skill().hotbarSwitchTicks);
 		}
 		this.combat.fight(target, this.nav);
 	}
@@ -566,4 +592,49 @@ public class HarleyBrain extends LoafBrain {
 		this.partner = tag.read("Partner", UUIDUtil.CODEC).orElse(null);
 	}
 
+
+	/** She never steps into FelixSyn's duels with ItzBreadLoaf (that rule stays); anyone else hurting a friend, she does. */
+	@Override
+	protected void onFriendHurt(LoafBrain friend, LivingEntity attacker) {
+		if (friend.kind() == com.itzbreadloaf.character.CharacterKind.FELIXSYN
+				&& LoafIds.kind(attacker.getUUID()) == com.itzbreadloaf.character.CharacterKind.BREADLOAF) {
+			return;
+		}
+		super.onFriendHurt(friend, attacker);
+	}
+
+	// ---------------------------------------------------------------- personality (AI overhaul part 6)
+
+	/** Harley: quiet, cool, and loyal. */
+	@Override
+	protected String[] lines(com.itzbreadloaf.brain.ai.Situation situation) {
+		return switch (situation) {
+			case GREET_PLAYER -> new String[]{"hey.", "*nods*", "oh, hi."};
+			case GREET_FRIEND -> new String[]{"hey, %s.", "*nods at %s*"};
+			case FIGHT_START -> new String[]{"en garde.", "let's make this quick.", "ready when you are."};
+			case RIVAL -> new String[]{"..."};
+			case FIGHT_WON -> new String[]{"good fight.", "*sheathes her blade*", "stay down."};
+			case LOW_HEALTH -> new String[]{"not bad...", "*steadies herself*"};
+			case DEFEND_FRIEND -> new String[]{"leave him alone.", "you'll have to get past me."};
+			case SCARED_FOR_FRIEND -> new String[]{"hey. you okay?", "*steps closer*"};
+			case REST -> new String[]{"*catches her breath*", "...fine. I'm fine."};
+			case MORNING -> new String[]{"morning.", "*stretches her arms*"};
+			case NIGHT -> new String[]{"quiet night.", "*looks at the stars*"};
+			case RAIN -> new String[]{"great. rain.", "*pulls up her hood*"};
+			case ITEM -> new String[]{"nice %s.", "that %s looks sharp."};
+			case WATCH -> new String[]{"careful with that.", "*watches quietly*"};
+		};
+	}
+
+	@Override
+	protected String[] moodLines(com.itzbreadloaf.brain.ai.Mood mood) {
+		return switch (mood) {
+			case HAPPY -> new String[]{"*smiles a little*", "*hums quietly*"};
+			case BORED -> new String[]{"*practices a swing*", "*taps her blade*"};
+			case TIRED -> new String[]{"*yawns quietly*"};
+			case CURIOUS -> new String[]{"hm?", "*tilts her head*"};
+			case SCARED -> new String[]{"...that's not good."};
+			case ANGRY -> new String[]{"now you've done it.", "*narrows her eyes*"};
+		};
+	}
 }

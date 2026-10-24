@@ -40,7 +40,7 @@ public class FelixBrain extends LoafBrain {
 	public static final double RIVAL_RANGE = 24.0;
 	public static final double HOME_RADIUS = 24.0;
 
-	private final MaceJump maceJump;
+	private final MaceTechniques techniques;
 	private @Nullable BlockPos hangoutSpot;
 	private int hangoutTicks;
 	private int nextRivalMessage;
@@ -59,7 +59,7 @@ public class FelixBrain extends LoafBrain {
 
 	public FelixBrain(LoafCharacter character) {
 		super(character);
-		this.maceJump = new MaceJump(this.player, this.controls, this.combat);
+		this.techniques = new MaceTechniques(this.player, this.controls, this.combat, this.random);
 		this.combat.critChance = 0.6F;
 		this.combat.retreatBelow = (float) com.itzbreadloaf.config.ModConfig.get().felixRetreatHealth;
 	}
@@ -157,6 +157,24 @@ public class FelixBrain extends LoafBrain {
 		if (Inv.count(this.player, stack -> stack.is(Items.WIND_CHARGE)) < 8) {
 			Inv.give(this.player, new ItemStack(Items.WIND_CHARGE, 16));
 		}
+		// FelixSyn himself (not wild ones, and not once tamed, so nobody can farm them) keeps pearls and rockets topped up.
+		if (this.variant == CharacterVariant.FELIXSYN && !this.isTame()) {
+			if (Inv.count(this.player, stack -> stack.is(Items.ENDER_PEARL)) < 4) {
+				Inv.give(this.player, new ItemStack(Items.ENDER_PEARL, 8));
+			}
+			if (Inv.count(this.player, stack -> stack.is(Items.FIREWORK_ROCKET)) < 8) {
+				Inv.give(this.player, new ItemStack(Items.FIREWORK_ROCKET, 16));
+			}
+		}
+	}
+
+	/** His limits: 6 blocks of fall counted per smash (as before), chains of up to 3, failures by skill. */
+	private void configureTechniques() {
+		this.techniques.limits.maxFall = 6.0F;
+		this.techniques.limits.maxChain = 3;
+		this.techniques.limits.warnTicks = 0;
+		this.techniques.limits.warn = null;
+		this.techniques.limits.failChance = this.skill().techniqueFailChance;
 	}
 
 	// ---------------------------------------------------------------- voice
@@ -255,15 +273,21 @@ public class FelixBrain extends LoafBrain {
 
 	@Override
 	public boolean allowDamage(DamageSource source, float amount) {
-		// His own mace smashes don't hurt him.
-		return !(this.maceJump.isActive() && source.is(net.minecraft.tags.DamageTypeTags.IS_FALL));
+		// His own mace moves don't give him fall damage (his pearls still cost him 5, like anyone's).
+		return !(this.techniques.isActive() && source.is(net.minecraft.tags.DamageTypeTags.IS_FALL)
+				&& !source.is(net.minecraft.world.damagesource.DamageTypes.ENDER_PEARL));
+	}
+
+	@Override
+	public MaceTechniques techniques() {
+		return this.techniques;
 	}
 
 	// ---------------------------------------------------------------- behavior
 
 	@Override
 	protected void tickBehavior() {
-		this.maceJump.tickCooldown();
+		this.techniques.tickCooldown();
 		this.tickVoice();
 		if (!this.isWild() && this.ticks >= this.nextDrifterCheck) {
 			this.nextDrifterCheck = this.ticks + 40;
@@ -280,7 +304,7 @@ public class FelixBrain extends LoafBrain {
 			this.fight(this.target);
 			return;
 		}
-		this.maceJump.cancel();
+		this.techniques.cancel();
 		if (this.tryEat() || this.tickLove()) {
 			return;
 		}
@@ -288,7 +312,7 @@ public class FelixBrain extends LoafBrain {
 			// Tamed: he goes where his owner goes (an empty-hand right-click makes him sit or stand).
 			this.idleVoice();
 			if (!this.followOwner()) {
-				this.lookAround(8.0);
+				this.idleWithOwner();
 			}
 			return;
 		}
@@ -303,10 +327,22 @@ public class FelixBrain extends LoafBrain {
 		this.controls.setSneaking(false);
 		this.sleepVoiced = false;
 		this.idleVoice();
-		if (this.returnHome()) {
+		if (this.returnHome() || this.tickRoutine() || this.tickIdleActions()) {
 			return;
 		}
 		this.hangOut();
+	}
+
+	/** Work hours: mace practice (wind-charge jumps out in the open, shadow-boxing in between). */
+	@Override
+	protected boolean doWork() {
+		return this.activities.practiceMaceJump();
+	}
+
+	/** Friends time is his hangout (the village bell, the water): Harley comes along anyway. */
+	@Override
+	protected boolean socialize() {
+		return false;
 	}
 
 	/** Now and then, one of his idle lines. */
@@ -426,8 +462,8 @@ public class FelixBrain extends LoafBrain {
 			this.setTarget(null);
 			return;
 		}
-		if (this.maceJump.isActive()) {
-			this.maceJump.tick(target, 6.0F);
+		if (this.techniques.isActive()) {
+			this.techniques.tick(target);
 			return;
 		}
 		if (this.player.getHealth() < this.player.getMaxHealth() * 0.4F && this.eatNow(stack -> stack.is(Items.GOLDEN_APPLE))) {
@@ -437,16 +473,21 @@ public class FelixBrain extends LoafBrain {
 			return;
 		}
 		double distance = this.player.distanceTo(target);
-		if (distance < 6.0 && distance > 1.5 && this.maceJump.canStart() && this.random.nextInt(4) == 0) {
-			this.maceJump.start(100 + this.random.nextInt(60));
-			this.voice(com.itzbreadloaf.sound.FelixVoices.Moment.MACE);
-			this.maceJump.tick(target, 6.0F);
-			return;
+		// The aerialist: wind jumps and chains up close, pearl catches, diagonal pearls from range, elytra dives from far.
+		if (this.techniques.isReady() && this.random.nextInt(4) == 0) {
+			MaceTechniques.Technique move = this.techniques.choose(target, distance, this.playStyle());
+			if (move != null) {
+				this.configureTechniques();
+				this.techniques.start(move, target, 100 + this.random.nextInt(60));
+				this.voice(com.itzbreadloaf.sound.FelixVoices.Moment.MACE);
+				this.techniques.tick(target);
+				return;
+			}
 		}
 		// On the ground: his sword.
 		int sword = Inv.ready(this.player, stack -> stack.is(net.minecraft.tags.ItemTags.SWORDS), 0);
 		if (sword >= 0) {
-			this.controls.selectSlot(sword);
+			this.controls.switchSlot(sword, this.skill().hotbarSwitchTicks);
 		}
 		this.combat.fight(target, this.nav);
 	}
@@ -619,4 +660,39 @@ public class FelixBrain extends LoafBrain {
 		this.hangoutSpot = tag.read("Hangout", BlockPos.CODEC).orElse(null);
 	}
 
+
+	// ---------------------------------------------------------------- personality (AI overhaul part 6)
+
+	/** FelixSyn: a cool show-off who lives for mace jumps. */
+	@Override
+	protected String[] lines(com.itzbreadloaf.brain.ai.Situation situation) {
+		return switch (situation) {
+			case GREET_PLAYER -> new String[]{"yo, what's good?", "ayy, look who it is", "sup!", "hey hey!"};
+			case GREET_FRIEND -> new String[]{"there you are, %s", "sup %s", "%s! ready to roll?"};
+			case FIGHT_START -> new String[]{"let's dance!", "you sure about this?", "alright, let's go"};
+			case RIVAL -> new String[]{"ready for round two, BreadLoaf?", "watch the skies, toast boy!", "I'll land on you like that loaf!", "say goodbye to your crumbs!"};
+			case FIGHT_WON -> new String[]{"too easy!", "that's how it's done!", "gg, better luck next time"};
+			case LOW_HEALTH -> new String[]{"okay, okay, you're good!", "need a sec...", "whoa, not bad!"};
+			case DEFEND_FRIEND -> new String[]{"hey! nobody messes with Harley!", "you wanna go? come on then!"};
+			case SCARED_FOR_FRIEND -> new String[]{"you good?!", "hey, hang in there!"};
+			case REST -> new String[]{"that was close...", "*stretches* alright, alright"};
+			case MORNING -> new String[]{"morning! perfect wind today", "time to fly"};
+			case NIGHT -> new String[]{"stars are out", "good night for a jump"};
+			case RAIN -> new String[]{"rain? perfect for a smash", "ugh, slippery"};
+			case ITEM -> new String[]{"nice %s!", "where'd you get that %s?", "is that a %s? cool"};
+			case WATCH -> new String[]{"need some help with that?", "looking good", "not bad, not bad"};
+		};
+	}
+
+	@Override
+	protected String[] moodLines(com.itzbreadloaf.brain.ai.Mood mood) {
+		return switch (mood) {
+			case HAPPY -> new String[]{"feeling light today!", "*bounces on his toes*"};
+			case BORED -> new String[]{"anyone up for some mace practice?", "*spins his mace*", "so... quiet..."};
+			case TIRED -> new String[]{"*yawns*", "long day"};
+			case CURIOUS -> new String[]{"hm? what's that?", "huh, interesting"};
+			case SCARED -> new String[]{"whoa, whoa!", "okay, that's a lot"};
+			case ANGRY -> new String[]{"alright, now I'm annoyed", "you asked for it!"};
+		};
+	}
 }

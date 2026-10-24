@@ -6,6 +6,64 @@ Newest changes first. Existing worlds keep working; new structures only appear i
 
 ---
 
+## 2.1.0: AI overhaul
+
+### AI overhaul part 8: balancing and fixes
+- Fixed: Archer Lily (and any Lily or Madison) could get stuck unable to switch from her weapon to her bow.
+- FelixSyn and Harley now take a couple of ticks to switch back to their sword after a mace move, like a player.
+- Crit chances retuned after the switch to one crit decision per swing: Harley keeps her old crit rate exactly, and ItzBreadLoaf, FelixSyn, Lily and Madison crit a little more by default.
+- Final balance table, boss simulation results and an in-game test checklist in `AI_DESIGN.md` section 12.
+
+### AI overhaul part 7: optimization and debug tools
+- **Faster AI:** characters think on different ticks instead of all at once; characters far from players think less (every 4th tick past 32 blocks) or pause (past 56 blocks) until someone comes near; paths are shared between characters and reused longer; line-of-sight checks in fights run less often.
+- New config options: `aiFullDetailRange` and `aiSimpleDetailRange`.
+- `/loafcraft debug ai` shows every character's goal, mood, detail level and how long its AI takes per tick, plus totals and path stats.
+- `/loafcraft duel <a> <b>` makes two characters fight each other.
+
+### AI overhaul part 6: personality and social behavior
+- **Idle actions:** characters greet trusted players with a crouch-spam and a wave, greet their friends by name, jump when happy, look at what you're holding (and comment on it), wander over to dropped items, sort and fiddle with their hotbar, sit on chairs, stretch in the morning, stargaze at night, watch you build, tinker with a couple of blocks (and put them back), mine a bit of stone, fish, run home from the rain, catch their breath after a close fight, celebrate a win, turn to look at nearby fights, and step aside when you stand in them.
+- **Friends stick together:** when one is attacked, nearby friends step in (Harley still stays out of FelixSyn's duels with ItzBreadLoaf).
+- **Rivalry trash-talk:** ItzBreadLoaf and FelixSyn swap short, family-friendly lines before they fight.
+- **Lines for every character** for greetings, fights, wins, low health, morning, night, rain and more, plus their own mood lines. New config option `personalityLines` to turn them off.
+
+### AI overhaul part 5: mace techniques
+- **Five mace moves,** shared by FelixSyn, Harley and Master BreadLoaf: wind-charge jumps, wind-charge chains (a wind charge down at you after each smash launches them again; a Wind Burst mace bounces by itself), pearl catches, diagonal pearls (an arcing pearl lands them beside you, then they wind-jump and come down from the side), and elytra rocket mace dives.
+- They pick the move for the moment (distance, room above, your armor, their health) and the mace for it (Breach against heavy armor, Density for big drops, Wind Burst for chains). Smashes only land if their aim is on you, and moves go wrong now and then depending on skill.
+- **FelixSyn** loves the air moves and now carries ender pearls, firework rockets and an elytra. **Harley** keeps it to wind jumps and short chains so she stays balanced. **Master BreadLoaf** adds pearl catches, still limited by his nerf (once every 20 seconds, warned, capped, sometimes failed).
+- New command: `/loafcraft technique <name> <move> [target]` to make them do a move for testing.
+
+### AI overhaul part 4: human-like combat
+- **Mouse-like aim:** characters no longer snap onto you. Their view moves like a hand on a mouse: it overshoots, corrects, lags behind you when you strafe, and wobbles a little. They only swing when their crosshair is on you, and sometimes click too early and miss. Better fighters aim faster and steadier.
+- **Reaction time:** 150-400 ms before they react to a new target, different every time.
+- **Hotbar switching takes a few ticks,** like pressing a key, and resets their attack charge.
+- **Real PvP moves:** full-charge hits, jump crits, W-taps and S-taps after hits, hit-and-run for Bandits, strafing in circles with random direction changes, and jump resets when they're hit.
+- **Shields:** raised when a hit is actually coming (and early enough for the shield to work), never held up for long, not raised against axes by good fighters. They switch to an axe to break your shield, then back to their sword.
+- **Backing off:** low on health they retreat, put up a couple of blocks for cover if they carry some, and eat a golden apple, drink a potion or eat food. They drink buff potions before a fight if they have any. Low-skill fighters sometimes panic when nearly dead.
+- **Lily and Madison** fight basic and defensive until they're angry, then focus up.
+
+### AI overhaul part 3: moods, memory, routines, skill profiles
+- **Moods:** every character is happy, bored, tired, scared, angry or curious, depending on what's going on (getting hurt, a friend getting hurt, being fed, night, nothing to do, new faces). Moods change their speed, how soon they back off from a fight and what they do with their day, and they say a short line when their mood changes.
+- **Memory:** characters remember players: who fed them, who hurt them, who they trust. Lily and Madison keep away from someone who hurt them from twice as far, and back off from them sooner in a fight.
+- **Daily routines:** wake up, work, see friends at noon, more work, free time, head home, sleep. ItzBreadLoaf trains on dummies or bakes, Lily reads, gardens, brews or patrols, Madison farms, bakes and sorts her pantry, FelixSyn practices wind-charge mace jumps, and Harley spars with him. Friends walk over to each other and say hi with a quick crouch.
+- **Skill profiles and play styles:** every character has Easy, Normal and Hard fighting numbers in the config (`skillProfiles`, chosen with `aiDifficulty`), and a play style (ItzBreadLoaf's types each fight their own way). Their swings now miss now and then, by skill.
+- New command: `/loafcraft mood <name> [mood]` to see or set a character's mood.
+- Config: `aiDifficulty`, `aiDifficultyOverrides`, `skillProfiles`, `playStyleOverrides`, `moods`, `routines`.
+
+### AI overhaul part 2: Master BreadLoaf nerf
+- **Much weaker:** 100 health (was 200), diamond armor with Protection II (was netherite Protection IV), and a plain diamond sword whose hits do 55% damage on Normal. He drinks one Speed I potion (no Strength) and has one golden apple per fight. No healing potions.
+- **One mace:** Wind Burst I. The Density V and Breach IV maces are gone.
+- **No hit of his can deal more than 8 hearts**, whatever the fall height. On Normal his smashes count at most 3 blocks of fall.
+- **Smashes:** at least 12 seconds apart on Normal (never under 8 on any preset), and at most 2 hits per Wind Burst chain.
+- **Big warnings:** before every smash and every elytra dive he stops for 1 second with a loud charge-up sound, sparks and portal particles.
+- **More human:** he takes 300-400 ms to react to a new target, some of his sword swings miss, he crits less, his pearls are a little off, and a quarter of his elytra dives miss on purpose. Dives happen at most every 20 seconds.
+- **Two phases:** at half health he gets 8% faster. That's all. He no longer summons ItzBreadLoafs.
+- **Ender Dragon:** he now shows up after the dragon dies, never during the fight.
+- Easy is weaker still. Hard brings back a little (120 health, Protection III, a Strength I potion) but keeps the damage cap and warnings.
+- A Master BreadLoaf saved in an old world gets the new kit and health the next time he loads.
+- Design doc for the whole AI overhaul: `AI_DESIGN.md`.
+
+- Fixed: enchanted books from LoafCraft loot (Rare and Epic tiers) were blank, with no enchantments. They now get real enchantments (low level from Rare, high level from Epic).
+
 ## 2.0.0: Update 2 complete
 
 ### Part 10: advancements

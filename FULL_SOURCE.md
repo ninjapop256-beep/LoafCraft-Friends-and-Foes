@@ -131,7 +131,7 @@ loader_version=0.19.5
 loom_version=1.18-SNAPSHOT
 
 # Mod Properties
-version=1.1.0-alpha.5
+version=2.0.0
 group=com.itzbreadloaf
 
 # Dependencies
@@ -760,7 +760,177 @@ public final class LoafCraftCommands {
 								.then(Commands.literal("food").then(Commands.argument("value", FloatArgumentType.floatArg(0.0F, 20.0F))
 										.executes(c -> setData(c, "food"))))
 								.then(Commands.literal("saturation").then(Commands.argument("value", FloatArgumentType.floatArg(0.0F, 20.0F))
-										.executes(c -> setData(c, "saturation"))))))));
+										.executes(c -> setData(c, "saturation"))))))
+						.then(Commands.literal("mood").then(name()
+								.executes(LoafCraftCommands::showMind)
+								.then(Commands.argument("mood", StringArgumentType.word()).suggests(MOODS)
+										.executes(LoafCraftCommands::setMood))))
+						.then(Commands.literal("technique").then(name()
+								.then(Commands.argument("technique", StringArgumentType.word()).suggests(TECHNIQUES)
+										.executes(c -> technique(c, null))
+										.then(Commands.argument("target", net.minecraft.commands.arguments.EntityArgument.entity())
+												.executes(c -> technique(c, net.minecraft.commands.arguments.EntityArgument.getEntity(c, "target")))))))
+						.then(Commands.literal("debug").then(Commands.literal("ai").executes(LoafCraftCommands::debugAi)))
+						.then(Commands.literal("duel").then(Commands.argument("first", StringArgumentType.word()).suggests(NAMES)
+								.then(Commands.argument("second", StringArgumentType.word()).suggests(NAMES)
+										.executes(LoafCraftCommands::duel))))));
+	}
+
+	/**
+	 * /loafcraft debug ai: every active character's goal, mood, detail level and AI time per tick, plus totals and the
+	 * path searches and cache hits since the last time it was run.
+	 */
+	private static int debugAi(CommandContext<CommandSourceStack> context) {
+		var active = CharacterManager.active();
+		if (active.isEmpty()) {
+			reply(context, "No characters are active right now.");
+			return 0;
+		}
+		double total = 0.0;
+		int full = 0;
+		int simple = 0;
+		int paused = 0;
+		for (LoafCharacter character : active) {
+			var brain = character.brain;
+			if (brain == null) {
+				continue;
+			}
+			total += brain.aiMicros();
+			switch (brain.detail()) {
+				case FULL -> full++;
+				case SIMPLE -> simple++;
+				case PAUSED -> paused++;
+			}
+			String line = String.format(java.util.Locale.ROOT, "%s [%s] %s, %s, %.0f us/tick", character.record.profileName(),
+					brain.detail().name().toLowerCase(java.util.Locale.ROOT), brain.describeGoal(), brain.mood().mood().id(), brain.aiMicros());
+			context.getSource().sendSuccess(() -> Component.literal(line), false);
+		}
+		int searches = com.itzbreadloaf.brain.Navigator.searchesCount;
+		int hits = com.itzbreadloaf.brain.Navigator.cacheHits;
+		com.itzbreadloaf.brain.Navigator.searchesCount = 0;
+		com.itzbreadloaf.brain.Navigator.cacheHits = 0;
+		String summary = String.format(java.util.Locale.ROOT, "%d characters (%d full, %d simple, %d paused): %.2f ms of AI per tick. Paths since last check: %d searched, %d from cache.",
+				active.size(), full, simple, paused, total / 1000.0, searches, hits);
+		context.getSource().sendSuccess(() -> Component.literal(summary).withStyle(net.minecraft.ChatFormatting.GOLD), false);
+		return active.size();
+	}
+
+	/** /loafcraft duel <first> <second>: makes two characters fight each other (up to 2 minutes, or until one goes down). */
+	private static int duel(CommandContext<CommandSourceStack> context) {
+		LoafCharacter first = CharacterManager.byName(StringArgumentType.getString(context, "first"));
+		LoafCharacter second = CharacterManager.byName(StringArgumentType.getString(context, "second"));
+		if (first == null || second == null || first.brain == null || second.brain == null) {
+			context.getSource().sendFailure(Component.literal("Both characters need to be spawned right now (a real player within ~4 chunks)."));
+			return 0;
+		}
+		if (first == second) {
+			context.getSource().sendFailure(Component.literal("A character can't duel itself."));
+			return 0;
+		}
+		if (first.player.level() != second.player.level() || first.player.distanceTo(second.player) > 48.0) {
+			context.getSource().sendFailure(Component.literal("They need to be in the same dimension and within 48 blocks of each other."));
+			return 0;
+		}
+		first.brain.startDuel(second.player);
+		second.brain.startDuel(first.player);
+		reply(context, first.record.profileName() + " and " + second.record.profileName() + " are dueling!");
+		return 1;
+	}
+
+	private static final SuggestionProvider<CommandSourceStack> TECHNIQUES = (context, builder) -> SharedSuggestionProvider.suggest(
+			java.util.Arrays.stream(com.itzbreadloaf.brain.MaceTechniques.Technique.values()).map(com.itzbreadloaf.brain.MaceTechniques.Technique::id), builder);
+
+	/**
+	 * /loafcraft technique <name> <technique> [target]: makes FelixSyn, Harley or Master BreadLoaf do a mace move now
+	 * (testing). Without a target, the nearest living thing within 24 blocks. Hands them anything the move needs that
+	 * they don't have (a mace, wind charges, pearls, rockets, an elytra).
+	 */
+	private static int technique(CommandContext<CommandSourceStack> context, @org.jetbrains.annotations.Nullable net.minecraft.world.entity.Entity targetArg)
+			throws CommandSyntaxException {
+		LoafCharacter character = character(context);
+		var brain = character.brain;
+		String id = StringArgumentType.getString(context, "technique");
+		var technique = com.itzbreadloaf.brain.MaceTechniques.Technique.byId(id);
+		if (technique == null) {
+			context.getSource().sendFailure(Component.literal("Unknown technique. Try pearl_catch, diagonal_pearl, elytra_mace, wind_chain or wind_jump."));
+			return 0;
+		}
+		if (brain.techniques() == null) {
+			context.getSource().sendFailure(Component.literal(character.record.profileName() + " doesn't do mace moves (FelixSyn, Harley and Master BreadLoaf do)."));
+			return 0;
+		}
+		var player = character.player;
+		net.minecraft.world.entity.LivingEntity target = targetArg instanceof net.minecraft.world.entity.LivingEntity living ? living : null;
+		if (target == null) {
+			double best = 24.0;
+			for (var entity : player.level().getEntitiesOfClass(net.minecraft.world.entity.LivingEntity.class, player.getBoundingBox().inflate(24.0),
+					e -> e != player && e.isAlive() && !e.isSpectator())) {
+				double d = entity.distanceTo(player);
+				if (d < best) {
+					best = d;
+					target = entity;
+				}
+			}
+		}
+		if (target == null) {
+			context.getSource().sendFailure(Component.literal("Nothing to aim at within 24 blocks. Give a target, e.g. @p or an armor stand."));
+			return 0;
+		}
+		java.util.List<String> given = new java.util.ArrayList<>();
+		java.util.function.BiConsumer<net.minecraft.world.item.Item, Integer> ensure = (item, count) -> {
+			if (com.itzbreadloaf.brain.Inv.count(player, stack -> stack.is(item)) < count) {
+				com.itzbreadloaf.brain.Inv.give(player, new net.minecraft.world.item.ItemStack(item, count));
+				given.add(count + " " + net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(item).getPath());
+			}
+		};
+		ensure.accept(net.minecraft.world.item.Items.MACE, 1);
+		ensure.accept(net.minecraft.world.item.Items.WIND_CHARGE, 4);
+		if (technique == com.itzbreadloaf.brain.MaceTechniques.Technique.PEARL_CATCH
+				|| technique == com.itzbreadloaf.brain.MaceTechniques.Technique.DIAGONAL_PEARL) {
+			ensure.accept(net.minecraft.world.item.Items.ENDER_PEARL, 2);
+		}
+		if (technique == com.itzbreadloaf.brain.MaceTechniques.Technique.ELYTRA_MACE) {
+			ensure.accept(net.minecraft.world.item.Items.FIREWORK_ROCKET, 8);
+			if (!player.getItemBySlot(net.minecraft.world.entity.EquipmentSlot.CHEST).is(net.minecraft.world.item.Items.ELYTRA)) {
+				ensure.accept(net.minecraft.world.item.Items.ELYTRA, 1);
+			}
+			if (player.getItemBySlot(net.minecraft.world.entity.EquipmentSlot.CHEST).isEmpty()) {
+				player.setItemSlot(net.minecraft.world.entity.EquipmentSlot.CHEST, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.IRON_CHESTPLATE));
+				given.add("an iron chestplate (worn)");
+			}
+		}
+		brain.forceTechnique(technique, target);
+		String note = given.isEmpty() ? "" : " (gave them " + String.join(", ", given) + ")";
+		String targetName = target.getName().getString();
+		reply(context, character.record.profileName() + ": " + technique.id() + " at " + targetName + note);
+		return 1;
+	}
+
+	private static final SuggestionProvider<CommandSourceStack> MOODS = (context, builder) -> SharedSuggestionProvider.suggest(
+			java.util.Arrays.stream(com.itzbreadloaf.brain.ai.Mood.values()).map(com.itzbreadloaf.brain.ai.Mood::id), builder);
+
+	/** /loafcraft mood <name>: mood, routine, skill preset, play style and how many players they remember. */
+	private static int showMind(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+		LoafCharacter character = character(context);
+		var brain = character.brain;
+		reply(context, character.record.profileName() + ": " + brain.mood().mood().id() + " (" + Math.round(brain.mood().strength() * 100)
+				+ "%), routine " + brain.routineActivity().id() + ", skill " + com.itzbreadloaf.config.ModConfig.get().aiPresetFor(character.kind())
+				+ ", play style " + brain.playStyle().id());
+		return 1;
+	}
+
+	/** /loafcraft mood <name> <mood>: holds that mood for 2 minutes (testing). */
+	private static int setMood(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+		LoafCharacter character = character(context);
+		String id = StringArgumentType.getString(context, "mood");
+		com.itzbreadloaf.brain.ai.Mood mood = com.itzbreadloaf.brain.ai.Mood.byId(id);
+		if (!mood.id().equalsIgnoreCase(id)) {
+			context.getSource().sendFailure(Component.literal("Unknown mood. Try happy, bored, tired, scared, angry or curious."));
+			return 0;
+		}
+		character.brain.setMood(mood, 2400);
+		reply(context, character.record.profileName() + " is now " + mood.id() + " (for 2 minutes)");
+		return 1;
 	}
 
 	private static RequiredArgumentBuilder<CommandSourceStack, String> name() {
@@ -1402,7 +1572,7 @@ import net.minecraft.world.level.saveddata.SavedDataType;
  * Where Master BreadLoaf appears. Never in the Overworld naturally.
  * - Nether fortresses and bastion remnants: when a player first enters one, a single roll (25%); at most one per structure.
  * - End cities: one per city, on its highest part (end ship / top tower).
- * - The Ender Dragon fight: once per dragon, when it drops to half health.
+ * - The Ender Dragon fight: once per dragon, after the dragon dies (never during the fight).
  * Which structures and dragons were already handled is saved with the world.
  */
 public final class BossSpawner {
@@ -1474,7 +1644,8 @@ public final class BossSpawner {
 
 	private static void checkDragon(ServerLevel level) {
 		for (EnderDragon dragon : level.getDragons()) {
-			if (dragon.isAlive() && dragon.getHealth() <= dragon.getMaxHealth() * 0.5F) {
+			// Only once the dragon is dead (its 10-second death animation; this runs every 5 seconds), never during the fight.
+			if (dragon.isDeadOrDying() || dragon.dragonDeathTime > 0) {
 				Data data = data(level);
 				if (data.dragons.add(dragon.getUUID())) {
 					data.setDirty();
@@ -1552,6 +1723,451 @@ public final class BossSpawner {
 			this.structures = new HashSet<>(structures);
 			this.dragons = new HashSet<>(dragons);
 		}
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/brain/Activities.java
+
+```java
+package com.itzbreadloaf.brain;
+
+import com.itzbreadloaf.character.CharacterManager;
+import com.itzbreadloaf.character.LoafCharacter;
+import java.util.List;
+import java.util.function.Predicate;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.decoration.ArmorStand;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.BellBlock;
+import net.minecraft.world.level.block.ButtonBlock;
+import net.minecraft.world.level.block.DoorBlock;
+import net.minecraft.world.level.block.FenceGateBlock;
+import net.minecraft.world.level.block.LeverBlock;
+import net.minecraft.world.level.block.TrapDoorBlock;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * The things characters do in their daily routine (AI overhaul part 3), all with real player inputs: work at a
+ * station (open the furnace, the brewing stand, the lectern, then close it), train on a dummy or shadow-box, practice
+ * wind-charge jumps, spar, patrol, visit a friend, and head home in the evening.
+ *
+ * Work comes in stints of 30-60 seconds with short breaks in between, like a person would.
+ */
+final class Activities {
+	private final LoafBrain brain;
+
+	private int stintTicks;
+	private int breakTicks;
+	private @Nullable BlockPos station;
+	private int stationSearch;
+	private boolean stationOpen;
+	private int stationTicks;
+	private @Nullable ArmorStand dummy;
+	private int dummySearch;
+	private boolean critJump;
+	private int strafeDir = 1;
+	private int strafeTimer;
+	private int practiceCooldown = 200;
+	private int practiceTicks = -1;
+	private @Nullable LoafBrain visiting;
+	private int visitTicks;
+	private int visitCooldown;
+	private @Nullable Vec3 patrolPoint;
+	private int patrolPause;
+
+	Activities(LoafBrain brain) {
+		this.brain = brain;
+	}
+
+	// ---------------------------------------------------------------- stints and breaks
+
+	/** True while on a break between work stints (the brain then looks around). */
+	private boolean onBreak() {
+		if (this.breakTicks > 0) {
+			this.breakTicks--;
+			this.brain.lookAround(8.0);
+			return true;
+		}
+		if (++this.stintTicks > 600 + this.brain.random.nextInt(600)) {
+			this.stintTicks = 0;
+			this.breakTicks = 100 + this.brain.random.nextInt(120);
+			this.stopWork();
+			return true;
+		}
+		return false;
+	}
+
+	private BlockPos center() {
+		return this.brain.home != null ? this.brain.home : this.brain.player.blockPosition();
+	}
+
+	/** Stops whatever work was going on (closes any open station). */
+	void stopWork() {
+		if (this.stationOpen) {
+			this.brain.player.closeContainer();
+			this.stationOpen = false;
+		}
+		this.critJump = false;
+		this.practiceTicks = -1;
+		this.brain.controls.setSneaking(false);
+	}
+
+	void stopVisit() {
+		this.visiting = null;
+	}
+
+	void stopAll() {
+		this.stopWork();
+		this.stopVisit();
+	}
+
+	// ---------------------------------------------------------------- stations
+
+	/**
+	 * Works at the nearest matching block near home: walks over, opens it (right-click), looks at it for a couple of
+	 * seconds, closes it, and keeps busy with their hands in between. False if there's no such block.
+	 */
+	boolean useStation(Predicate<BlockState> test, int radius) {
+		if (this.onBreak()) {
+			return true;
+		}
+		if (this.station == null || !test.test(this.brain.player.level().getBlockState(this.station))) {
+			if (--this.stationSearch > 0) {
+				return false;
+			}
+			this.stationSearch = 100;
+			this.station = this.brain.findBlock(this.center(), radius, 4, test);
+			if (this.station == null) {
+				return false;
+			}
+		}
+		Vec3 at = Vec3.atCenterOf(this.station);
+		if (this.brain.player.getEyePosition().distanceTo(at) > 3.5) {
+			if (this.stationOpen) {
+				this.stopWork();
+			}
+			this.brain.nav.moveTo(this.station, 2.0, Navigator.Speed.WALK);
+			return true;
+		}
+		this.brain.nav.stop();
+		this.brain.controls.lookAt(at);
+		this.stationTicks++;
+		if (!this.stationOpen && this.stationTicks % 100 == 0) {
+			this.brain.controls.aimAt(at);
+			this.brain.controls.useOnce();
+			this.stationOpen = true;
+		} else if (this.stationOpen && this.stationTicks % 100 == 50) {
+			this.brain.player.closeContainer();
+			this.stationOpen = false;
+		} else if (!this.stationOpen && this.stationTicks % 18 == 0) {
+			this.brain.player.swing(InteractionHand.MAIN_HAND);
+		}
+		return true;
+	}
+
+	/** ItzBreadLoaf's baking: the nearest furnace, smoker or crafting table (to knead dough on) near home. */
+	boolean bake() {
+		return this.useStation(state -> state.is(net.minecraft.world.level.block.Blocks.FURNACE)
+				|| state.is(net.minecraft.world.level.block.Blocks.SMOKER)
+				|| state.is(net.minecraft.world.level.block.Blocks.CRAFTING_TABLE), this.brain.homeRadius + 6);
+	}
+
+	// ---------------------------------------------------------------- training and sparring
+
+	/** Nothing alive (other than {@code except}) right in front, so a practice swing can't hit anyone by accident. */
+	private boolean clearInFront(@Nullable Entity except) {
+		Vec3 look = this.brain.player.getLookAngle();
+		AABB box = this.brain.player.getBoundingBox().move(look.scale(2.0)).inflate(1.5);
+		List<Entity> near = this.brain.player.level().getEntities(this.brain.player, box,
+				e -> e instanceof LivingEntity && e != except && !(e instanceof ArmorStand));
+		return near.isEmpty();
+	}
+
+	/**
+	 * Training: hits a training dummy (an armor stand near home) at full charge, with jump crits now and then
+	 * (full-charge hits are far apart, so the stand only wobbles and never breaks). No dummy: shadow-boxing in place.
+	 */
+	boolean train() {
+		if (this.onBreak()) {
+			return true;
+		}
+		if (this.dummy == null || !this.dummy.isAlive() || this.dummy.distanceTo(this.brain.player) > 16.0) {
+			this.dummy = null;
+			if (--this.dummySearch <= 0) {
+				this.dummySearch = 100;
+				BlockPos c = this.center();
+				List<ArmorStand> stands = this.brain.player.level().getEntitiesOfClass(ArmorStand.class, new AABB(c).inflate(12.0));
+				this.dummy = stands.isEmpty() ? null : stands.get(0);
+			}
+		}
+		float charge = this.brain.player.getAttackStrengthScale(0.5F);
+		if (this.dummy != null) {
+			Vec3 aim = this.dummy.getBoundingBox().getCenter();
+			double distance = this.brain.player.getEyePosition().distanceTo(aim);
+			if (distance > 3.0) {
+				this.brain.nav.moveTo(this.dummy.blockPosition(), 2.2, Navigator.Speed.WALK);
+				return true;
+			}
+			this.brain.nav.stop();
+			this.brain.controls.aimAt(aim);
+			this.strafe(0.25F);
+			this.swingWhenReady(charge, this.dummy);
+			return true;
+		}
+		// Shadow-boxing: circle a spot, swing at the air at full charge, jump for "crits".
+		this.brain.nav.stop();
+		this.strafe(0.45F);
+		this.brain.controls.look(this.brain.player.getYRot() + (this.brain.random.nextFloat() - 0.5F) * 6.0F, -5.0F);
+		this.swingWhenReady(charge, null);
+		return true;
+	}
+
+	private void strafe(float scale) {
+		if (--this.strafeTimer <= 0) {
+			this.strafeTimer = 15 + this.brain.random.nextInt(30);
+			this.strafeDir = this.brain.random.nextBoolean() ? 1 : -1;
+		}
+		Vec3 look = this.brain.player.getLookAngle().multiply(1.0, 0.0, 1.0);
+		if (look.lengthSqr() < 1.0E-4) {
+			return;
+		}
+		look = look.normalize();
+		this.brain.controls.walk(new Vec3(-look.z, 0.0, look.x).scale(this.strafeDir * scale), 1.0F);
+		this.brain.controls.setSprinting(false);
+	}
+
+	private void swingWhenReady(float charge, @Nullable Entity target) {
+		if (this.critJump) {
+			boolean falling = !this.brain.player.onGround() && this.brain.player.getDeltaMovement().y < -0.03;
+			if (falling && charge >= 0.95F) {
+				if (this.clearInFront(target)) {
+					this.brain.controls.attackOnce();
+				}
+				this.critJump = false;
+			} else if (this.brain.player.onGround() && this.brain.player.getDeltaMovement().y <= 0.0 && charge >= 0.99F) {
+				this.critJump = false;
+			}
+			return;
+		}
+		if (charge >= 0.85F && charge < 0.95F && this.brain.player.onGround() && this.brain.random.nextInt(3) == 0) {
+			this.critJump = true;
+			this.brain.controls.jumpOnce();
+			return;
+		}
+		if (charge >= 0.95F && this.brain.random.nextInt(4) == 0 && this.clearInFront(target)) {
+			this.brain.controls.attackOnce();
+		}
+	}
+
+	/**
+	 * Sparring with a partner (Harley with FelixSyn): face each other about 3 blocks apart, circle, and swing at
+	 * the air well to one side of them (35 degrees off, so no hit ever lands).
+	 */
+	boolean spar(LivingEntity partner) {
+		if (this.onBreak()) {
+			return true;
+		}
+		double distance = this.brain.player.distanceTo(partner);
+		if (distance > 4.5) {
+			this.brain.nav.follow(partner, 3.0, Navigator.Speed.WALK);
+			return true;
+		}
+		this.brain.nav.stop();
+		if (distance < 2.2) {
+			Vec3 away = this.brain.player.position().subtract(partner.position()).multiply(1.0, 0.0, 1.0);
+			this.brain.controls.walk(away, 0.6F);
+		} else {
+			this.strafe(0.5F);
+		}
+		float yaw = Controls.yawTo(this.brain.player.position(), partner.position()) + 35.0F * this.strafeDir;
+		this.brain.controls.look(yaw, 0.0F);
+		float charge = this.brain.player.getAttackStrengthScale(0.5F);
+		if (charge >= 0.95F && this.brain.random.nextInt(5) == 0 && this.clearInFront(null)) {
+			this.brain.controls.attackOnce();
+		}
+		return true;
+	}
+
+	// ---------------------------------------------------------------- mace practice
+
+	/** Nothing a wind charge would push or flip (doors, buttons, levers, bells, gates) right around the feet. */
+	private boolean safeForWindCharge() {
+		BlockPos feet = this.brain.player.blockPosition();
+		for (BlockPos pos : BlockPos.betweenClosed(feet.offset(-2, -1, -2), feet.offset(2, 2, 2))) {
+			var block = this.brain.player.level().getBlockState(pos).getBlock();
+			if (block instanceof DoorBlock || block instanceof TrapDoorBlock || block instanceof FenceGateBlock
+					|| block instanceof ButtonBlock || block instanceof LeverBlock || block instanceof BellBlock) {
+				return false;
+			}
+		}
+		AABB around = this.brain.player.getBoundingBox().inflate(5.0);
+		// Friends (Harley) don't count: getting pushed by his practice jumps is part of hanging out with him.
+		return this.brain.player.level().getEntities(this.brain.player, around, e -> e instanceof LivingEntity
+				&& !(CharacterManager.brain(e) instanceof LoafBrain other && this.brain.isFriendCharacter(other))).isEmpty()
+				&& this.brain.player.level().noCollision(this.brain.player, this.brain.player.getBoundingBox().expandTowards(0.0, 8.0, 0.0));
+	}
+
+	/**
+	 * FelixSyn practicing mace jumps: every 20-35 seconds, look down, jump and throw a wind charge at his feet, then
+	 * swing on the way down. Shadow-boxing in between. Only out in the open, away from people and doors.
+	 */
+	boolean practiceMaceJump() {
+		if (this.practiceTicks >= 0) {
+			this.practiceTicks++;
+			int t = this.practiceTicks;
+			if (t == 1) {
+				int slot = Inv.find(this.brain.player, stack -> stack.is(Items.WIND_CHARGE));
+				if (slot < 0) {
+					this.practiceTicks = -1;
+					return false;
+				}
+				slot = slot < 9 ? slot : Inv.toHotbar(this.brain.player, slot, 6);
+				this.brain.controls.selectSlot(slot);
+			}
+			if (t <= 8) {
+				this.brain.nav.stop();
+				this.brain.controls.lookInstantly(this.brain.player.getYRot(), 90.0F);
+				if (t == 3 && this.brain.player.onGround()) {
+					this.brain.controls.jumpOnce();
+				} else if (t == 5 && !this.brain.player.onGround()) {
+					this.brain.controls.useOnce();
+				}
+				return true;
+			}
+			if (t == 9) {
+				int mace = Inv.find(this.brain.player, stack -> stack.is(Items.MACE));
+				if (mace >= 0 && mace < 9) {
+					this.brain.controls.selectSlot(mace);
+				}
+			}
+			this.brain.controls.look(this.brain.player.getYRot(), 30.0F);
+			if (!this.brain.player.onGround() && this.brain.player.getDeltaMovement().y < 0.0 && this.brain.player.fallDistance > 1.5
+					&& t % 6 == 0 && this.clearInFront(null)) {
+				this.brain.controls.attackOnce();
+			}
+			if (t > 12 && this.brain.player.onGround() || t > 100) {
+				this.practiceTicks = -1;
+				this.practiceCooldown = 400 + this.brain.random.nextInt(300);
+			}
+			return true;
+		}
+		if (this.onBreak()) {
+			return true;
+		}
+		if (--this.practiceCooldown <= 0 && this.brain.player.onGround() && this.safeForWindCharge()) {
+			this.practiceTicks = 0;
+			return true;
+		}
+		return this.train();
+	}
+
+	// ---------------------------------------------------------------- patrol
+
+	/** Archers on watch: walk to points around the edge of home, stop and look out. */
+	boolean patrol() {
+		if (this.onBreak()) {
+			return true;
+		}
+		if (this.patrolPause > 0) {
+			this.patrolPause--;
+			if (this.patrolPause % 40 == 0) {
+				this.brain.controls.look(this.brain.player.getYRot() + (this.brain.random.nextFloat() - 0.5F) * 120.0F, -2.0F);
+			}
+			return true;
+		}
+		if (this.patrolPoint == null || this.brain.player.position().distanceTo(this.patrolPoint) < 1.5 || !this.brain.nav.isMoving()) {
+			if (this.patrolPoint != null && this.brain.player.position().distanceTo(this.patrolPoint) < 1.5) {
+				this.patrolPause = 80 + this.brain.random.nextInt(80);
+				this.patrolPoint = null;
+				return true;
+			}
+			double angle = this.brain.random.nextDouble() * Math.PI * 2.0;
+			int r = Math.max(4, this.brain.homeRadius - 1);
+			BlockPos c = this.center();
+			this.patrolPoint = this.brain.findSpotNear(c.offset((int) (Math.cos(angle) * r), 0, (int) (Math.sin(angle) * r)), 1);
+			if (this.patrolPoint == null) {
+				return false;
+			}
+			this.brain.nav.moveTo(this.patrolPoint, 1.0, Navigator.Speed.WALK);
+		}
+		return true;
+	}
+
+	// ---------------------------------------------------------------- friends and home
+
+	/**
+	 * Visits a friend character nearby: walks over, greets them with two quick crouches, and hangs out for about
+	 * 15 seconds looking at them. False if no friend is around (or after a recent visit).
+	 */
+	boolean visitFriend() {
+		if (this.visiting == null) {
+			if (this.visitCooldown > 0) {
+				this.visitCooldown--;
+				return false;
+			}
+			this.visitCooldown = 200;
+			LoafBrain best = null;
+			double bestDistance = 40.0;
+			for (LoafCharacter other : CharacterManager.active()) {
+				LoafBrain o = other.brain;
+				if (o == null || o == this.brain || other.player.level() != this.brain.player.level() || o.target != null
+						|| other.player.isSleeping() || !this.brain.isFriendCharacter(o)) {
+					continue;
+				}
+				double d = other.player.distanceTo(this.brain.player);
+				if (d < bestDistance) {
+					bestDistance = d;
+					best = o;
+				}
+			}
+			if (best == null) {
+				return false;
+			}
+			this.visiting = best;
+			this.visitTicks = 0;
+		}
+		LoafBrain friend = this.visiting;
+		if (!friend.player.isAlive() || friend.player.isRemoved() || friend.player.level() != this.brain.player.level()) {
+			this.visiting = null;
+			return false;
+		}
+		double distance = this.brain.player.distanceTo(friend.player);
+		this.brain.controls.lookAt(friend.player.getEyePosition());
+		if (distance > 2.8) {
+			this.brain.nav.follow(friend.player, 2.2, distance > 16.0 ? Navigator.Speed.SPRINT : Navigator.Speed.WALK);
+			return true;
+		}
+		this.brain.nav.stop();
+		this.visitTicks++;
+		// Greeting: two quick crouches when they arrive.
+		this.brain.controls.setSneaking(this.visitTicks < 16 && this.visitTicks % 8 < 4);
+		if (this.visitTicks > 300) {
+			this.brain.controls.setSneaking(false);
+			this.visiting = null;
+			this.visitCooldown = 1200;
+			return false;
+		}
+		return true;
+	}
+
+	/** Evening: back home and close to the bed. False when already there. */
+	boolean stayNearHome() {
+		BlockPos spot = this.brain.bed != null ? this.brain.bed : this.brain.home;
+		if (spot == null) {
+			return false;
+		}
+		if (this.brain.player.position().distanceTo(Vec3.atBottomCenterOf(spot)) > 4.5) {
+			this.brain.nav.moveTo(spot, 2.5, Navigator.Speed.WALK);
+			return true;
+		}
+		return false;
 	}
 }
 ```
@@ -1832,11 +2448,14 @@ public class BreadLoafBrain extends LoafBrain {
 		}
 		if (this.isTame()) {
 			if (!this.followOwner()) {
-				this.lookAround(8.0);
+				this.idleWithOwner();
 			}
 			return;
 		}
 		if (this.goToBed() || this.returnHome()) {
+			return;
+		}
+		if (this.tickRoutine() || this.tickIdleActions()) {
 			return;
 		}
 		double radius = switch (this.variant) {
@@ -1860,6 +2479,20 @@ public class BreadLoafBrain extends LoafBrain {
 				this.controls.swapHands();
 			}
 		}
+	}
+
+	/**
+	 * Work hours: most ItzBreadLoafs train (a training dummy near home, or shadow-boxing); village ones and the plain
+	 * kind bake at a furnace, smoker or crafting table. Archers stay at their post, miners and fishermen keep doing
+	 * their own thing.
+	 */
+	@Override
+	protected boolean doWork() {
+		return switch (this.variant) {
+			case ARCHER, MINER, FISHERMAN -> false;
+			case VILLAGER, BREADLOAF -> this.activities.bake() || this.activities.train();
+			default -> this.activities.train();
+		};
 	}
 
 	private void chooseTarget() {
@@ -2278,6 +2911,41 @@ public class BreadLoafBrain extends LoafBrain {
 		this.duties.load(tag);
 		this.groupId = tag.read("Group", UUIDUtil.CODEC).orElse(null);
 	}
+
+	// ---------------------------------------------------------------- personality (AI overhaul part 6)
+
+	/** ItzBreadLoaf: loud, scrappy, a little reckless, and all about bread. */
+	@Override
+	protected String[] lines(com.itzbreadloaf.brain.ai.Situation situation) {
+		return switch (situation) {
+			case GREET_PLAYER -> new String[]{"yo! good to see ya!", "heyyy, it's you!", "*crouch crouch* hi!", "my favorite person!"};
+			case GREET_FRIEND -> new String[]{"what's up, %s!", "%s! my buddy!", "yo %s, wanna spar later?"};
+			case FIGHT_START -> new String[]{"let's go!", "you picked the wrong loaf!", "time to get toasted!", "come on then!"};
+			case RIVAL -> new String[]{"FelixSyn! you again?!", "this time you're going down, Felix!", "my bread, my rules!", "you still owe me a loaf!"};
+			case FIGHT_WON -> new String[]{"GG! too easy!", "and stay down!", "who's the best? me!", "bread wins again!"};
+			case LOW_HEALTH -> new String[]{"ow ow ow!", "okay, okay, ouch!", "I need bread, now!"};
+			case DEFEND_FRIEND -> new String[]{"hey! back off my friend!", "nobody touches my crew!", "you want some too?!"};
+			case SCARED_FOR_FRIEND -> new String[]{"hey! you okay?!", "watch out!"};
+			case REST -> new String[]{"phew... that was close", "*catches his breath*", "I totally had that"};
+			case MORNING -> new String[]{"rise and grind!", "smells like fresh bread!", "*stretches* another great day!"};
+			case NIGHT -> new String[]{"zombies better stay away from me", "*looks up* whoa, stars"};
+			case RAIN -> new String[]{"my bread's getting soggy!", "ugh, rain!"};
+			case ITEM -> new String[]{"ooh, is that %s? nice!", "can I have that %s?", "cool %s!"};
+			case WATCH -> new String[]{"whatcha building?", "need a hand?", "ooh, can I help?"};
+		};
+	}
+
+	@Override
+	protected String[] moodLines(com.itzbreadloaf.brain.ai.Mood mood) {
+		return switch (mood) {
+			case HAPPY -> new String[]{"best day ever!", "*does a little jump*", "life is good!"};
+			case BORED -> new String[]{"booooored...", "anyone wanna spar? anyone?", "*kicks a pebble*"};
+			case TIRED -> new String[]{"*yawns* need a nap", "so... sleepy..."};
+			case CURIOUS -> new String[]{"huh? what's that?", "ooh, what's going on?"};
+			case SCARED -> new String[]{"uh oh... uh oh!", "nope nope nope"};
+			case ANGRY -> new String[]{"that's it, I'm mad now!", "grrr!", "you're gonna regret that!"};
+		};
+	}
 }
 ```
 
@@ -2484,13 +3152,19 @@ public final class Builder {
 ```java
 package com.itzbreadloaf.brain;
 
+import com.itzbreadloaf.brain.ai.PlayStyle;
+import com.itzbreadloaf.brain.ai.SkillProfile;
 import java.util.List;
+import java.util.function.BooleanSupplier;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.arrow.ThrownTrident;
 import net.minecraft.world.item.CrossbowItem;
 import net.minecraft.world.item.ItemStack;
@@ -2502,13 +3176,32 @@ import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Player-vs-player fighting with real inputs.
+ * Player-vs-player fighting with real inputs, done the way a person plays (AI overhaul part 4). How well each
+ * character does every part of this comes from its {@link SkillProfile}, and how it likes to fight from its
+ * {@link PlayStyle}.
  *
- * Melee: waits for the real attack cooldown ({@code getAttackStrengthScale}), aims at the closest point of the
- * target's hitbox, hits while sprinting for extra knockback, and jumps for critical hits (attacking while falling,
- * not sprinting). Raises a shield (held right-click with a shield in the offhand) between hits.
- * Ranged: bows are drawn for the real 20 ticks and released, crossbows are charged for their real charge time and
- * then fired, tridents are held 10+ ticks and thrown. Arrows are aimed with gravity and target movement.
+ * <ul>
+ * <li><b>Reaction time:</b> a new target is noticed 150-400 ms later (by skill); until then they only turn toward it.</li>
+ * <li><b>Aim:</b> mouse-like ({@link Controls#humanAim}): it moves toward the target, overshoots, corrects, lags behind
+ *   strafing and wobbles a little. They click when the crosshair is on the target, and now and then too early.</li>
+ * <li><b>Hotbar:</b> switching takes a few ticks ({@link Controls#switchSlot}) and resets the attack charge.</li>
+ * <li><b>Cooldown:</b> hits go in at 93-100% charge for full damage; jump crits hit on the way down.</li>
+ * <li><b>Knockback control:</b> W-taps (let go of forward for 1-3 ticks after a sprint hit, so the next hit knocks back
+ *   far again and they don't run into the target), S-taps (a short step back), hit-and-run back-offs, strafing in
+ *   circles with direction changes at random moments, and jump resets (a jump on the tick they're hit, to be pushed
+ *   back less).</li>
+ * <li><b>Shields:</b> raised when a hit is coming (the attacker's charge is nearly full, or a bow is drawn), allowing
+ *   for the shield's 5-tick raise; never held up for long; not raised against axes by skilled fighters. A blocking
+ *   target gets an axe hit (shield disabled for 5 seconds), then it's back to the main weapon.</li>
+ * <li><b>Backing off:</b> low on health they back away (shield up, or sprinting off), put a couple of blocks between
+ *   themselves and the attacker if they carry some, and eat a golden apple or food or drink a potion there.</li>
+ * <li><b>Panic:</b> very low on health, less skilled fighters sometimes do something erratic.</li>
+ * <li><b>Focus:</b> Lily and Madison fight basic and defensive (fewer crits, no taps, more blocking) until angry.</li>
+ * </ul>
+ *
+ * Ranged: bows are drawn for the real 20 ticks and released once the aim has settled, crossbows are charged for
+ * their real charge time and then fired, tridents are held 10+ ticks and thrown. Arrows are aimed with gravity and
+ * target movement.
  */
 public final class Combat {
 	public enum Weapon {
@@ -2521,6 +3214,10 @@ public final class Combat {
 
 	public static final int MELEE_SLOT = 0;
 	public static final int RANGED_SLOT = 1;
+	/** Where an axe goes for a shield break. */
+	public static final int AXE_SLOT = 2;
+
+	private enum Tap { NONE, W_TAP, S_TAP, BACK_OFF }
 
 	private final ServerPlayer player;
 	private final Controls controls;
@@ -2530,9 +3227,14 @@ public final class Combat {
 	private int critTimer;
 	private int strafeDirection = 1;
 	private int strafeTimer;
+	private boolean strafing = true;
 	private int releaseCooldown;
 	private boolean drawing;
 	private boolean shieldUp;
+	private int shieldTicks;
+	private int shieldRest;
+	private boolean threatSeen;
+	private boolean blockThisThreat;
 	private @Nullable ThrownTrident thrownTrident;
 	public boolean useCrits = true;
 	/** How often a jump crit is attempted when the timing allows (Harley on Hard: every time). */
@@ -2541,10 +3243,39 @@ public final class Combat {
 	public float retreatBelow;
 	private int retreatTicks;
 	private int retreatCooldown;
+	private int coverPlaced;
+	private int coverTries;
 	/** Called when a jump crit swing goes off (ItzBreadLoaf yells). */
 	public @org.jetbrains.annotations.Nullable Runnable onCrit;
 	public boolean useShield = true;
 	public boolean strafe = true;
+	/** Chance a melee swing misses on purpose by jerking the mouse (Master BreadLoaf's tuned nerf). */
+	public float whiffChance;
+
+	// ---- part 4: skill, style and human timing
+	/** The fighter's skill numbers (set by the brain from the config). */
+	public SkillProfile skill = SkillProfile.fallback(com.itzbreadloaf.character.CharacterKind.BREADLOAF, "normal");
+	/** How they like to fight (set by the brain). */
+	public PlayStyle style = PlayStyle.BRAWLER;
+	/** Fighting with full skill. Lily and Madison only are once they're angry. */
+	public boolean focused = true;
+	/** Reaction delay to new targets (Master BreadLoaf has his own). */
+	public boolean useReaction = true;
+	/** Eats or drinks something to heal while backing off; true if it started (set by the brain). */
+	public @Nullable BooleanSupplier healHook;
+	/** Places cover blocks while backing off (set by the brain; null = never). */
+	public @Nullable Builder builder;
+	private @Nullable LivingEntity lastTarget;
+	private int reactionTicks;
+	private float swingAt = 0.95F;
+	private boolean misclickDecided;
+	private boolean critDecided;
+	private boolean goCrit;
+	private boolean misclick;
+	private Tap tap = Tap.NONE;
+	private int tapTicks;
+	private int breakTicks;
+	private int returnSlot = -1;
 
 	public Combat(ServerPlayer player, Controls controls, RandomSource random) {
 		this.player = player;
@@ -2591,11 +3322,20 @@ public final class Combat {
 		return weapon != Weapon.FISTS;
 	}
 
+	/** Ticks a hotbar switch takes for this fighter. */
+	private int switchTicks() {
+		return Math.max(0, this.skill.hotbarSwitchTicks);
+	}
+
 	/**
-	 * Puts the best weapon for this distance in hand: a usable ranged weapon when far (if allowed),
-	 * otherwise the hardest-hitting melee weapon. Returns what it picked.
+	 * Puts the best weapon for this distance in hand: a usable ranged weapon when far (if allowed), otherwise the
+	 * hardest-hitting melee weapon. The switch takes the fighter's hotbar time. Returns what it picked.
 	 */
 	public Weapon equipBest(double distance, boolean allowRanged) {
+		if (this.breakTicks > 0) {
+			// Mid shield break: the axe stays out.
+			return this.held();
+		}
 		int rangedSlot = -1;
 		int meleeSlot = -1;
 		double bestDamage = 0.0;
@@ -2614,7 +3354,8 @@ public final class Combat {
 				}
 			}
 		}
-		boolean ranged = rangedSlot >= 0 && allowRanged && (distance > 6.0 || meleeSlot < 0);
+		double rangedFrom = this.style.ranged ? 5.0 : 6.0;
+		boolean ranged = rangedSlot >= 0 && allowRanged && (distance > rangedFrom || meleeSlot < 0);
 		int slot = ranged ? rangedSlot : meleeSlot;
 		if (slot < 0) {
 			// Fists: hold nothing (or anything that isn't a weapon).
@@ -2626,12 +3367,12 @@ public final class Combat {
 				}
 			}
 			if (empty >= 0) {
-				this.controls.selectSlot(empty);
+				this.controls.switchSlot(empty, this.switchTicks());
 			}
 			return Weapon.FISTS;
 		}
 		int hotbar = Inv.toHotbar(this.player, slot, ranged ? RANGED_SLOT : MELEE_SLOT);
-		this.controls.selectSlot(hotbar);
+		this.controls.switchSlot(hotbar, this.switchTicks());
 		return kindOf(this.player.getInventory().getItem(hotbar));
 	}
 
@@ -2649,9 +3390,24 @@ public final class Combat {
 		if (this.retreatCooldown > 0) {
 			this.retreatCooldown--;
 		}
+		// Reaction time: a new target is noticed a moment later. Until then they only turn toward it.
+		if (target != this.lastTarget) {
+			this.lastTarget = target;
+			this.reactionTicks = this.useReaction ? this.skill.reactionTicks(this.random) : 0;
+			this.misclickDecided = false;
+			this.breakTicks = 0;
+		}
+		if (this.reactionTicks > 0) {
+			this.reactionTicks--;
+			this.controls.humanAim(target.getEyePosition(), this.skill.aimSpeedDegrees * 0.6F, this.skill.aimErrorDegrees * 2.0F);
+			return;
+		}
 		if (this.strafeTimer-- <= 0) {
-			this.strafeTimer = 20 + this.random.nextInt(40);
+			// Direction changes at unpredictable moments; better fighters change more often.
+			int base = 8 + Math.round((1.0F - this.skill.strafeChance) * 25.0F);
+			this.strafeTimer = base + this.random.nextInt(base + 10);
 			this.strafeDirection = this.random.nextBoolean() ? 1 : -1;
+			this.strafing = this.strafe && this.random.nextFloat() < this.skill.strafeChance * (this.focused ? 1.0F : 0.5F);
 		}
 		Weapon weapon = this.held();
 		switch (weapon) {
@@ -2670,6 +3426,23 @@ public final class Combat {
 		this.drawing = false;
 		this.shieldUp = false;
 		this.critJump = false;
+		this.tap = Tap.NONE;
+		this.tapTicks = 0;
+		this.breakTicks = 0;
+	}
+
+	/**
+	 * Just got hit by {@code attacker}: a jump reset (jumping on the tick of the hit adds the jump's push against the
+	 * knockback, so they get knocked back less). Lands by skill.
+	 */
+	public void onHurt(@Nullable LivingEntity attacker) {
+		if (attacker == null || !this.player.onGround() || this.player.isInWater() || this.player.distanceTo(attacker) > 5.0) {
+			return;
+		}
+		if (this.random.nextFloat() < this.skill.jumpResetChance * (this.focused ? 1.0F : 0.6F)) {
+			this.controls.lookAt(attacker.getEyePosition());
+			this.controls.jumpOnce();
+		}
 	}
 
 	/** The point of the target's hitbox closest to our eyes (what a player aims at). */
@@ -2683,111 +3456,287 @@ public final class Combat {
 		return this.player.entityInteractionRange();
 	}
 
+	private @Nullable LivingEntity sightTarget;
+	private boolean sightResult;
+	private int sightTick = -100;
+
+	/** Line of sight (a ray through the world), remembered for 4 ticks per target since it's checked so often. */
 	public boolean canSee(LivingEntity target) {
-		return this.player.hasLineOfSight(target);
+		int now = this.player.tickCount;
+		if (target != this.sightTarget || now - this.sightTick >= 4) {
+			this.sightTarget = target;
+			this.sightTick = now;
+			this.sightResult = this.player.hasLineOfSight(target);
+		}
+		return this.sightResult;
+	}
+
+	/** The crosshair is on the target's hitbox, within reach. */
+	private boolean onTarget(LivingEntity target, double reach) {
+		Vec3 eyes = this.player.getEyePosition();
+		Vec3 end = eyes.add(this.player.getViewVector(1.0F).scale(reach));
+		return target.getBoundingBox().inflate(0.1).clip(eyes, end).isPresent();
+	}
+
+	private float aimError() {
+		return this.skill.aimErrorDegrees * (this.focused ? 1.0F : 1.3F);
 	}
 
 	private void melee(LivingEntity target, Navigator nav) {
 		Vec3 aim = this.aimPoint(target);
 		double distance = this.player.getEyePosition().distanceTo(aim);
 		double reach = this.reach() - 0.15;
-		float cooldown = this.player.getAttackStrengthScale(0.5F);
+		float charge = this.player.getAttackStrengthScale(0.5F);
 		boolean closeEnough = distance <= reach;
-
-		if (distance < 7.0) {
-			this.controls.aimAt(aim);
-		} else {
-			this.controls.lookAt(aim);
-		}
+		this.controls.humanAim(aim, this.skill.aimSpeedDegrees, this.aimError());
 
 		// Low on health: back off for a couple of seconds (blocking if there's a shield) to make room to heal.
 		if (this.retreatBelow > 0.0F && this.retreatTicks <= 0 && this.retreatCooldown <= 0 && distance < 6.0
 				&& this.player.getHealth() < this.player.getMaxHealth() * this.retreatBelow) {
 			this.retreatTicks = 50;
 			this.retreatCooldown = 300;
+			this.coverPlaced = 0;
+			this.coverTries = 0;
 		}
 		if (this.retreatTicks > 0) {
-			this.retreatTicks--;
-			this.critJump = false;
-			nav.stop();
-			Vec3 away = this.player.position().subtract(target.position()).multiply(1.0, 0.0, 1.0);
-			away = away.lengthSqr() < 1.0E-4 ? new Vec3(1.0, 0.0, 0.0) : away.normalize();
-			Vec3 side = new Vec3(-away.z, 0.0, away.x).scale(this.strafeDirection * 0.4);
-			if (this.useShield && this.hasUsableShield()) {
-				// Walk backwards behind the shield, still facing them.
-				this.raiseShield(true);
-				this.controls.walk(away.add(side));
-				this.controls.setSprinting(false);
-			} else {
-				// No shield: turn and sprint away.
-				this.raiseShield(false);
-				this.controls.lookAt(this.player.getEyePosition().add(away.scale(5.0)));
-				this.controls.walk(away.add(side));
-				this.controls.setSprinting(true);
-			}
+			this.retreat(target, nav, distance);
 			return;
 		}
-
-		// Movement: run in, then keep at about 2.5 blocks and circle a bit like a PvP player.
-		if (distance > 3.2 || !this.canSee(target)) {
-			nav.follow(target, 2.0, Navigator.Speed.SPRINT);
-		} else {
-			nav.stop();
-			Vec3 toTarget = target.position().subtract(this.player.position()).multiply(1.0, 0.0, 1.0);
-			Vec3 side = new Vec3(-toTarget.z, 0.0, toTarget.x).normalize().scale(this.strafe ? this.strafeDirection * 0.6 : 0.0);
-			Vec3 forward = toTarget.normalize().scale(distance > 2.6 ? 1.0 : distance < 1.6 ? -0.6 : 0.2);
-			this.controls.walk(forward.add(side));
-			this.controls.setSprinting(distance > 2.0 && !this.critJump);
+		if (this.panic(target, charge)) {
+			return;
 		}
-
-		// Shield up between hits, down to attack.
-		boolean shieldReady = this.useShield && this.hasUsableShield() && !this.critJump;
-		boolean threatened = distance < 4.5 && cooldown < 0.8 || this.targetIsAiming(target);
-		if (shieldReady && threatened && cooldown < 0.9F) {
-			this.raiseShield(true);
-		} else {
+		boolean breaking = this.tickShieldBreak(target, closeEnough, charge, reach);
+		this.move(target, nav, distance);
+		if (breaking) {
 			this.raiseShield(false);
+			return;
 		}
+		this.tickShield(target, distance, charge);
 
-		// Critical hits: jump when the cooldown is nearly back, hit on the way down.
+		// Critical hits: jump when the charge is nearly back, hit on the way down.
 		if (this.critJump) {
 			this.critTimer++;
 			boolean falling = !this.player.onGround() && this.player.getDeltaMovement().y < -0.03 && this.player.fallDistance > 0.0;
-			if (falling && closeEnough && cooldown >= 0.95F) {
-				this.controls.setSprinting(false);
-				this.swing();
+			if (falling && closeEnough && charge >= 0.95F && this.trySwing(target, reach)) {
 				this.critJump = false;
 				if (this.onCrit != null) {
 					this.onCrit.run();
 				}
 			} else if (this.critTimer > 14 && this.player.onGround()) {
+				// Mistimed: landed before the hit went in.
 				this.critJump = false;
 			}
 			return;
 		}
-		if (this.useCrits && this.player.onGround() && !this.player.isInWater() && closeEnough && cooldown >= 0.8F
-				&& cooldown < 0.95F && this.random.nextFloat() < this.critChance) {
+		// Go for a crit or not: decided once per swing, when the charge is nearly back.
+		if (!this.critDecided && charge >= 0.8F && charge < 0.95F) {
+			this.critDecided = true;
+			this.goCrit = this.random.nextFloat() < this.critChance * (this.focused ? 1.0F : 0.5F);
+		}
+		if (this.useCrits && this.goCrit && this.player.onGround() && !this.player.isInWater() && closeEnough && charge >= 0.8F
+				&& charge < 0.95F && this.tap == Tap.NONE) {
+			this.goCrit = false;
 			this.critJump = true;
 			this.critTimer = 0;
 			this.controls.setSprinting(false);
 			this.controls.jumpOnce();
 			return;
 		}
-		if (closeEnough && cooldown >= 0.95F && this.canSee(target)) {
-			this.swing();
+		if (closeEnough && charge >= this.swingAt && this.canSee(target)) {
+			this.trySwing(target, reach);
 		}
 	}
 
+	/**
+	 * A swing when the crosshair is on the target. Off target, a fighter waits for the aim to land, except that now
+	 * and then (mistake chance, decided once per swing) they click anyway and miss. True if a click went in.
+	 */
+	private boolean trySwing(LivingEntity target, double reach) {
+		if (this.controls.isSwitching()) {
+			return false;
+		}
+		if (!this.onTarget(target, reach)) {
+			if (!this.misclickDecided) {
+				this.misclickDecided = true;
+				this.misclick = this.random.nextFloat() < this.skill.mistakeChance;
+			}
+			if (!this.misclick) {
+				return false;
+			}
+		}
+		this.swing();
+		return true;
+	}
 
 	private void swing() {
 		this.raiseShield(false);
+		if (this.whiffChance > 0.0F && this.random.nextFloat() < this.whiffChance) {
+			// A human miss: the mouse is a little off when the click goes in.
+			float off = (this.random.nextBoolean() ? 1 : -1) * (14.0F + this.random.nextFloat() * 10.0F);
+			this.controls.lookInstantly(this.player.getYRot() + off, this.player.getXRot() - 6.0F);
+		}
+		boolean sprinting = this.player.isSprinting();
 		this.controls.attackOnce();
+		this.misclickDecided = false;
+		this.critDecided = false;
+		// Next hit at 93-100% charge: people don't click at exactly the same moment every time.
+		this.swingAt = 0.93F + this.random.nextFloat() * 0.07F;
+		// After the hit: W-tap, S-tap or a hit-and-run back-off.
+		if (!this.focused) {
+			return;
+		}
+		if (this.style == PlayStyle.HIT_AND_RUN && this.random.nextFloat() < 0.6F) {
+			this.startTap(Tap.BACK_OFF, 10 + this.random.nextInt(8));
+		} else if (sprinting && this.random.nextFloat() < this.skill.wTapChance) {
+			this.startTap(Tap.W_TAP, 1 + this.random.nextInt(3));
+		} else if (this.random.nextFloat() < this.skill.sTapChance) {
+			this.startTap(Tap.S_TAP, 2 + this.random.nextInt(3));
+		}
+	}
+
+	private void startTap(Tap tap, int ticks) {
+		this.tap = tap;
+		this.tapTicks = ticks;
+	}
+
+	/** Moving in a fight: run in, keep at the style's distance, circle, and do any W-tap, S-tap or back-off. */
+	private void move(LivingEntity target, Navigator nav, double distance) {
+		Vec3 toTarget = target.position().subtract(this.player.position()).multiply(1.0, 0.0, 1.0);
+		Vec3 forwardDir = toTarget.lengthSqr() < 1.0E-4 ? new Vec3(0.0, 0.0, 1.0) : toTarget.normalize();
+		Vec3 sideDir = new Vec3(-forwardDir.z, 0.0, forwardDir.x);
+		if (this.tapTicks > 0) {
+			this.tapTicks--;
+			nav.stop();
+			switch (this.tap) {
+				case W_TAP -> {
+					// Let go of W: no forward input, the sprint ends and starts again on the next hit.
+					if (this.strafing) {
+						this.controls.walk(sideDir.scale(this.strafeDirection), 0.5F);
+					}
+					this.controls.setSprinting(false);
+				}
+				case S_TAP -> {
+					this.controls.walk(forwardDir.scale(-1.0), 1.0F);
+					this.controls.setSprinting(false);
+				}
+				case BACK_OFF -> {
+					this.controls.walk(forwardDir.scale(-1.0).add(sideDir.scale(this.strafeDirection * 0.6)), 1.0F);
+					this.controls.setSprinting(false);
+				}
+				default -> {
+				}
+			}
+			if (this.tapTicks == 0) {
+				this.tap = Tap.NONE;
+			}
+			return;
+		}
+		double preferred = Mth.clamp(this.style.ranged ? 2.6 : this.style.preferredRange, 2.2, 3.4);
+		if (distance > preferred + 0.7 || !this.canSee(target)) {
+			nav.follow(target, Math.max(1.5, preferred - 0.6), Navigator.Speed.SPRINT);
+			return;
+		}
+		nav.stop();
+		Vec3 side = sideDir.scale(this.strafing ? this.strafeDirection * 0.6 : 0.0);
+		Vec3 forward = forwardDir.scale(distance > preferred ? 1.0 : distance < preferred - 1.0 ? -0.6 : 0.2);
+		this.controls.walk(forward.add(side));
+		this.controls.setSprinting(distance > 2.0 && !this.critJump);
+	}
+
+	// ---------------------------------------------------------------- backing off, panic
+
+	/**
+	 * Backing off to heal: walk backwards behind the shield (or sprint away without one), put up to two blocks between
+	 * them and the attacker if they carry building blocks, then eat or drink once there's a little room.
+	 */
+	private void retreat(LivingEntity target, Navigator nav, double distance) {
+		this.retreatTicks--;
+		this.critJump = false;
+		this.tap = Tap.NONE;
+		nav.stop();
+		Vec3 away = this.player.position().subtract(target.position()).multiply(1.0, 0.0, 1.0);
+		away = away.lengthSqr() < 1.0E-4 ? new Vec3(1.0, 0.0, 0.0) : away.normalize();
+		Vec3 side = new Vec3(-away.z, 0.0, away.x).scale(this.strafeDirection * 0.4);
+		if (distance > 3.5 && this.coverPlaced < 2 && this.builder != null && this.builder.hasBlocks()
+				&& Builder.allowed(this.player.level()) && this.placeCover(target)) {
+			return;
+		}
+		if (distance > 4.5 && this.healHook != null && this.retreatTicks % 5 == 0 && this.healHook.getAsBoolean()) {
+			this.retreatTicks = 0;
+			return;
+		}
+		if (this.useShield && this.hasUsableShield()) {
+			// Walk backwards behind the shield, still facing them.
+			this.raiseShield(true);
+			this.controls.walk(away.add(side));
+			this.controls.setSprinting(false);
+		} else {
+			// No shield: turn and sprint away.
+			this.raiseShield(false);
+			this.controls.lookAt(this.player.getEyePosition().add(away.scale(5.0)));
+			this.controls.walk(away.add(side));
+			this.controls.setSprinting(true);
+		}
+	}
+
+	/** A block at foot height between them and the attacker, then one on top. True while placing. */
+	private boolean placeCover(LivingEntity target) {
+		Vec3 toward = target.position().subtract(this.player.position());
+		Direction direction = Direction.getApproximateNearest(toward.x, 0.0, toward.z);
+		BlockPos wall = this.player.blockPosition().relative(direction).above(this.coverPlaced);
+		if (!this.player.level().getBlockState(wall).canBeReplaced()) {
+			this.coverPlaced++;
+			return false;
+		}
+		// Can't place it (nothing solid to click on): give up on cover after a few tries.
+		if (++this.coverTries > 12 || this.builder == null || !this.builder.holdBlocks()) {
+			this.coverPlaced = 2;
+			return false;
+		}
+		this.raiseShield(false);
+		if (this.builder.place(wall)) {
+			this.coverPlaced++;
+		}
+		return true;
+	}
+
+	/**
+	 * Very low on health, less skilled fighters sometimes lose their cool for a moment: a random jump, a sudden change
+	 * of direction, a click at half charge, or backing off early. Returns false: the fight goes on after it.
+	 */
+	private boolean panic(LivingEntity target, float charge) {
+		if (this.player.getHealth() >= this.player.getMaxHealth() * this.skill.panicHealth) {
+			return false;
+		}
+		float chance = 0.04F * (1.0F - this.skill.shieldSkill * 0.5F) * (this.focused ? 1.0F : 1.5F);
+		if (this.random.nextFloat() >= chance) {
+			return false;
+		}
+		switch (this.random.nextInt(4)) {
+			case 0 -> this.controls.jumpOnce();
+			case 1 -> this.strafeDirection = -this.strafeDirection;
+			case 2 -> {
+				if (charge > 0.4F) {
+					this.controls.attackOnce();
+				}
+			}
+			default -> {
+				if (this.retreatCooldown <= 0) {
+					this.retreatTicks = 30;
+					this.retreatCooldown = 200;
+					this.coverPlaced = 0;
+				}
+			}
+		}
+		return false;
 	}
 
 	/** Backing off to heal right now. */
 	public boolean isRetreating() {
 		return this.retreatTicks > 0;
 	}
+
+	// ---------------------------------------------------------------- shields
 
 	public boolean hasUsableShield() {
 		ItemStack offhand = this.player.getOffhandItem();
@@ -2798,6 +3747,7 @@ public final class Combat {
 	public void raiseShield(boolean up) {
 		if (up != this.shieldUp) {
 			this.shieldUp = up;
+			this.shieldTicks = 0;
 			this.controls.holdUse(up);
 		}
 	}
@@ -2812,6 +3762,99 @@ public final class Combat {
 		return target.isUsingItem() && (using.is(Items.BOW) || using.is(Items.CROSSBOW) || using.is(Items.TRIDENT));
 	}
 
+	/**
+	 * A melee hit is about to come: a player (or character) facing us whose attack charge is nearly full, close
+	 * enough to reach within the shield's 5-tick raise. Mobs: when they're close and our own swing isn't ready.
+	 */
+	private boolean hitComing(LivingEntity target, double distance, float ourCharge) {
+		if (distance > 4.5) {
+			return false;
+		}
+		if (target instanceof Player p) {
+			Vec3 toUs = this.player.getEyePosition().subtract(p.getEyePosition()).normalize();
+			boolean facing = p.getViewVector(1.0F).dot(toUs) > 0.65;
+			return facing && p.getAttackStrengthScale(5.0F) >= 0.9F;
+		}
+		return distance < 3.5 && ourCharge < 0.8F;
+	}
+
+	/**
+	 * Shields up when a hit is coming (timed by skill), down to attack, never held more than 1.5 seconds against
+	 * melee, and skilled fighters don't block an axe (it would disable the shield).
+	 */
+	private void tickShield(LivingEntity target, double distance, float charge) {
+		boolean ready = this.useShield && this.hasUsableShield() && !this.critJump && this.tap == Tap.NONE;
+		if (!ready) {
+			this.raiseShield(false);
+			return;
+		}
+		if (this.shieldRest > 0) {
+			this.shieldRest--;
+			this.raiseShield(false);
+			return;
+		}
+		boolean bow = this.targetIsAiming(target);
+		boolean axe = target.getMainHandItem().is(ItemTags.AXES) && this.skill.shieldSkill >= 0.5F;
+		boolean threat = bow || !axe && this.hitComing(target, distance, charge);
+		if (threat && !this.threatSeen) {
+			// Decided once per incoming hit: good fighters block it, others sometimes don't (or block too late).
+			this.threatSeen = true;
+			float block = (0.35F + 0.65F * this.skill.shieldSkill) * (0.6F + this.style.shieldBias) * (this.focused ? 1.0F : 1.2F);
+			this.blockThisThreat = this.random.nextFloat() < block;
+		} else if (!threat) {
+			this.threatSeen = false;
+		}
+		boolean up = threat && this.blockThisThreat && charge < this.swingAt;
+		// Less skilled fighters are slow to lower it again.
+		if (!up && this.shieldUp && this.shieldTicks < 6 && this.random.nextFloat() < (1.0F - this.skill.shieldSkill) * 0.3F) {
+			up = true;
+		}
+		if (this.shieldUp) {
+			this.shieldTicks++;
+			if (this.shieldTicks > 30 && !bow) {
+				up = false;
+				this.shieldRest = 8 + this.random.nextInt(8);
+			}
+		}
+		this.raiseShield(up);
+	}
+
+	/**
+	 * A target blocking with a shield: switch to an axe (if they carry one), hit the shield to disable it, then
+	 * switch back to the main weapon. True while busy with that (the normal swing waits).
+	 */
+	private boolean tickShieldBreak(LivingEntity target, boolean closeEnough, float charge, double reach) {
+		boolean holdingAxe = this.player.getMainHandItem().is(ItemTags.AXES);
+		if (this.breakTicks > 0) {
+			this.breakTicks--;
+			if (!target.isBlocking() || this.breakTicks == 0) {
+				// Shield's down (or this took too long): back to the main weapon.
+				if (this.returnSlot >= 0) {
+					this.controls.switchSlot(this.returnSlot, this.switchTicks());
+				}
+				this.breakTicks = 0;
+				this.returnSlot = -1;
+				return false;
+			}
+			if (holdingAxe && !this.controls.isSwitching() && closeEnough && charge >= 0.9F && this.onTarget(target, reach)) {
+				this.controls.attackOnce();
+			}
+			return true;
+		}
+		if (!target.isBlocking() || !closeEnough || holdingAxe || !this.focused || this.random.nextFloat() >= this.skill.shieldSkill * 0.2F) {
+			return false;
+		}
+		int axe = Inv.find(this.player, stack -> stack.is(ItemTags.AXES));
+		if (axe < 0) {
+			return false;
+		}
+		this.returnSlot = this.player.getInventory().getSelectedSlot();
+		int hotbar = Inv.toHotbar(this.player, axe, this.returnSlot == AXE_SLOT ? AXE_SLOT + 1 : AXE_SLOT);
+		this.controls.switchSlot(hotbar, this.switchTicks());
+		this.breakTicks = 60;
+		return true;
+	}
+
 	// ---------------------------------------------------------------- ranged
 
 	private void keepRange(LivingEntity target, Navigator nav, double min, double max) {
@@ -2821,25 +3864,30 @@ public final class Combat {
 		} else {
 			nav.stop();
 			Vec3 away = this.player.position().subtract(target.position()).multiply(1.0, 0.0, 1.0).normalize();
-			Vec3 side = new Vec3(-away.z, 0.0, away.x).scale(this.strafeDirection * 0.5);
+			Vec3 side = new Vec3(-away.z, 0.0, away.x).scale(this.strafing ? this.strafeDirection * 0.5 : 0.0);
 			this.controls.walk(distance < min ? away.add(side) : side, distance < min ? 1.0F : 0.5F);
 		}
+	}
+
+	/** The aim has settled close enough to the wanted direction to let a shot go. */
+	private boolean aimSettled() {
+		return this.controls.aimOffset() < 2.5F + this.aimError();
 	}
 
 	private void bow(LivingEntity target, Navigator nav) {
 		this.keepRange(target, nav, 7.0, 16.0);
 		this.raiseShieldOff();
 		boolean visible = this.canSee(target);
-		this.aimProjectile(target, 3.0, 0.05);
+		this.aimProjectileHuman(target, 3.0, 0.05);
 		if (!this.drawing) {
-			if (this.releaseCooldown <= 0 && visible && this.hasAmmo()) {
+			if (this.releaseCooldown <= 0 && visible && this.hasAmmo() && !this.controls.isSwitching()) {
 				this.drawing = true;
 				this.controls.holdUse(true);
 			}
 			return;
 		}
-		// Full draw is 20 ticks (as fast as a real player's full charge).
-		if (this.player.isUsingItem() && this.player.getTicksUsingItem() >= 20 && visible) {
+		// Full draw is 20 ticks (as fast as a real player's full charge); let go once the aim has settled.
+		if (this.player.isUsingItem() && this.player.getTicksUsingItem() >= 20 && visible && (this.aimSettled() || this.player.getTicksUsingItem() > 40)) {
 			this.drawing = false;
 			this.controls.holdUse(false);
 			this.releaseCooldown = 6 + this.random.nextInt(8);
@@ -2856,7 +3904,7 @@ public final class Combat {
 			if (!this.hasAmmo()) {
 				return;
 			}
-			this.controls.lookAt(target.getEyePosition());
+			this.controls.humanAim(target.getEyePosition(), this.skill.aimSpeedDegrees, this.aimError());
 			if (!this.drawing) {
 				this.drawing = true;
 				this.controls.holdUse(true);
@@ -2868,8 +3916,8 @@ public final class Combat {
 			}
 			return;
 		}
-		this.aimProjectile(target, 3.15, 0.05);
-		if (this.releaseCooldown <= 0 && this.canSee(target)) {
+		this.aimProjectileHuman(target, 3.15, 0.05);
+		if (this.releaseCooldown <= 0 && this.canSee(target) && this.aimSettled()) {
 			this.controls.useOnce();
 			this.releaseCooldown = 10;
 		}
@@ -2883,13 +3931,13 @@ public final class Combat {
 			return;
 		}
 		this.keepRange(target, nav, 5.0, 14.0);
-		this.aimProjectile(target, 2.5, 0.05);
+		this.aimProjectileHuman(target, 2.5, 0.05);
 		if (!this.drawing) {
 			if (this.releaseCooldown <= 0 && this.canSee(target)) {
 				this.drawing = true;
 				this.controls.holdUse(true);
 			}
-		} else if (this.player.isUsingItem() && this.player.getTicksUsingItem() >= 12) {
+		} else if (this.player.isUsingItem() && this.player.getTicksUsingItem() >= 12 && this.aimSettled()) {
 			this.drawing = false;
 			this.controls.holdUse(false);
 			this.releaseCooldown = 20;
@@ -2904,10 +3952,10 @@ public final class Combat {
 	}
 
 	/**
-	 * Aims a projectile with speed {@code v} (blocks/tick) and gravity {@code g}: leads a moving target and
-	 * tilts up for the drop (low-arc solution of the projectile equation).
+	 * Yaw and pitch for a projectile with speed {@code v} (blocks/tick) and gravity {@code g}: leads a moving target
+	 * and tilts up for the drop (low-arc solution of the projectile equation).
 	 */
-	public void aimProjectile(LivingEntity target, double v, double g) {
+	private float[] projectileAngles(LivingEntity target, double v, double g) {
 		Vec3 eyes = this.player.getEyePosition();
 		Vec3 aim = target.position().add(0.0, target.getBbHeight() * 0.6, 0.0);
 		double flightTicks = eyes.distanceTo(aim) / v;
@@ -2920,9 +3968,19 @@ public final class Combat {
 		double v2 = v * v;
 		double disc = v2 * v2 - g * (g * d * d + 2.0 * dy * v2);
 		double angle = disc < 0.0 ? Math.PI / 4.0 : Math.atan2(v2 - Math.sqrt(disc), g * d);
-		float yaw = (float) (Mth.atan2(dz, dx) * Mth.RAD_TO_DEG) - 90.0F;
-		float pitch = (float) (-angle * Mth.RAD_TO_DEG);
-		this.controls.lookInstantly(yaw, pitch);
+		return new float[]{(float) (Mth.atan2(dz, dx) * Mth.RAD_TO_DEG) - 90.0F, (float) (-angle * Mth.RAD_TO_DEG)};
+	}
+
+	/** Aims a projectile exactly, this tick (pearls and other scripted throws). */
+	public void aimProjectile(LivingEntity target, double v, double g) {
+		float[] angles = this.projectileAngles(target, v, g);
+		this.controls.lookInstantly(angles[0], angles[1]);
+	}
+
+	/** Aims a projectile with the fighter's mouse-like aim (bows, crossbows, tridents in a fight). */
+	private void aimProjectileHuman(LivingEntity target, double v, double g) {
+		float[] angles = this.projectileAngles(target, v, g);
+		this.controls.humanLook(angles[0], angles[1], this.skill.aimSpeedDegrees, this.aimError() * 0.6F);
 	}
 
 	// ---------------------------------------------------------------- trident pickup
@@ -2967,6 +4025,12 @@ import org.jetbrains.annotations.Nullable;
  * Each tick: the brain sets what it wants (walk direction, where to look, buttons), then {@link #apply()} turns the
  * look into a real yaw/pitch (turning at most {@link #MAX_TURN} degrees per tick, like a fast mouse) and converts
  * the wanted walk direction into forward/strafe input relative to where the player is now facing.
+ *
+ * Human aim ({@link #humanAim}): instead of snapping, the view moves like a hand on a mouse: it speeds toward the
+ * point (capped at the fighter's aim speed), overshoots a little and corrects, lags behind a target that's moving,
+ * and never sits perfectly still (a small wobble the size of the fighter's aim error).
+ *
+ * Hotbar switches can take time ({@link #switchSlot}): a few ticks, like pressing a number key or scrolling.
  */
 public final class Controls {
 	public static final float MAX_TURN = 45.0F;
@@ -2985,6 +4049,15 @@ public final class Controls {
 	private boolean holdingUse;
 	private boolean holdingAttack;
 	private int lastSlot = -1;
+	private boolean humanLook;
+	private float aimSpeed = 30.0F;
+	private float aimError = 3.0F;
+	private float yawVelocity;
+	private float pitchVelocity;
+	private float wobbleYaw;
+	private float wobblePitch;
+	private int pendingSlot = -1;
+	private int pendingTicks;
 
 	public Controls(ServerPlayer player, EntityPlayerActionPack pack) {
 		this.player = player;
@@ -2997,6 +4070,7 @@ public final class Controls {
 		this.walkScale = 1.0F;
 		this.wantYaw = null;
 		this.snapLook = false;
+		this.humanLook = false;
 	}
 
 	// ---------------------------------------------------------------- movement
@@ -3054,6 +4128,33 @@ public final class Controls {
 	public void aimAt(Vec3 point) {
 		this.lookAt(point);
 		this.snapLook = true;
+	}
+
+	/**
+	 * Aim at a point like a person with a mouse: at most {@code speed} degrees per tick, overshooting and correcting,
+	 * with a wobble of about {@code error} degrees.
+	 */
+	public void humanAim(Vec3 point, float speed, float error) {
+		this.lookAt(point);
+		this.humanLook = true;
+		this.aimSpeed = Math.max(4.0F, speed);
+		this.aimError = Math.max(0.0F, error);
+	}
+
+	/** {@link #humanAim} for a direction instead of a point. */
+	public void humanLook(float yaw, float pitch, float speed, float error) {
+		this.look(yaw, pitch);
+		this.humanLook = true;
+		this.aimSpeed = Math.max(4.0F, speed);
+		this.aimError = Math.max(0.0F, error);
+	}
+
+	/** How far (degrees) the view is from where it's being asked to look, or 0 with no look this tick. */
+	public float aimOffset() {
+		if (this.wantYaw == null) {
+			return 0.0F;
+		}
+		return Math.abs(Mth.wrapDegrees(this.wantYaw - this.player.getYRot())) + Math.abs(this.wantPitch - this.player.getXRot());
 	}
 
 	public boolean hasLook() {
@@ -3115,8 +4216,36 @@ public final class Controls {
 		this.pack.start(ActionType.SWAP_HANDS, Action.once());
 	}
 
-	/** Hotbar slot 0-8 (Carpet's slots are 1-9). */
+	/**
+	 * Switch to a hotbar slot after {@code delayTicks} (a person pressing a key or scrolling). Asking again for the
+	 * same slot doesn't restart the wait. Switching resets the attack charge, as it does for players.
+	 */
+	public void switchSlot(int slot, int delayTicks) {
+		int clamped = Mth.clamp(slot, 0, 8);
+		if (clamped == this.player.getInventory().getSelectedSlot()) {
+			// Already holding it: any other switch on its way is called off.
+			this.pendingSlot = -1;
+			return;
+		}
+		if (clamped == this.pendingSlot) {
+			return;
+		}
+		if (delayTicks <= 0) {
+			this.selectSlot(clamped);
+			return;
+		}
+		this.pendingSlot = clamped;
+		this.pendingTicks = delayTicks;
+	}
+
+	/** A slot switch is still on its way. */
+	public boolean isSwitching() {
+		return this.pendingSlot >= 0;
+	}
+
+	/** Hotbar slot 0-8 (Carpet's slots are 1-9), right now. Cancels any slower switch on its way. */
 	public void selectSlot(int slot) {
+		this.pendingSlot = -1;
 		int clamped = Mth.clamp(slot, 0, 8);
 		if (clamped != this.player.getInventory().getSelectedSlot() || clamped != this.lastSlot) {
 			this.pack.setSlot(clamped + 1);
@@ -3139,17 +4268,44 @@ public final class Controls {
 	// ---------------------------------------------------------------- end of tick
 
 	public void apply() {
+		if (this.pendingSlot >= 0 && --this.pendingTicks <= 0) {
+			int slot = this.pendingSlot;
+			this.selectSlot(slot);
+		}
 		if (this.wantYaw != null) {
 			float yaw = this.player.getYRot();
 			float pitch = this.player.getXRot();
-			float dYaw = Mth.wrapDegrees(this.wantYaw - yaw);
-			float dPitch = this.wantPitch - pitch;
-			if (!this.snapLook) {
-				dYaw = Mth.clamp(dYaw, -MAX_TURN, MAX_TURN);
-				dPitch = Mth.clamp(dPitch, -MAX_TURN, MAX_TURN);
+			float dYaw;
+			float dPitch;
+			if (this.humanLook && !this.snapLook) {
+				// The hand never holds perfectly still: a drifting wobble about the size of the aim error.
+				var random = this.player.getRandom();
+				this.wobbleYaw += (random.nextFloat() - 0.5F) * this.aimError * 0.6F - this.wobbleYaw * 0.15F;
+				this.wobblePitch += (random.nextFloat() - 0.5F) * this.aimError * 0.3F - this.wobblePitch * 0.15F;
+				this.wobbleYaw = Mth.clamp(this.wobbleYaw, -this.aimError * 1.5F, this.aimError * 1.5F);
+				this.wobblePitch = Mth.clamp(this.wobblePitch, -this.aimError, this.aimError);
+				float toYaw = Mth.wrapDegrees(this.wantYaw + this.wobbleYaw - yaw);
+				float toPitch = this.wantPitch + this.wobblePitch - pitch;
+				// A spring that's a little loose: speeds up toward the point, overshoots ~15% and settles in ~6 ticks.
+				this.yawVelocity = Mth.clamp(this.yawVelocity * 0.35F + toYaw * 0.55F, -this.aimSpeed, this.aimSpeed);
+				this.pitchVelocity = Mth.clamp(this.pitchVelocity * 0.35F + toPitch * 0.55F, -this.aimSpeed, this.aimSpeed);
+				dYaw = this.yawVelocity;
+				dPitch = this.pitchVelocity;
+			} else {
+				dYaw = Mth.wrapDegrees(this.wantYaw - yaw);
+				dPitch = this.wantPitch - pitch;
+				if (!this.snapLook) {
+					dYaw = Mth.clamp(dYaw, -MAX_TURN, MAX_TURN);
+					dPitch = Mth.clamp(dPitch, -MAX_TURN, MAX_TURN);
+				}
+				this.yawVelocity = dYaw * 0.5F;
+				this.pitchVelocity = dPitch * 0.5F;
 			}
 			this.pack.look(yaw + dYaw, Mth.clamp(pitch + dPitch, -90.0F, 90.0F));
 			this.player.setYHeadRot(this.player.getYRot());
+		} else {
+			this.yawVelocity *= 0.5F;
+			this.pitchVelocity *= 0.5F;
 		}
 		float forward = 0.0F;
 		float strafe = 0.0F;
@@ -3453,7 +4609,7 @@ public class FelixBrain extends LoafBrain {
 	public static final double RIVAL_RANGE = 24.0;
 	public static final double HOME_RADIUS = 24.0;
 
-	private final MaceJump maceJump;
+	private final MaceTechniques techniques;
 	private @Nullable BlockPos hangoutSpot;
 	private int hangoutTicks;
 	private int nextRivalMessage;
@@ -3472,7 +4628,7 @@ public class FelixBrain extends LoafBrain {
 
 	public FelixBrain(LoafCharacter character) {
 		super(character);
-		this.maceJump = new MaceJump(this.player, this.controls, this.combat);
+		this.techniques = new MaceTechniques(this.player, this.controls, this.combat, this.random);
 		this.combat.critChance = 0.6F;
 		this.combat.retreatBelow = (float) com.itzbreadloaf.config.ModConfig.get().felixRetreatHealth;
 	}
@@ -3570,6 +4726,24 @@ public class FelixBrain extends LoafBrain {
 		if (Inv.count(this.player, stack -> stack.is(Items.WIND_CHARGE)) < 8) {
 			Inv.give(this.player, new ItemStack(Items.WIND_CHARGE, 16));
 		}
+		// FelixSyn himself (not wild ones, and not once tamed, so nobody can farm them) keeps pearls and rockets topped up.
+		if (this.variant == CharacterVariant.FELIXSYN && !this.isTame()) {
+			if (Inv.count(this.player, stack -> stack.is(Items.ENDER_PEARL)) < 4) {
+				Inv.give(this.player, new ItemStack(Items.ENDER_PEARL, 8));
+			}
+			if (Inv.count(this.player, stack -> stack.is(Items.FIREWORK_ROCKET)) < 8) {
+				Inv.give(this.player, new ItemStack(Items.FIREWORK_ROCKET, 16));
+			}
+		}
+	}
+
+	/** His limits: 6 blocks of fall counted per smash (as before), chains of up to 3, failures by skill. */
+	private void configureTechniques() {
+		this.techniques.limits.maxFall = 6.0F;
+		this.techniques.limits.maxChain = 3;
+		this.techniques.limits.warnTicks = 0;
+		this.techniques.limits.warn = null;
+		this.techniques.limits.failChance = this.skill().techniqueFailChance;
 	}
 
 	// ---------------------------------------------------------------- voice
@@ -3668,15 +4842,21 @@ public class FelixBrain extends LoafBrain {
 
 	@Override
 	public boolean allowDamage(DamageSource source, float amount) {
-		// His own mace smashes don't hurt him.
-		return !(this.maceJump.isActive() && source.is(net.minecraft.tags.DamageTypeTags.IS_FALL));
+		// His own mace moves don't give him fall damage (his pearls still cost him 5, like anyone's).
+		return !(this.techniques.isActive() && source.is(net.minecraft.tags.DamageTypeTags.IS_FALL)
+				&& !source.is(net.minecraft.world.damagesource.DamageTypes.ENDER_PEARL));
+	}
+
+	@Override
+	public MaceTechniques techniques() {
+		return this.techniques;
 	}
 
 	// ---------------------------------------------------------------- behavior
 
 	@Override
 	protected void tickBehavior() {
-		this.maceJump.tickCooldown();
+		this.techniques.tickCooldown();
 		this.tickVoice();
 		if (!this.isWild() && this.ticks >= this.nextDrifterCheck) {
 			this.nextDrifterCheck = this.ticks + 40;
@@ -3693,7 +4873,7 @@ public class FelixBrain extends LoafBrain {
 			this.fight(this.target);
 			return;
 		}
-		this.maceJump.cancel();
+		this.techniques.cancel();
 		if (this.tryEat() || this.tickLove()) {
 			return;
 		}
@@ -3701,7 +4881,7 @@ public class FelixBrain extends LoafBrain {
 			// Tamed: he goes where his owner goes (an empty-hand right-click makes him sit or stand).
 			this.idleVoice();
 			if (!this.followOwner()) {
-				this.lookAround(8.0);
+				this.idleWithOwner();
 			}
 			return;
 		}
@@ -3716,10 +4896,22 @@ public class FelixBrain extends LoafBrain {
 		this.controls.setSneaking(false);
 		this.sleepVoiced = false;
 		this.idleVoice();
-		if (this.returnHome()) {
+		if (this.returnHome() || this.tickRoutine() || this.tickIdleActions()) {
 			return;
 		}
 		this.hangOut();
+	}
+
+	/** Work hours: mace practice (wind-charge jumps out in the open, shadow-boxing in between). */
+	@Override
+	protected boolean doWork() {
+		return this.activities.practiceMaceJump();
+	}
+
+	/** Friends time is his hangout (the village bell, the water): Harley comes along anyway. */
+	@Override
+	protected boolean socialize() {
+		return false;
 	}
 
 	/** Now and then, one of his idle lines. */
@@ -3839,8 +5031,8 @@ public class FelixBrain extends LoafBrain {
 			this.setTarget(null);
 			return;
 		}
-		if (this.maceJump.isActive()) {
-			this.maceJump.tick(target, 6.0F);
+		if (this.techniques.isActive()) {
+			this.techniques.tick(target);
 			return;
 		}
 		if (this.player.getHealth() < this.player.getMaxHealth() * 0.4F && this.eatNow(stack -> stack.is(Items.GOLDEN_APPLE))) {
@@ -3850,16 +5042,21 @@ public class FelixBrain extends LoafBrain {
 			return;
 		}
 		double distance = this.player.distanceTo(target);
-		if (distance < 6.0 && distance > 1.5 && this.maceJump.canStart() && this.random.nextInt(4) == 0) {
-			this.maceJump.start(100 + this.random.nextInt(60));
-			this.voice(com.itzbreadloaf.sound.FelixVoices.Moment.MACE);
-			this.maceJump.tick(target, 6.0F);
-			return;
+		// The aerialist: wind jumps and chains up close, pearl catches, diagonal pearls from range, elytra dives from far.
+		if (this.techniques.isReady() && this.random.nextInt(4) == 0) {
+			MaceTechniques.Technique move = this.techniques.choose(target, distance, this.playStyle());
+			if (move != null) {
+				this.configureTechniques();
+				this.techniques.start(move, target, 100 + this.random.nextInt(60));
+				this.voice(com.itzbreadloaf.sound.FelixVoices.Moment.MACE);
+				this.techniques.tick(target);
+				return;
+			}
 		}
 		// On the ground: his sword.
 		int sword = Inv.ready(this.player, stack -> stack.is(net.minecraft.tags.ItemTags.SWORDS), 0);
 		if (sword >= 0) {
-			this.controls.selectSlot(sword);
+			this.controls.switchSlot(sword, this.skill().hotbarSwitchTicks);
 		}
 		this.combat.fight(target, this.nav);
 	}
@@ -4032,6 +5229,41 @@ public class FelixBrain extends LoafBrain {
 		this.hangoutSpot = tag.read("Hangout", BlockPos.CODEC).orElse(null);
 	}
 
+
+	// ---------------------------------------------------------------- personality (AI overhaul part 6)
+
+	/** FelixSyn: a cool show-off who lives for mace jumps. */
+	@Override
+	protected String[] lines(com.itzbreadloaf.brain.ai.Situation situation) {
+		return switch (situation) {
+			case GREET_PLAYER -> new String[]{"yo, what's good?", "ayy, look who it is", "sup!", "hey hey!"};
+			case GREET_FRIEND -> new String[]{"there you are, %s", "sup %s", "%s! ready to roll?"};
+			case FIGHT_START -> new String[]{"let's dance!", "you sure about this?", "alright, let's go"};
+			case RIVAL -> new String[]{"ready for round two, BreadLoaf?", "watch the skies, toast boy!", "I'll land on you like that loaf!", "say goodbye to your crumbs!"};
+			case FIGHT_WON -> new String[]{"too easy!", "that's how it's done!", "gg, better luck next time"};
+			case LOW_HEALTH -> new String[]{"okay, okay, you're good!", "need a sec...", "whoa, not bad!"};
+			case DEFEND_FRIEND -> new String[]{"hey! nobody messes with Harley!", "you wanna go? come on then!"};
+			case SCARED_FOR_FRIEND -> new String[]{"you good?!", "hey, hang in there!"};
+			case REST -> new String[]{"that was close...", "*stretches* alright, alright"};
+			case MORNING -> new String[]{"morning! perfect wind today", "time to fly"};
+			case NIGHT -> new String[]{"stars are out", "good night for a jump"};
+			case RAIN -> new String[]{"rain? perfect for a smash", "ugh, slippery"};
+			case ITEM -> new String[]{"nice %s!", "where'd you get that %s?", "is that a %s? cool"};
+			case WATCH -> new String[]{"need some help with that?", "looking good", "not bad, not bad"};
+		};
+	}
+
+	@Override
+	protected String[] moodLines(com.itzbreadloaf.brain.ai.Mood mood) {
+		return switch (mood) {
+			case HAPPY -> new String[]{"feeling light today!", "*bounces on his toes*"};
+			case BORED -> new String[]{"anyone up for some mace practice?", "*spins his mace*", "so... quiet..."};
+			case TIRED -> new String[]{"*yawns*", "long day"};
+			case CURIOUS -> new String[]{"hm? what's that?", "huh, interesting"};
+			case SCARED -> new String[]{"whoa, whoa!", "okay, that's a lot"};
+			case ANGRY -> new String[]{"alright, now I'm annoyed", "you asked for it!"};
+		};
+	}
 }
 ```
 
@@ -4607,7 +5839,7 @@ public class HarleyBrain extends LoafBrain {
 	public static final int TAME_CHANCE = 5;
 	private static final Identifier DAMAGE_PRESET_ID = Identifier.fromNamespaceAndPath("itzbreadloaf", "harley_damage_preset");
 
-	private final MaceJump maceJump;
+	private final MaceTechniques techniques;
 	private @Nullable UUID partner;
 	private @Nullable UUID vengeance;
 	private int vengeanceTicks;
@@ -4623,7 +5855,7 @@ public class HarleyBrain extends LoafBrain {
 
 	public HarleyBrain(LoafCharacter character) {
 		super(character);
-		this.maceJump = new MaceJump(this.player, this.controls, this.combat);
+		this.techniques = new MaceTechniques(this.player, this.controls, this.combat, this.random);
 		// The best duelist: almost never backs off.
 		this.combat.retreatBelow = (float) com.itzbreadloaf.config.ModConfig.get().harleyRetreatHealth;
 	}
@@ -4702,7 +5934,13 @@ public class HarleyBrain extends LoafBrain {
 
 	@Override
 	public boolean allowDamage(DamageSource source, float amount) {
-		return !(this.maceJump.isActive() && source.is(net.minecraft.tags.DamageTypeTags.IS_FALL));
+		return !(this.techniques.isActive() && source.is(net.minecraft.tags.DamageTypeTags.IS_FALL)
+				&& !source.is(net.minecraft.world.damagesource.DamageTypes.ENDER_PEARL));
+	}
+
+	@Override
+	public MaceTechniques techniques() {
+		return this.techniques;
 	}
 
 	// ---------------------------------------------------------------- partner
@@ -4738,7 +5976,7 @@ public class HarleyBrain extends LoafBrain {
 
 	@Override
 	protected void tickBehavior() {
-		this.maceJump.tickCooldown();
+		this.techniques.tickCooldown();
 		if (this.vengeanceTicks > 0 && --this.vengeanceTicks == 0) {
 			this.vengeance = null;
 			this.setTarget(null);
@@ -4753,7 +5991,7 @@ public class HarleyBrain extends LoafBrain {
 		this.fightTicks = 0;
 		this.buffed = false;
 		this.ateApple = false;
-		this.maceJump.cancel();
+		this.techniques.cancel();
 		if (this.tryEat() || this.tickLove()) {
 			return;
 		}
@@ -4763,26 +6001,37 @@ public class HarleyBrain extends LoafBrain {
 		if (this.isTame()) {
 			// If her owner is her best friend and another Harley is already following him, she stays put.
 			if (this.owner != null && isBestFriend(this.getOwnerPlayer()) && this.followSpotTaken(this.owner) || !this.followOwner()) {
-				this.lookAround(8.0);
+				this.idleWithOwner();
 			}
 			return;
 		}
 		LoafCharacter felix = this.partnerCharacter();
 		if (felix != null && felix.player.level() == this.player.level()) {
 			double distance = this.player.distanceTo(felix.player);
-			if (distance > 4.0) {
+			if (distance > 6.0 || distance > 4.0 && felix.brain != null && felix.brain.nav().isMoving()) {
 				this.nav.follow(felix.player, 2.5, distance > 10.0 ? Navigator.Speed.SPRINT : Navigator.Speed.WALK);
-			} else {
+			} else if (!this.tickRoutine() && !this.tickIdleActions()) {
 				this.nav.stop();
 				this.controls.setSneaking(felix.player.isShiftKeyDown());
 				this.lookAround(6.0);
 			}
 			return;
 		}
-		if (this.returnHome()) {
+		if (this.returnHome() || this.tickRoutine() || this.tickIdleActions()) {
 			return;
 		}
 		this.wander(16.0);
+	}
+
+	/** Work hours: sparring with FelixSyn when he's around and not busy, training on her own otherwise. */
+	@Override
+	protected boolean doWork() {
+		LoafCharacter felix = this.partnerCharacter();
+		if (felix != null && felix.brain != null && felix.brain.getTarget() == null && felix.player.level() == this.player.level()
+				&& felix.player.distanceTo(this.player) < 12.0) {
+			return this.activities.spar(felix.player);
+		}
+		return this.activities.train();
 	}
 
 	private void chooseTarget() {
@@ -4855,8 +6104,8 @@ public class HarleyBrain extends LoafBrain {
 			this.setTarget(null);
 			return;
 		}
-		if (this.maceJump.isActive()) {
-			this.maceJump.tick(target, 6.0F);
+		if (this.techniques.isActive()) {
+			this.techniques.tick(target);
 			return;
 		}
 		// Strength and Swiftness at the start of a fight (if there's a moment to drink).
@@ -4876,14 +6125,23 @@ public class HarleyBrain extends LoafBrain {
 		}
 		// Mace smash when they're close and armored, or now and then to mix it up.
 		boolean armored = target.getArmorValue() >= 15;
-		if (distance < 5.5 && distance > 1.5 && this.maceJump.canStart() && (armored || this.random.nextInt(10) == 0)) {
-			this.maceJump.start(armored ? 60 : 120);
-			this.maceJump.tick(target, 6.0F);
-			return;
+		// The duelist keeps it simple: a wind jump or a wind-charge chain (at most 2 hits), against armor or now and then.
+		if (this.techniques.isReady() && (armored || this.random.nextInt(10) == 0)) {
+			MaceTechniques.Technique move = this.techniques.choose(target, distance, this.playStyle());
+			if (move == MaceTechniques.Technique.WIND_JUMP || move == MaceTechniques.Technique.WIND_CHAIN) {
+				this.techniques.limits.maxFall = 6.0F;
+				this.techniques.limits.maxChain = 2;
+				this.techniques.limits.warnTicks = 0;
+				this.techniques.limits.warn = null;
+				this.techniques.limits.failChance = this.skill().techniqueFailChance;
+				this.techniques.start(move, target, armored ? 60 : 120);
+				this.techniques.tick(target);
+				return;
+			}
 		}
 		int blade = Inv.ready(this.player, stack -> stack.is(ModItems.HARLEYS_BLADE) || stack.is(net.minecraft.tags.ItemTags.SWORDS), 0);
 		if (blade >= 0) {
-			this.controls.selectSlot(blade);
+			this.controls.switchSlot(blade, this.skill().hotbarSwitchTicks);
 		}
 		this.combat.fight(target, this.nav);
 	}
@@ -5116,6 +6374,760 @@ public class HarleyBrain extends LoafBrain {
 		this.partner = tag.read("Partner", UUIDUtil.CODEC).orElse(null);
 	}
 
+
+	/** She never steps into FelixSyn's duels with ItzBreadLoaf (that rule stays); anyone else hurting a friend, she does. */
+	@Override
+	protected void onFriendHurt(LoafBrain friend, LivingEntity attacker) {
+		if (friend.kind() == com.itzbreadloaf.character.CharacterKind.FELIXSYN
+				&& LoafIds.kind(attacker.getUUID()) == com.itzbreadloaf.character.CharacterKind.BREADLOAF) {
+			return;
+		}
+		super.onFriendHurt(friend, attacker);
+	}
+
+	// ---------------------------------------------------------------- personality (AI overhaul part 6)
+
+	/** Harley: quiet, cool, and loyal. */
+	@Override
+	protected String[] lines(com.itzbreadloaf.brain.ai.Situation situation) {
+		return switch (situation) {
+			case GREET_PLAYER -> new String[]{"hey.", "*nods*", "oh, hi."};
+			case GREET_FRIEND -> new String[]{"hey, %s.", "*nods at %s*"};
+			case FIGHT_START -> new String[]{"en garde.", "let's make this quick.", "ready when you are."};
+			case RIVAL -> new String[]{"..."};
+			case FIGHT_WON -> new String[]{"good fight.", "*sheathes her blade*", "stay down."};
+			case LOW_HEALTH -> new String[]{"not bad...", "*steadies herself*"};
+			case DEFEND_FRIEND -> new String[]{"leave him alone.", "you'll have to get past me."};
+			case SCARED_FOR_FRIEND -> new String[]{"hey. you okay?", "*steps closer*"};
+			case REST -> new String[]{"*catches her breath*", "...fine. I'm fine."};
+			case MORNING -> new String[]{"morning.", "*stretches her arms*"};
+			case NIGHT -> new String[]{"quiet night.", "*looks at the stars*"};
+			case RAIN -> new String[]{"great. rain.", "*pulls up her hood*"};
+			case ITEM -> new String[]{"nice %s.", "that %s looks sharp."};
+			case WATCH -> new String[]{"careful with that.", "*watches quietly*"};
+		};
+	}
+
+	@Override
+	protected String[] moodLines(com.itzbreadloaf.brain.ai.Mood mood) {
+		return switch (mood) {
+			case HAPPY -> new String[]{"*smiles a little*", "*hums quietly*"};
+			case BORED -> new String[]{"*practices a swing*", "*taps her blade*"};
+			case TIRED -> new String[]{"*yawns quietly*"};
+			case CURIOUS -> new String[]{"hm?", "*tilts her head*"};
+			case SCARED -> new String[]{"...that's not good."};
+			case ANGRY -> new String[]{"now you've done it.", "*narrows her eyes*"};
+		};
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/brain/IdleActions.java
+
+```java
+package com.itzbreadloaf.brain;
+
+import com.itzbreadloaf.brain.ai.Mood;
+import com.itzbreadloaf.brain.ai.Routine;
+import com.itzbreadloaf.brain.ai.Situation;
+import com.itzbreadloaf.character.CharacterKind;
+import com.itzbreadloaf.character.CharacterManager;
+import com.itzbreadloaf.character.LoafCharacter;
+import com.itzbreadloaf.character.LoafIds;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.tags.BlockTags;
+import net.minecraft.tags.ItemTags;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * The little human things characters do when nothing else is going on (AI overhaul part 6), all with real inputs:
+ * greeting trusted players with a crouch-spam and a wave, greeting friend characters, happy jumps, looking at what a
+ * player is holding, walking over to look at dropped items, sorting through the hotbar, fiddling with it when bored,
+ * sitting on a chair (stairs), stretching in the morning, stargazing, watching a player build or mine, tinkering
+ * (placing a couple of blocks and taking them back), mining a bit of natural stone, fishing, getting out of the rain,
+ * catching their breath after a close fight, celebrating a win, glancing at a fight or a hit nearby, and stepping
+ * aside when someone stands right on top of them.
+ *
+ * What they pick depends on their mood, the time, who's around and who they are (Lily stargazes, Madison sorts,
+ * ItzBreadLoaf jumps and tinkers, miners mine). Master BreadLoaf doesn't do any of this: he's a boss.
+ */
+final class IdleActions {
+	enum Action {
+		NONE, GREET, GREET_FRIEND, HAPPY_JUMP, LOOK_AT_ITEM, INSPECT_DROPS, ORGANIZE, FIDDLE, SIT, STRETCH, STARGAZE, WATCH_WORK,
+		TINKER, CLEANUP, MINE, FISH, SHELTER, REST, CELEBRATE, GLANCE
+	}
+
+	private static final int GREET_PLAYER_GAP = 3600;
+	private static final int GREET_FRIEND_GAP = 6000;
+
+	private final LoafBrain brain;
+	private Action action = Action.NONE;
+	private int ticks;
+	private int duration;
+	private @Nullable Entity focus;
+	private @Nullable BlockPos spot;
+	private @Nullable Vec3 lookPoint;
+	private int savedSlot = -1;
+	private int scanTimer;
+	private int stepTicks;
+	private @Nullable Vec3 stepDir;
+	private final Map<UUID, Long> lastGreeted = new HashMap<>();
+	private final List<BlockPos> placed = new ArrayList<>();
+	private @Nullable Fishing fishing;
+
+	IdleActions(LoafBrain brain) {
+		this.brain = brain;
+	}
+
+	Action current() {
+		return this.action;
+	}
+
+	private long now() {
+		return this.brain.player.level().getGameTime();
+	}
+
+	// ---------------------------------------------------------------- the main entry points
+
+	/**
+	 * One idle tick. {@code tame}: they're with their owner (only the actions that keep them near). True while busy
+	 * with something, so the brain's own idle (wandering, looking around) waits.
+	 */
+	boolean tick(boolean tame) {
+		if (this.brain.kind == CharacterKind.MASTER || this.brain.baby && this.action != Action.HAPPY_JUMP) {
+			return false;
+		}
+		if (this.personalSpace()) {
+			return true;
+		}
+		if (--this.scanTimer <= 0) {
+			this.scanTimer = 20;
+			this.scan(tame);
+		}
+		if (this.action == Action.NONE) {
+			if (!this.placed.isEmpty() && !tame) {
+				this.begin(Action.CLEANUP, 200);
+			} else if (this.brain.random.nextInt(tame ? 220 : 150) == 0) {
+				this.choose(tame);
+			}
+		}
+		if (this.action == Action.NONE) {
+			return false;
+		}
+		this.ticks++;
+		boolean busy = this.run();
+		if (!busy || this.ticks >= this.duration) {
+			this.stop();
+		}
+		return busy;
+	}
+
+	/** Drops whatever they were doing (a fight started, they're going to bed...). */
+	void stop() {
+		if (this.action == Action.FISH && this.fishing != null) {
+			this.fishing.stop();
+		}
+		if (this.savedSlot >= 0) {
+			this.brain.controls.selectSlot(this.savedSlot);
+			this.savedSlot = -1;
+		}
+		this.brain.controls.setSneaking(false);
+		this.brain.builder.stopDigging();
+		this.action = Action.NONE;
+		this.focus = null;
+		this.spot = null;
+		this.lookPoint = null;
+	}
+
+	private void begin(Action action, int duration) {
+		this.stop();
+		this.action = action;
+		this.duration = duration;
+		this.ticks = 0;
+	}
+
+	/** Won a fight: a couple of jumps and a swing of the arm. */
+	void celebrate() {
+		this.begin(Action.CELEBRATE, 30);
+	}
+
+	/** After a close fight: crouch down and catch their breath for a few seconds. */
+	void rest() {
+		this.begin(Action.REST, 80 + this.brain.random.nextInt(40));
+	}
+
+	/** Something got hit nearby: turn to look (unless busy with something they'd rather not drop). */
+	void glance(Vec3 where) {
+		if (this.action == Action.NONE || this.action == Action.FIDDLE || this.action == Action.ORGANIZE || this.action == Action.STARGAZE) {
+			this.begin(Action.GLANCE, 20 + this.brain.random.nextInt(15));
+			this.lookPoint = where;
+		}
+	}
+
+	// ---------------------------------------------------------------- noticing people
+
+	/** Every second: trusted players and friends to greet, rain to get out of. */
+	private void scan(boolean tame) {
+		if (this.action == Action.GREET || this.action == Action.GREET_FRIEND || this.action == Action.CELEBRATE) {
+			return;
+		}
+		long now = this.now();
+		for (ServerPlayer viewer : this.brain.player.level().players()) {
+			if (!LoafIds.isRealPlayer(viewer) || viewer.isSpectator() || viewer.distanceTo(this.brain.player) > 7.0
+					|| !viewer.hasLineOfSight(this.brain.player) || !this.brain.likesPlayer(viewer)) {
+				continue;
+			}
+			Long last = this.lastGreeted.get(viewer.getUUID());
+			this.lastGreeted.put(viewer.getUUID(), now);
+			if (last == null || now - last > GREET_PLAYER_GAP) {
+				this.begin(Action.GREET, 34);
+				this.focus = viewer;
+				return;
+			}
+		}
+		if (!tame) {
+			for (LoafCharacter other : CharacterManager.active()) {
+				LoafBrain o = other.brain;
+				if (o == null || o == this.brain || other.player.level() != this.brain.player.level() || o.target != null
+						|| other.player.isSleeping() || other.player.distanceTo(this.brain.player) > 10.0 || !this.brain.isFriendCharacter(o)) {
+					continue;
+				}
+				Long last = this.lastGreeted.get(other.player.getUUID());
+				this.lastGreeted.put(other.player.getUUID(), now);
+				if (last == null || now - last > GREET_FRIEND_GAP) {
+					this.begin(Action.GREET_FRIEND, 40);
+					this.focus = other.player;
+					return;
+				}
+			}
+			if (this.action != Action.SHELTER && this.brain.player.level().isRainingAt(this.brain.player.blockPosition().above())
+					&& (this.brain.home != null || this.brain.bed != null)) {
+				this.begin(Action.SHELTER, 400);
+			}
+		}
+	}
+
+	/** Someone standing right inside them: step aside. True while stepping. */
+	private boolean personalSpace() {
+		if (this.stepTicks > 0) {
+			this.stepTicks--;
+			if (this.stepDir != null) {
+				this.brain.controls.walk(this.stepDir, 0.6F);
+			}
+			return true;
+		}
+		if (this.brain.ticks % 5 != 0 || this.brain.nav.isMoving() || this.action == Action.SIT) {
+			return false;
+		}
+		for (Entity other : this.brain.player.level().getEntities(this.brain.player, this.brain.player.getBoundingBox().inflate(0.1),
+				e -> e instanceof LivingEntity && !e.isSpectator())) {
+			Vec3 away = this.brain.player.position().subtract(other.position()).multiply(1.0, 0.0, 1.0);
+			if (away.lengthSqr() < 0.36) {
+				this.stepDir = away.lengthSqr() < 1.0E-4 ? new Vec3(1.0, 0.0, 0.0) : away.normalize();
+				this.stepTicks = 6;
+				return true;
+			}
+		}
+		return false;
+	}
+
+	// ---------------------------------------------------------------- choosing
+
+	private void add(List<Action> options, List<Float> weights, Action action, float weight) {
+		if (weight > 0.0F) {
+			options.add(action);
+			weights.add(weight);
+		}
+	}
+
+	private @Nullable Player playerHoldingSomething() {
+		return this.brain.player.level().getNearestPlayer(this.brain.player.getX(), this.brain.player.getY(), this.brain.player.getZ(), 5.0,
+				p -> p != this.brain.player && p instanceof Player pl && LoafIds.isRealPlayer(pl) && !pl.isSpectator()
+						&& !pl.getMainHandItem().isEmpty() && pl.hasLineOfSight(this.brain.player));
+	}
+
+	private @Nullable Player playerAtWork() {
+		return this.brain.player.level().getNearestPlayer(this.brain.player.getX(), this.brain.player.getY(), this.brain.player.getZ(), 10.0,
+				p -> p != this.brain.player && p instanceof Player pl && LoafIds.isRealPlayer(pl) && !pl.isSpectator() && pl.swinging);
+	}
+
+	private @Nullable ItemEntity droppedItem() {
+		List<ItemEntity> items = this.brain.player.level().getEntitiesOfClass(ItemEntity.class, this.brain.player.getBoundingBox().inflate(6.0, 2.0, 6.0));
+		return items.isEmpty() ? null : items.get(this.brain.random.nextInt(items.size()));
+	}
+
+	private boolean night() {
+		long time = Math.floorMod(this.brain.player.level().getDayTime(), 24000L);
+		return time >= 13000 && time < 23000;
+	}
+
+	private boolean underSky() {
+		return this.brain.player.level().canSeeSky(this.brain.player.blockPosition().above());
+	}
+
+	/** Picks something to do from the mood, the time, who's around and who they are. */
+	private void choose(boolean tame) {
+		Mood mood = this.brain.mood.mood();
+		if (mood == Mood.SCARED || mood == Mood.ANGRY || !this.brain.player.onGround()) {
+			return;
+		}
+		CharacterKind kind = this.brain.kind;
+		boolean lily = kind == CharacterKind.LILY;
+		boolean bread = kind == CharacterKind.BREADLOAF;
+		List<Action> options = new ArrayList<>();
+		List<Float> weights = new ArrayList<>();
+		Player holder = this.playerHoldingSomething();
+		Player worker = this.playerAtWork();
+		ItemEntity dropped = tame ? null : this.droppedItem();
+		boolean happy = mood == Mood.HAPPY;
+		boolean bored = mood == Mood.BORED;
+		boolean curious = mood == Mood.CURIOUS;
+		boolean tired = mood == Mood.TIRED;
+		this.add(options, weights, Action.HAPPY_JUMP, happy ? (bread || kind == CharacterKind.FELIXSYN ? 3.0F : 2.0F) : 0.3F);
+		if (holder != null) {
+			this.add(options, weights, Action.LOOK_AT_ITEM, curious ? 4.0F : happy ? 2.0F : 1.0F);
+		}
+		if (worker != null && !tame) {
+			this.add(options, weights, Action.WATCH_WORK, curious ? 3.0F : 1.0F);
+		}
+		if (dropped != null) {
+			this.add(options, weights, Action.INSPECT_DROPS, curious ? 3.0F : 1.0F);
+		}
+		this.add(options, weights, Action.ORGANIZE, (kind == CharacterKind.MADISON ? 2.0F : 1.0F) * (bored ? 2.0F : 0.7F));
+		this.add(options, weights, Action.FIDDLE, bored ? (kind == CharacterKind.FELIXSYN ? 5.0F : 4.0F) : 0.4F);
+		if (this.night() && this.underSky() && !this.brain.player.isSleeping()) {
+			this.add(options, weights, Action.STARGAZE, lily ? 5.0F : 1.5F);
+		}
+		if (this.brain.routineActivity() == Routine.Activity.WAKE_UP) {
+			this.add(options, weights, Action.STRETCH, 4.0F);
+		}
+		if (!tame) {
+			this.add(options, weights, Action.SIT, tired ? 4.0F : 1.2F);
+			if (tired) {
+				this.add(options, weights, Action.REST, 1.5F);
+			}
+			if (Builder.allowed(this.brain.player.level()) && Inv.find(this.brain.player, IdleActions::tinkerBlock) >= 0) {
+				this.add(options, weights, Action.TINKER, (bread ? 1.5F : lily ? 0.4F : 1.0F) * (bored ? 2.0F : 0.6F));
+			}
+			if (Builder.allowed(this.brain.player.level()) && Inv.find(this.brain.player, stack -> stack.is(ItemTags.PICKAXES)) >= 0) {
+				this.add(options, weights, Action.MINE, (this.brain.variant == com.itzbreadloaf.character.CharacterVariant.MINER ? 3.0F : 1.0F)
+						* (bored ? 2.0F : 0.6F));
+			}
+			if (Inv.find(this.brain.player, stack -> stack.is(Items.FISHING_ROD)) >= 0) {
+				this.add(options, weights, Action.FISH, happy || bored ? 2.0F : 1.0F);
+			}
+		}
+		float total = 0.0F;
+		for (float w : weights) {
+			total += w;
+		}
+		if (total <= 0.0F) {
+			return;
+		}
+		float roll = this.brain.random.nextFloat() * total;
+		Action picked = options.get(options.size() - 1);
+		for (int i = 0; i < options.size(); i++) {
+			roll -= weights.get(i);
+			if (roll <= 0.0F) {
+				picked = options.get(i);
+				break;
+			}
+		}
+		int length = switch (picked) {
+			case HAPPY_JUMP -> 30;
+			case LOOK_AT_ITEM -> 50;
+			case WATCH_WORK -> 80;
+			case INSPECT_DROPS -> 100;
+			case ORGANIZE, FIDDLE -> 45;
+			case STARGAZE -> 140;
+			case STRETCH -> 40;
+			case SIT -> 160 + this.brain.random.nextInt(160);
+			case REST -> 100;
+			case TINKER -> 220;
+			case MINE -> 160;
+			case FISH -> 500 + this.brain.random.nextInt(400);
+			default -> 40;
+		};
+		this.begin(picked, length);
+		this.focus = picked == Action.LOOK_AT_ITEM ? holder : picked == Action.WATCH_WORK ? worker : picked == Action.INSPECT_DROPS ? dropped : null;
+	}
+
+	// ---------------------------------------------------------------- doing
+
+	private boolean run() {
+		return switch (this.action) {
+			case GREET -> this.greet();
+			case GREET_FRIEND -> this.greetFriend();
+			case HAPPY_JUMP -> this.happyJump();
+			case LOOK_AT_ITEM -> this.lookAtItem();
+			case INSPECT_DROPS -> this.inspectDrops();
+			case ORGANIZE -> this.scrollHotbar(true);
+			case FIDDLE -> this.scrollHotbar(false);
+			case SIT -> this.sit();
+			case STRETCH -> this.stretch();
+			case STARGAZE -> this.stargaze();
+			case WATCH_WORK -> this.watchWork();
+			case TINKER -> this.tinker();
+			case CLEANUP -> this.cleanup();
+			case MINE -> this.mine();
+			case FISH -> this.fish();
+			case SHELTER -> this.shelter();
+			case REST -> this.restTick();
+			case CELEBRATE -> this.celebrateTick();
+			case GLANCE -> this.glanceTick();
+			case NONE -> false;
+		};
+	}
+
+	/** A trusted player is back: turn to them, crouch-spam, wave, say hi. */
+	private boolean greet() {
+		if (!(this.focus instanceof Player p) || !p.isAlive()) {
+			return false;
+		}
+		if (this.ticks == 1) {
+			this.brain.speak(Situation.GREET_PLAYER, null);
+		}
+		this.brain.nav.stop();
+		this.brain.controls.lookAt(p.getEyePosition());
+		this.brain.controls.setSneaking(this.ticks > 4 && this.ticks < 22 && this.ticks % 4 < 2);
+		if (this.ticks == 24 || this.ticks == 28) {
+			this.brain.player.swing(InteractionHand.MAIN_HAND);
+		}
+		return true;
+	}
+
+	/** A friend character is around again: walk over a bit, crouch twice, wave, and call their name. */
+	private boolean greetFriend() {
+		if (this.focus == null || !this.focus.isAlive()) {
+			return false;
+		}
+		if (this.ticks == 1) {
+			this.brain.speak(Situation.GREET_FRIEND, this.focus.getName().getString());
+		}
+		double distance = this.brain.player.distanceTo(this.focus);
+		this.brain.controls.lookAt(this.focus.getEyePosition());
+		if (distance > 4.0 && this.ticks < 20) {
+			this.brain.nav.follow(this.focus, 3.0, Navigator.Speed.WALK);
+		} else {
+			this.brain.nav.stop();
+			this.brain.controls.setSneaking(this.ticks % 10 < 3 && this.ticks < 30);
+			if (this.ticks == 32) {
+				this.brain.player.swing(InteractionHand.MAIN_HAND);
+			}
+		}
+		return true;
+	}
+
+	private boolean happyJump() {
+		if ((this.ticks == 2 || this.ticks == 14 || this.ticks == 26) && this.brain.player.onGround()) {
+			this.brain.controls.jumpOnce();
+		}
+		this.brain.lookAround(8.0);
+		return true;
+	}
+
+	/** Looks at the item in a nearby player's hand (and sometimes says something about it). */
+	private boolean lookAtItem() {
+		if (!(this.focus instanceof Player p) || !p.isAlive() || p.getMainHandItem().isEmpty() || p.distanceTo(this.brain.player) > 7.0) {
+			return false;
+		}
+		Vec3 right = p.getViewVector(1.0F).cross(new Vec3(0.0, 1.0, 0.0)).normalize();
+		Vec3 hand = p.getEyePosition().add(0.0, -0.6, 0.0).add(right.scale(0.35));
+		this.brain.nav.stop();
+		this.brain.controls.lookAt(hand);
+		if (this.ticks == 15 && this.brain.random.nextInt(3) == 0) {
+			ItemStack held = p.getMainHandItem();
+			this.brain.speak(Situation.ITEM, held.getHoverName().getString().toLowerCase(java.util.Locale.ROOT));
+		}
+		return true;
+	}
+
+	/** Walks over to an item on the ground and looks at it (players pick up what they walk over). */
+	private boolean inspectDrops() {
+		if (!(this.focus instanceof ItemEntity item) || item.isRemoved()) {
+			return false;
+		}
+		this.brain.controls.lookAt(item.position());
+		if (this.brain.player.distanceTo(item) > 1.2) {
+			this.brain.nav.moveTo(item.position(), 0.8, Navigator.Speed.WALK);
+		} else {
+			this.brain.nav.stop();
+		}
+		return true;
+	}
+
+	/**
+	 * Sorting (looking down at the hotbar, going through it slot by slot) or, bored, fiddling (flicking between random
+	 * slots). The slot they had is put back at the end.
+	 */
+	private boolean scrollHotbar(boolean sorting) {
+		if (this.savedSlot < 0) {
+			this.savedSlot = this.brain.player.getInventory().getSelectedSlot();
+		}
+		this.brain.nav.stop();
+		if (sorting) {
+			this.brain.controls.look(this.brain.player.getYRot(), 50.0F);
+			this.brain.controls.setSneaking(true);
+			if (this.ticks % 5 == 0) {
+				this.brain.controls.selectSlot((this.ticks / 5) % 9);
+			}
+		} else {
+			this.brain.lookAround(6.0);
+			if (this.ticks % (4 + this.brain.random.nextInt(5)) == 0) {
+				this.brain.controls.selectSlot(this.brain.random.nextInt(9));
+			}
+		}
+		return true;
+	}
+
+	/** Sits on a chair: a stairs block near home with room above it (crouched on it, looking around). */
+	private boolean sit() {
+		if (this.spot == null) {
+			BlockPos center = this.brain.home != null ? this.brain.home : this.brain.player.blockPosition();
+			this.spot = this.brain.findBlock(center, 8, 3, state -> state.is(BlockTags.STAIRS));
+			if (this.spot == null || !this.brain.player.level().getBlockState(this.spot.above()).isAir()
+					|| !this.brain.player.level().getBlockState(this.spot.above(2)).isAir()) {
+				// No chair around: sit down where they are.
+				this.spot = this.brain.player.blockPosition().below();
+			}
+		}
+		Vec3 seat = Vec3.atBottomCenterOf(this.spot.above());
+		if (this.brain.player.position().distanceTo(seat) > 0.8 && this.ticks < 120) {
+			this.brain.nav.moveTo(seat, 0.4, Navigator.Speed.WALK);
+			return true;
+		}
+		this.brain.nav.stop();
+		this.brain.controls.setSneaking(true);
+		this.brain.lookAround(8.0);
+		return true;
+	}
+
+	private boolean stretch() {
+		this.brain.nav.stop();
+		if (this.ticks == 1) {
+			this.brain.speak(Situation.MORNING, null);
+		}
+		if (this.ticks < 15) {
+			this.brain.controls.look(this.brain.player.getYRot(), -55.0F);
+		} else {
+			this.brain.controls.setSneaking(this.ticks < 31 && this.ticks % 8 < 4);
+			if (this.ticks == 34) {
+				this.brain.player.swing(InteractionHand.MAIN_HAND);
+			}
+		}
+		return true;
+	}
+
+	private boolean stargaze() {
+		if (!this.night() || this.brain.player.isSleeping()) {
+			return false;
+		}
+		if (this.ticks == 10) {
+			this.brain.speak(Situation.NIGHT, null);
+		}
+		this.brain.nav.stop();
+		this.brain.controls.look(this.brain.player.getYRot() + 0.6F, -65.0F);
+		return true;
+	}
+
+	/** Watches what a nearby player is working on: looks at the block they're looking at. */
+	private boolean watchWork() {
+		if (!(this.focus instanceof Player p) || !p.isAlive() || p.distanceTo(this.brain.player) > 12.0) {
+			return false;
+		}
+		Vec3 eyes = p.getEyePosition();
+		BlockHitResult hit = p.level().clip(new ClipContext(eyes, eyes.add(p.getViewVector(1.0F).scale(5.0)),
+				ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, p));
+		this.brain.controls.lookAt(hit.getType() == HitResult.Type.BLOCK ? Vec3.atCenterOf(hit.getBlockPos()) : p.getEyePosition());
+		this.brain.nav.stop();
+		if (this.ticks == 30 && this.brain.random.nextInt(3) == 0) {
+			this.brain.speak(Situation.WATCH, null);
+		}
+		return true;
+	}
+
+	/** Tinkering: puts down a block and one on top, looks at it a while, then takes both back (no mess left). */
+	private boolean tinker() {
+		BlockPos base = this.spot;
+		if (base == null) {
+			Direction facing = this.brain.player.getDirection();
+			base = this.brain.player.blockPosition().relative(facing, 2);
+			var level = this.brain.player.level();
+			if (!level.getBlockState(base).isAir() || !level.getBlockState(base.above()).isAir()
+					|| !level.getBlockState(base.below()).isFaceSturdy(level, base.below(), Direction.UP)) {
+				return false;
+			}
+			this.spot = base;
+		}
+		this.brain.nav.stop();
+		var level = this.brain.player.level();
+		if (this.ticks < 60) {
+			for (BlockPos pos : new BlockPos[]{base, base.above()}) {
+				if (level.getBlockState(pos).isAir()) {
+					int slot = Inv.ready(this.brain.player, IdleActions::tinkerBlock, 8);
+					if (slot < 0) {
+						return false;
+					}
+					if (this.savedSlot < 0) {
+						this.savedSlot = this.brain.player.getInventory().getSelectedSlot();
+					}
+					this.brain.controls.selectSlot(slot);
+					this.brain.builder.place(pos);
+					return true;
+				}
+				if (!this.placed.contains(pos)) {
+					this.placed.add(pos.immutable());
+				}
+			}
+			this.brain.controls.lookAt(Vec3.atCenterOf(base.above()));
+			return true;
+		}
+		if (this.ticks < 120) {
+			this.brain.controls.lookAt(Vec3.atCenterOf(base.above()));
+			if (this.ticks % 25 == 0) {
+				this.brain.player.swing(InteractionHand.MAIN_HAND);
+			}
+			return true;
+		}
+		return this.cleanup();
+	}
+
+	/** Takes back blocks they put down while tinkering. */
+	private boolean cleanup() {
+		while (!this.placed.isEmpty()) {
+			BlockPos pos = this.placed.get(this.placed.size() - 1);
+			if (this.brain.player.level().getBlockState(pos).isAir() || this.brain.player.position().distanceTo(Vec3.atCenterOf(pos)) > 8.0) {
+				this.placed.remove(this.placed.size() - 1);
+				continue;
+			}
+			if (!this.brain.canReach(pos)) {
+				this.brain.nav.moveTo(pos, 2.0, Navigator.Speed.WALK);
+				return true;
+			}
+			this.brain.nav.stop();
+			if (!this.brain.builder.dig(pos)) {
+				this.placed.remove(this.placed.size() - 1);
+			}
+			return true;
+		}
+		this.brain.builder.stopDigging();
+		return false;
+	}
+
+	/** Building blocks that break fast by hand (dirt, planks...), so tinkering can always be taken back. */
+	private static boolean tinkerBlock(ItemStack stack) {
+		return Inv.isBuildingBlock(stack) && stack.getItem() instanceof net.minecraft.world.item.BlockItem block
+				&& !block.getBlock().defaultBlockState().requiresCorrectToolForDrops()
+				&& block.getBlock().defaultDestroyTime() <= 2.0F;
+	}
+
+	private static boolean naturalStone(BlockState state) {
+		return state.is(Blocks.STONE) || state.is(Blocks.GRANITE) || state.is(Blocks.DIORITE) || state.is(Blocks.ANDESITE)
+				|| state.is(Blocks.TUFF) || state.is(Blocks.DEEPSLATE);
+	}
+
+	/** Mines one block of natural stone close by (never near home, so they don't dig into anything built). */
+	private boolean mine() {
+		if (this.spot == null) {
+			BlockPos found = this.brain.findBlock(this.brain.player.blockPosition(), 3, 2, IdleActions::naturalStone);
+			if (found == null || this.brain.home != null && found.closerThan(this.brain.home, this.brain.homeRadius + 4)) {
+				return false;
+			}
+			this.spot = found;
+			int pick = Inv.ready(this.brain.player, stack -> stack.is(ItemTags.PICKAXES), 3);
+			if (pick < 0) {
+				return false;
+			}
+			this.savedSlot = this.brain.player.getInventory().getSelectedSlot();
+			this.brain.controls.selectSlot(pick);
+		}
+		if (!naturalStone(this.brain.player.level().getBlockState(this.spot))) {
+			this.brain.builder.stopDigging();
+			return false;
+		}
+		if (!this.brain.canReach(this.spot)) {
+			this.brain.nav.moveTo(this.spot, 2.0, Navigator.Speed.WALK);
+			return true;
+		}
+		this.brain.nav.stop();
+		return this.brain.builder.dig(this.spot);
+	}
+
+	private boolean fish() {
+		if (this.fishing == null) {
+			this.fishing = new Fishing(this.brain);
+		}
+		int rod = Inv.ready(this.brain.player, stack -> stack.is(Items.FISHING_ROD), 8);
+		if (rod < 0) {
+			return false;
+		}
+		BlockPos center = this.brain.home != null ? this.brain.home : this.brain.player.blockPosition();
+		return this.fishing.tick(center, rod);
+	}
+
+	/** Raining and out under the sky: back home (or under the bed's roof) until it stops or they're inside. */
+	private boolean shelter() {
+		if (this.ticks == 1) {
+			this.brain.speak(Situation.RAIN, null);
+		}
+		if (!this.brain.player.level().isRainingAt(this.brain.player.blockPosition().above())) {
+			return false;
+		}
+		BlockPos spot = this.brain.bed != null ? this.brain.bed : this.brain.home;
+		if (spot == null || this.brain.player.position().distanceTo(Vec3.atBottomCenterOf(spot)) < 2.5) {
+			return false;
+		}
+		this.brain.nav.moveTo(spot, 2.0, Navigator.Speed.SPRINT);
+		return true;
+	}
+
+	private boolean restTick() {
+		if (this.ticks == 1) {
+			this.brain.speak(Situation.REST, null);
+		}
+		this.brain.nav.stop();
+		this.brain.controls.setSneaking(true);
+		this.brain.controls.look(this.brain.player.getYRot(), 30.0F);
+		return true;
+	}
+
+	private boolean celebrateTick() {
+		if ((this.ticks == 2 || this.ticks == 14) && this.brain.player.onGround()) {
+			this.brain.controls.jumpOnce();
+		}
+		if (this.ticks == 8 || this.ticks == 20) {
+			this.brain.player.swing(InteractionHand.MAIN_HAND);
+		}
+		return true;
+	}
+
+	private boolean glanceTick() {
+		if (this.lookPoint == null) {
+			return false;
+		}
+		this.brain.controls.lookAt(this.lookPoint);
+		return true;
+	}
 }
 ```
 
@@ -5494,7 +7506,8 @@ public final class Kits {
 
 	/**
 	 * FelixSyn: diamond armor (each piece 30% netherite) with Protection II-III, a Density + Wind Burst mace, a diamond or
-	 * netherite sword as backup, wind charges, golden apples, Strength and Healing potions.
+	 * netherite sword as backup, wind charges, ender pearls, firework rockets and an elytra (for his mace moves), golden
+	 * apples, Strength and Healing potions.
 	 */
 	public static void felixSyn(Player player, ServerLevel level, RandomSource random) {
 		Item[][] pieces = {
@@ -5511,7 +7524,11 @@ public final class Kits {
 		ItemStack sword = new ItemStack(random.nextBoolean() ? Items.NETHERITE_SWORD : Items.DIAMOND_SWORD);
 		inventory.setItem(0, enchant(level, sword, Enchantments.SHARPNESS, 3));
 		inventory.setItem(4, new ItemStack(Items.WIND_CHARGE, 24));
+		// For his pearl catches, diagonal pearls and elytra mace dives (AI overhaul part 5).
+		inventory.setItem(5, new ItemStack(Items.ENDER_PEARL, 8));
 		inventory.setItem(6, new ItemStack(Items.GOLDEN_APPLE, 3));
+		inventory.setItem(7, new ItemStack(Items.FIREWORK_ROCKET, 16));
+		inventory.setItem(8, new ItemStack(Items.ELYTRA));
 		inventory.setItem(9, LoafBrain.potion(Items.POTION, Potions.STRENGTH));
 		inventory.setItem(10, LoafBrain.potion(Items.SPLASH_POTION, Potions.STRONG_HEALING));
 		inventory.setItem(11, LoafBrain.potion(Items.SPLASH_POTION, Potions.STRONG_HEALING));
@@ -5829,7 +7846,7 @@ public class LilyBrain extends NeutralBrain {
 		if (this.goToBed() || this.returnHome()) {
 			return;
 		}
-		if (this.tickIdle()) {
+		if (this.tickRoutine() || this.tickIdle() || this.tickIdleActions()) {
 			return;
 		}
 		this.wander(HOME_RADIUS);
@@ -5876,23 +7893,69 @@ public class LilyBrain extends NeutralBrain {
 		return true;
 	}
 
+	/**
+	 * Work hours: Bookworm Lily reads, Gardener Lily plants and tends flowers, Witchy Lily works at her brewing stand
+	 * or cauldron, Archer Lily patrols, and plain Lily reads or gardens.
+	 */
+	@Override
+	protected boolean doWork() {
+		return switch (this.variant) {
+			case BOOKWORM -> this.tickIdle(this.random.nextInt(4) == 0 ? Idle.SIT : Idle.READ);
+			case GARDENER -> this.tickIdle(this.random.nextInt(3) == 0 ? Idle.LOOK_AT_FLOWER : Idle.PLANT);
+			case WITCHY -> this.activities.useStation(state -> state.is(Blocks.BREWING_STAND) || state.is(Blocks.CAULDRON)
+					|| state.is(Blocks.WATER_CAULDRON), HOME_RADIUS + 4) || this.tickIdle(Idle.LOOK_AT_FLOWER);
+			case ARCHER_LILY -> this.activities.patrol();
+			default -> this.tickIdle(this.random.nextBoolean() ? Idle.READ : Idle.PLANT);
+		};
+	}
+
+	/** Friends time: cousin Madison first, any other friend otherwise. */
+	@Override
+	protected boolean socialize() {
+		return this.tickIdle(Idle.VISIT_MADISON) || this.activities.visitFriend();
+	}
+
 	/** Lily's quiet idle actions (and her type's hobby). True while doing one. */
 	private boolean tickIdle() {
+		return this.tickIdle(null);
+	}
+
+	/** With {@code forced}: start that one (the routine asked for it) instead of a random one now and then. */
+	private boolean tickIdle(@Nullable Idle forced) {
 		if (this.idle == Idle.NONE) {
-			int chance = this.variant == CharacterVariant.GARDENER ? 120 : 300;
-			if (this.random.nextInt(chance) != 0 || !this.player.onGround()) {
-				return false;
-			}
-			this.idle = switch (this.variant) {
-				case BOOKWORM -> this.random.nextInt(3) == 0 ? Idle.SIT : Idle.READ;
-				case GARDENER -> this.random.nextInt(3) == 0 ? Idle.LOOK_AT_FLOWER : Idle.PLANT;
-				default -> new Idle[]{Idle.SIT, Idle.LOOK_AT_FLOWER, Idle.TOGGLE_FLOWER}[this.random.nextInt(3)];
-			};
-			// Sometimes she goes to see cousin Madison instead, if Madison is around.
-			if (this.random.nextInt(4) == 0) {
-				this.cousin = this.findMadison();
-				if (this.cousin != null) {
-					this.idle = Idle.VISIT_MADISON;
+			if (forced != null) {
+				if (!this.player.onGround()) {
+					return false;
+				}
+				if (forced != Idle.VISIT_MADISON && this.random.nextInt(40) != 0) {
+					// A short pause between one thing and the next.
+					this.lookAround(6.0);
+					return true;
+				}
+				this.idle = forced;
+				if (forced == Idle.VISIT_MADISON) {
+					this.cousin = this.findMadison();
+					if (this.cousin == null) {
+						this.idle = Idle.NONE;
+						return false;
+					}
+				}
+			} else {
+				int chance = this.variant == CharacterVariant.GARDENER ? 120 : 300;
+				if (this.random.nextInt(chance) != 0 || !this.player.onGround()) {
+					return false;
+				}
+				this.idle = switch (this.variant) {
+					case BOOKWORM -> this.random.nextInt(3) == 0 ? Idle.SIT : Idle.READ;
+					case GARDENER -> this.random.nextInt(3) == 0 ? Idle.LOOK_AT_FLOWER : Idle.PLANT;
+					default -> new Idle[]{Idle.SIT, Idle.LOOK_AT_FLOWER, Idle.TOGGLE_FLOWER}[this.random.nextInt(3)];
+				};
+				// Sometimes she goes to see cousin Madison instead, if Madison is around.
+				if (this.random.nextInt(4) == 0) {
+					this.cousin = this.findMadison();
+					if (this.cousin != null) {
+						this.idle = Idle.VISIT_MADISON;
+					}
 				}
 			}
 			switch (this.idle) {
@@ -6048,8 +8111,43 @@ public class LilyBrain extends NeutralBrain {
 		}
 		// No staring: she glances around instead.
 		if (!this.tickIdle()) {
-			this.lookAround(4.0);
+			this.idleWithOwner();
 		}
+	}
+
+	// ---------------------------------------------------------------- personality (AI overhaul part 6)
+
+	/** ImLilyLol: shy, gentle and thoughtful. */
+	@Override
+	protected String[] lines(com.itzbreadloaf.brain.ai.Situation situation) {
+		return switch (situation) {
+			case GREET_PLAYER -> new String[]{"oh! h-hi...", "*waves shyly*", "hi... good to see you", "oh, it's you! hi..."};
+			case GREET_FRIEND -> new String[]{"hi %s...", "%s! hi!", "*waves at %s*"};
+			case FIGHT_START -> new String[]{"p-please stop!", "I'll defend myself!", "leave me alone!"};
+			case RIVAL -> new String[]{"..."};
+			case FIGHT_WON -> new String[]{"s-sorry... you started it", "phew... is it over?"};
+			case LOW_HEALTH -> new String[]{"help!", "I need to get away...", "ow..."};
+			case DEFEND_FRIEND -> new String[]{"don't hurt them!", "stop it right now!"};
+			case SCARED_FOR_FRIEND -> new String[]{"oh no! are you okay?", "someone help!", "please be okay..."};
+			case REST -> new String[]{"*sits down for a bit*", "that was scary..."};
+			case MORNING -> new String[]{"good morning...", "the flowers are waking up too"};
+			case NIGHT -> new String[]{"the stars are so pretty tonight...", "I should be in bed..."};
+			case RAIN -> new String[]{"oh no, my book's getting wet!", "*hurries inside*"};
+			case ITEM -> new String[]{"oh... is that %s?", "that %s is really pretty", "can I see your %s?"};
+			case WATCH -> new String[]{"that looks nice...", "*watches quietly*"};
+		};
+	}
+
+	@Override
+	protected String[] moodLines(com.itzbreadloaf.brain.ai.Mood mood) {
+		return switch (mood) {
+			case HAPPY -> new String[]{"*hums a little tune*", "*smiles*"};
+			case BORED -> new String[]{"maybe I'll read something...", "*sighs softly*"};
+			case TIRED -> new String[]{"*yawns softly*", "so sleepy..."};
+			case CURIOUS -> new String[]{"oh? what's that?", "hm..."};
+			case SCARED -> new String[]{"eek!", "oh no oh no..."};
+			case ANGRY -> new String[]{"that's NOT okay!", "I'm really upset now!"};
+		};
 	}
 }
 ```
@@ -6097,6 +8195,7 @@ import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.BedBlock;
@@ -6167,6 +8266,41 @@ public abstract class LoafBrain {
 	private int lookTimer;
 	private @Nullable Entity lookTarget;
 
+	// ---- mind (AI overhaul part 3): mood, memory of players, daily routine, skill and play style
+	protected final com.itzbreadloaf.brain.ai.MoodState mood = new com.itzbreadloaf.brain.ai.MoodState();
+	protected final com.itzbreadloaf.brain.ai.PlayerMemory memory = new com.itzbreadloaf.brain.ai.PlayerMemory();
+	final Activities activities;
+	/** Each character thinks on its own tick of the second, so they don't all think at once. */
+	private final int mindOffset;
+	/** Last time something happened (a fight, a gift, a player nearby): long quiet stretches make them bored. */
+	private int lastEventTick;
+	private float baseRetreatBelow = -1.0F;
+	private @Nullable com.itzbreadloaf.brain.ai.Mood speedMood;
+	private int nextMoodLineTick;
+	private static final Identifier MOOD_SPEED_ID = Identifier.fromNamespaceAndPath("itzbreadloaf", "mood_speed");
+	/** Idle actions and the little human touches (part 6). */
+	final IdleActions idleActions;
+	private int nextLineTick;
+	private @Nullable com.itzbreadloaf.brain.ai.Situation queuedLine;
+	private @Nullable String queuedArg;
+	private int queuedLineTick;
+	private @Nullable LivingEntity lastVictim;
+	private int lastDealtTick = -1000;
+	private boolean saidLowHealth;
+	private boolean wasFighting;
+	/** How much thinking this character gets (part 7): full near players, simple farther out, paused far away. */
+	public enum Detail { FULL, SIMPLE, PAUSED }
+
+	private Detail detail = Detail.FULL;
+	private boolean released;
+	/** Average AI time per server tick (nanoseconds, smoothed), for /loafcraft debug ai. */
+	private double aiNanos;
+	/** A fight forced with /loafcraft duel, and until when (brain ticks). */
+	private @Nullable LivingEntity duelOpponent;
+	private int duelUntil;
+	/** A mace technique forced with /loafcraft technique, and who it's aimed at. */
+	private @Nullable LivingEntity forcedTechniqueTarget;
+
 	protected LoafBrain(LoafCharacter character) {
 		this.character = character;
 		this.player = character.player;
@@ -6177,6 +8311,17 @@ public abstract class LoafBrain {
 		this.combat = new Combat(this.player, this.controls, this.random);
 		this.builder = new Builder(this.player, this.controls);
 		this.variant = character.record.variant();
+		this.activities = new Activities(this);
+		this.idleActions = new IdleActions(this);
+		this.mindOffset = Math.floorMod(this.player.getUUID().hashCode(), 20);
+		// Every "every N ticks" check lands on a different tick for each character, so they don't all think at once.
+		this.ticks = this.mindOffset;
+		if (this.kind != CharacterKind.MASTER) {
+			this.combat.healHook = this::combatHeal;
+			this.combat.builder = this.builder;
+		} else {
+			this.combat.useReaction = false;
+		}
 	}
 
 	public static LoafBrain create(LoafCharacter character) {
@@ -6258,6 +8403,54 @@ public abstract class LoafBrain {
 		if (this.player.getHealth() > this.player.getMaxHealth()) {
 			this.player.setHealth(this.player.getMaxHealth());
 		}
+		this.applySkill();
+	}
+
+	/**
+	 * The skill profile's numbers that the current combat code uses (crits, deliberate misses). Harley's crit chance
+	 * and all of Master BreadLoaf's numbers come from their own presets instead.
+	 */
+	protected void applySkill() {
+		com.itzbreadloaf.brain.ai.SkillProfile skill = this.skill();
+		this.combat.skill = skill;
+		this.combat.style = this.playStyle();
+		if (this.kind != CharacterKind.HARLEY && this.kind != CharacterKind.MASTER) {
+			this.combat.critChance = skill.critChance;
+		}
+		if (this.kind != CharacterKind.MASTER) {
+			// Misses now come from the mouse-like aim (and the skill's mistake chance), not a forced mouse jerk.
+			this.combat.whiffChance = 0.0F;
+		}
+	}
+
+	/**
+	 * Healing while backing off from a fight: a golden apple, a healing or regeneration potion, or food if hungry.
+	 * True if they started eating or drinking.
+	 */
+	protected boolean combatHeal() {
+		return this.eatNow(stack -> stack.is(Items.GOLDEN_APPLE) || stack.is(Items.ENCHANTED_GOLDEN_APPLE))
+				|| this.eatNow(stack -> drinkableWith(stack, MobEffects.INSTANT_HEALTH, MobEffects.REGENERATION))
+				|| this.isHungry() && this.eatNow(Inv::isFood);
+	}
+
+	/** A drinkable potion with any of these effects. */
+	@SafeVarargs
+	protected static boolean drinkableWith(ItemStack stack, net.minecraft.core.Holder<net.minecraft.world.effect.MobEffect>... effects) {
+		if (!stack.is(Items.POTION)) {
+			return false;
+		}
+		net.minecraft.world.item.alchemy.PotionContents contents = stack.get(net.minecraft.core.component.DataComponents.POTION_CONTENTS);
+		if (contents == null) {
+			return false;
+		}
+		for (net.minecraft.world.effect.MobEffectInstance effect : contents.getAllEffects()) {
+			for (var wanted : effects) {
+				if (effect.getEffect().equals(wanted)) {
+					return true;
+				}
+			}
+		}
+		return false;
 	}
 
 	protected void setBase(net.minecraft.core.Holder<net.minecraft.world.entity.ai.attributes.Attribute> attribute, double value) {
@@ -6298,6 +8491,8 @@ public abstract class LoafBrain {
 		}
 		this.combat.stop();
 		this.builder.stopDigging();
+		this.activities.stopAll();
+		this.idleActions.stop();
 		this.controls.releaseAll();
 	}
 
@@ -6324,9 +8519,25 @@ public abstract class LoafBrain {
 		this.upkeep();
 		if (this.target != null && (!this.target.isAlive() || this.target.isRemoved() || this.target.level() != this.player.level()
 				|| this.target instanceof Player p && (p.isCreative() || p.isSpectator()))) {
+			boolean won = !this.target.isAlive() && this.target == this.lastVictim && this.ticks - this.lastDealtTick < 100;
 			this.setTarget(null);
+			if (won) {
+				this.onFightWon();
+			}
 		}
+		this.tickQueuedLine();
+		this.tickDuel();
 
+		if (this.forcedTechniqueTarget != null) {
+			// Testing a mace technique (/loafcraft technique): it runs on its own until it's done.
+			MaceTechniques techniques = this.techniques();
+			if (techniques == null || !this.forcedTechniqueTarget.isAlive() || !techniques.tick(this.forcedTechniqueTarget)) {
+				this.forcedTechniqueTarget = null;
+			}
+			this.nav.stop();
+			this.controls.apply();
+			return;
+		}
 		if (this.player.isSleeping()) {
 			if (this.target != null || this.player.level().isBrightOutside()) {
 				this.player.stopSleeping();
@@ -6381,6 +8592,9 @@ public abstract class LoafBrain {
 		if (this.ticks % 6000 == 0) {
 			this.restock();
 		}
+		if ((this.ticks + this.mindOffset) % 20 == 0) {
+			this.tickMind();
+		}
 	}
 
 	// ================================================================ targets
@@ -6409,6 +8623,22 @@ public abstract class LoafBrain {
 			this.player.stopSleeping();
 		}
 		this.sitting = false;
+		this.idleActions.stop();
+		this.activities.stopAll();
+		this.saidLowHealth = false;
+		// ItzBreadLoaf and FelixSyn trash-talk before a fight; others sometimes say something. Whoever answers waits a moment.
+		CharacterKind other = LoafIds.kind(target.getUUID());
+		boolean rival = this.kind == CharacterKind.BREADLOAF && other == CharacterKind.FELIXSYN
+				|| this.kind == CharacterKind.FELIXSYN && other == CharacterKind.BREADLOAF;
+		LoafBrain answering = CharacterManager.brain(target);
+		int delay = answering != null && answering.target == this.player ? 30 : 0;
+		if (rival || this.random.nextFloat() < 0.4F) {
+			this.queueLine(rival ? com.itzbreadloaf.brain.ai.Situation.RIVAL : com.itzbreadloaf.brain.ai.Situation.FIGHT_START, null, delay);
+		}
+		// A fight is starting and there's room: drink a Strength, Swiftness or Fire Resistance potion first, if they carry one.
+		if (this.kind != CharacterKind.HARLEY && this.kind != CharacterKind.MASTER && !this.baby && this.player.distanceTo(target) > 6.0) {
+			this.eatNow(stack -> drinkableWith(stack, MobEffects.STRENGTH, MobEffects.SPEED, MobEffects.FIRE_RESISTANCE));
+		}
 	}
 
 	/** Fights the current target with the best weapon for the distance. */
@@ -6429,16 +8659,177 @@ public abstract class LoafBrain {
 
 	public void onHurt(DamageSource source, float damage, boolean blocked) {
 		this.lastHurtTick = this.ticks;
-		if (source.getEntity() instanceof LivingEntity attacker && attacker != this.player) {
-			this.lastAttacker = attacker;
+		LivingEntity attacker = null;
+		if (source.getEntity() instanceof LivingEntity living && living != this.player) {
+			this.lastAttacker = living;
+			attacker = living;
 		}
 		this.sitting = false;
 		if (this.player.isSleeping()) {
 			this.player.stopSleeping();
 		}
+		this.lastEventTick = this.ticks;
+		if (this.target != null && !blocked) {
+			this.combat.onHurt(attacker);
+		}
+		long gameTime = this.player.level().getGameTime();
+		if (attacker instanceof Player p && LoafIds.isRealPlayer(p) && !this.isOwnedBy(p) && damage > 0.0F) {
+			this.memory.hurt(p.getUUID(), damage, gameTime);
+		}
+		if (attacker != null && damage > 0.0F) {
+			boolean low = this.player.getHealth() < this.player.getMaxHealth() * 0.5F;
+			com.itzbreadloaf.brain.ai.Mood felt = this.isFighter() ? (low && this.skill().panicHealth > 0.0F
+					&& this.player.getHealth() < this.player.getMaxHealth() * this.skill().panicHealth
+					? com.itzbreadloaf.brain.ai.Mood.SCARED : com.itzbreadloaf.brain.ai.Mood.ANGRY)
+					: low || this.kind == CharacterKind.LILY ? com.itzbreadloaf.brain.ai.Mood.SCARED : com.itzbreadloaf.brain.ai.Mood.ANGRY;
+			this.pushMood(felt, 0.6F);
+			// Friends nearby notice.
+			for (LoafCharacter other : CharacterManager.active()) {
+				if (other.brain != null && other.brain != this && other.player.level() == this.player.level()
+						&& other.player.distanceTo(this.player) < 16.0 && other.brain.isFriendCharacter(this)) {
+					other.brain.onFriendHurt(this, attacker);
+				}
+			}
+		}
+	}
+
+	/** A friend nearby was just hurt. Defenders get angry, Lily gets scared (part 6 adds what they do about it). */
+	protected void onFriendHurt(LoafBrain friend, LivingEntity attacker) {
+		if (attacker == this.player || this.isFriendlyWith(attacker)) {
+			return;
+		}
+		LoafBrain attackerBrain = CharacterManager.brain(attacker);
+		if (attackerBrain != null && this.isFriendCharacter(attackerBrain)) {
+			return;
+		}
+		this.lastEventTick = this.ticks;
+		boolean untouchable = attacker instanceof Player p && (p.isCreative() || p.isSpectator());
+		boolean defender = this.isFighter() || this.kind == CharacterKind.MADISON
+				|| this.kind == CharacterKind.LILY && this.mood.mood() == com.itzbreadloaf.brain.ai.Mood.ANGRY;
+		if (defender && !untouchable && !this.baby && this.kind != CharacterKind.MASTER && this.target == null
+				&& attacker.distanceTo(this.player) < 16.0) {
+			this.pushMood(com.itzbreadloaf.brain.ai.Mood.ANGRY, 0.6F);
+			this.speak(com.itzbreadloaf.brain.ai.Situation.DEFEND_FRIEND, null);
+			this.defendAgainst(attacker);
+			return;
+		}
+		this.pushMood(this.kind == CharacterKind.LILY ? com.itzbreadloaf.brain.ai.Mood.SCARED : com.itzbreadloaf.brain.ai.Mood.ANGRY, 0.5F);
+		this.speak(com.itzbreadloaf.brain.ai.Situation.SCARED_FOR_FRIEND, null);
+	}
+
+	/** Steps in for a friend: fights whoever hurt them. */
+	protected void defendAgainst(LivingEntity attacker) {
+		this.setTarget(attacker);
 	}
 
 	public void onDealtDamage(LivingEntity victim, float damage) {
+		this.lastVictim = victim;
+		this.lastDealtTick = this.ticks;
+	}
+
+	/** Their target just died to them: celebrate (jumps, a swing) and say something. */
+	protected void onFightWon() {
+		this.speak(com.itzbreadloaf.brain.ai.Situation.FIGHT_WON, null);
+		this.idleActions.celebrate();
+	}
+
+	/** Something living got hurt near them (a fight, a hit): turn and look, if they're not busy. */
+	public void noticeCommotion(LivingEntity hurt) {
+		if (this.target == null && !this.player.isSleeping() && !this.baby && hurt != this.player && this.kind != CharacterKind.MASTER) {
+			this.idleActions.glance(hurt.getEyePosition());
+		}
+	}
+
+	/** Players they like: their owner, anyone they've grown to trust (fed them, helped them). */
+	public boolean likesPlayer(Player player) {
+		return this.isOwnedBy(player) || this.memory.isLiked(player.getUUID());
+	}
+
+	/** Idle actions (greetings, jumps, sitting...). True while busy with one. */
+	protected boolean tickIdleActions() {
+		return this.idleActions.tick(false);
+	}
+
+	/** Near their owner with nothing to do: owner-friendly idle actions, otherwise looking around. */
+	protected void idleWithOwner() {
+		if (!this.idleActions.tick(true)) {
+			this.lookAround(8.0);
+		}
+	}
+
+	// ---------------------------------------------------------------- lines
+
+	/** Says a line for the moment to players nearby (each character has its own lines; at most one every 8 seconds). */
+	public void speak(com.itzbreadloaf.brain.ai.Situation situation, @Nullable String arg) {
+		if (!com.itzbreadloaf.config.ModConfig.get().personalityLines || this.baby || this.player.isSleeping()) {
+			return;
+		}
+		boolean urgent = situation == com.itzbreadloaf.brain.ai.Situation.RIVAL || situation == com.itzbreadloaf.brain.ai.Situation.FIGHT_WON
+				|| situation == com.itzbreadloaf.brain.ai.Situation.DEFEND_FRIEND;
+		if (this.ticks < this.nextLineTick && !urgent) {
+			return;
+		}
+		String[] lines = this.lines(situation);
+		if (lines.length == 0) {
+			return;
+		}
+		String line = lines[this.random.nextInt(lines.length)];
+		if (line.equals("...")) {
+			// Nothing to say about this one.
+			return;
+		}
+		if (line.contains("%s")) {
+			line = String.format(line, arg == null ? "you" : arg);
+		}
+		boolean said = false;
+		for (ServerPlayer viewer : this.player.level().players()) {
+			if (LoafIds.isRealPlayer(viewer) && viewer.distanceTo(this.player) < 12.0) {
+				this.say(viewer, line);
+				said = true;
+			}
+		}
+		if (said) {
+			this.nextLineTick = this.ticks + 160;
+		}
+	}
+
+	/** A line said after a short delay (so two characters don't talk over each other). */
+	protected void queueLine(com.itzbreadloaf.brain.ai.Situation situation, @Nullable String arg, int delay) {
+		if (delay <= 0) {
+			this.speak(situation, arg);
+			return;
+		}
+		this.queuedLine = situation;
+		this.queuedArg = arg;
+		this.queuedLineTick = this.ticks + delay;
+	}
+
+	private void tickQueuedLine() {
+		if (this.queuedLine != null && this.ticks >= this.queuedLineTick) {
+			com.itzbreadloaf.brain.ai.Situation line = this.queuedLine;
+			this.queuedLine = null;
+			this.speak(line, this.queuedArg);
+		}
+	}
+
+	/** This character's lines for a moment. Each character overrides this with its own. */
+	protected String[] lines(com.itzbreadloaf.brain.ai.Situation situation) {
+		return switch (situation) {
+			case GREET_PLAYER -> new String[]{"hey!", "oh, hi!"};
+			case GREET_FRIEND -> new String[]{"hey %s!"};
+			case FIGHT_START -> new String[]{"bring it!"};
+			case RIVAL -> new String[]{"you again?!"};
+			case FIGHT_WON -> new String[]{"good fight!"};
+			case LOW_HEALTH -> new String[]{"ouch!"};
+			case DEFEND_FRIEND -> new String[]{"leave them alone!"};
+			case SCARED_FOR_FRIEND -> new String[]{"oh no!"};
+			case REST -> new String[]{"phew..."};
+			case MORNING -> new String[]{"good morning!"};
+			case NIGHT -> new String[]{"nice night"};
+			case RAIN -> new String[]{"ugh, rain"};
+			case ITEM -> new String[]{"nice %s!"};
+			case WATCH -> new String[]{"looking good"};
+		};
 	}
 
 	public boolean allowDamage(DamageSource source, float amount) {
@@ -6489,6 +8880,8 @@ public abstract class LoafBrain {
 			this.setTarget(null);
 			this.home = null;
 			this.bed = null;
+			this.memory.helped(newOwner.getUUID(), 30, this.player.level().getGameTime());
+			this.pushMood(com.itzbreadloaf.brain.ai.Mood.HAPPY, 0.7F);
 		}
 	}
 
@@ -7117,7 +9510,15 @@ public abstract class LoafBrain {
 			return InteractionResult.PASS;
 		}
 		ItemStack stack = clicker.getItemInHand(hand);
+		int before = stack.getCount();
+		net.minecraft.world.item.Item item = stack.getItem();
 		InteractionResult result = this.interact(clicker, stack);
+		boolean taken = !stack.is(item) || stack.getCount() < before;
+		if (taken && LoafIds.isRealPlayer(clicker)) {
+			this.memory.fed(clicker.getUUID(), this.player.level().getGameTime());
+			this.lastEventTick = this.ticks;
+			this.pushMood(com.itzbreadloaf.brain.ai.Mood.HAPPY, 0.5F);
+		}
 		return result != null ? result : InteractionResult.PASS;
 	}
 
@@ -7269,6 +9670,423 @@ public abstract class LoafBrain {
 		return this.player.getEyePosition().distanceTo(Vec3.atCenterOf(pos)) < 4.2;
 	}
 
+	// ================================================================ detail levels, timing, debug (part 7)
+
+	public Detail detail() {
+		return this.detail;
+	}
+
+	public double aiMicros() {
+		return this.aiNanos / 1000.0;
+	}
+
+	/**
+	 * Once a second: how much thinking this character needs. Full within aiFullDetailRange of a real player (or while
+	 * fighting, tamed or forced into something); simple out to aiSimpleDetailRange (thinks every 4th tick, keeps
+	 * walking in between); paused beyond (stands still, doesn't think) until a player comes closer.
+	 */
+	public void updateDetail() {
+		com.itzbreadloaf.config.ModConfig config = com.itzbreadloaf.config.ModConfig.get();
+		if (this.target != null || this.isTame() || this.keepActive() || this.forcedTechniqueTarget != null || this.duelOpponent != null
+				|| this.kind == CharacterKind.MASTER) {
+			this.detail = Detail.FULL;
+			return;
+		}
+		double nearest = Double.MAX_VALUE;
+		for (ServerPlayer viewer : this.player.level().players()) {
+			if (LoafIds.isRealPlayer(viewer) && !viewer.isSpectator()) {
+				nearest = Math.min(nearest, viewer.distanceToSqr(this.player));
+			}
+		}
+		double full = config.aiFullDetailRange;
+		double simple = Math.max(full, config.aiSimpleDetailRange);
+		this.detail = nearest < full * full ? Detail.FULL : nearest < simple * simple ? Detail.SIMPLE : Detail.PAUSED;
+	}
+
+	/**
+	 * Called every server tick by the character manager: thinks (or not) for this tick's detail level and measures how
+	 * long it took. Hurt or attacked characters always think.
+	 */
+	public void serverTick(int serverTick) {
+		if ((serverTick + this.mindOffset) % 20 == 0) {
+			this.updateDetail();
+		}
+		boolean think = switch (this.detail) {
+			case FULL -> true;
+			case SIMPLE -> (serverTick + this.mindOffset) % 4 == 0 || this.ticks - this.lastHurtTick < 40;
+			case PAUSED -> this.ticks - this.lastHurtTick < 40;
+		};
+		long start = System.nanoTime();
+		if (think) {
+			this.released = false;
+			this.tick();
+		} else if (this.detail == Detail.PAUSED && !this.released) {
+			this.released = true;
+			this.nav.stop();
+			this.controls.releaseAll();
+		}
+		long spent = System.nanoTime() - start;
+		this.aiNanos = this.aiNanos * 0.95 + spent * 0.05;
+	}
+
+	/** What they're doing right now, in a few words (for /loafcraft debug ai). */
+	public String describeGoal() {
+		if (this.paused) {
+			return "paused (command)";
+		}
+		if (this.forcedTechniqueTarget != null && this.techniques() != null && this.techniques().current() != null) {
+			return "test move " + this.techniques().current().id();
+		}
+		if (this.duelOpponent != null) {
+			return "duel " + this.duelOpponent.getName().getString();
+		}
+		MaceTechniques techniques = this.techniques();
+		if (techniques != null && techniques.isActive() && techniques.current() != null) {
+			return "mace " + techniques.current().id();
+		}
+		if (this.target != null) {
+			return (this.combat.isRetreating() ? "backing off from " : "fighting ") + this.target.getName().getString();
+		}
+		if (this.player.isSleeping()) {
+			return "sleeping";
+		}
+		if (this.isEating()) {
+			return "eating";
+		}
+		if (this.idleActions.current() != IdleActions.Action.NONE) {
+			return "idle " + this.idleActions.current().name().toLowerCase(java.util.Locale.ROOT);
+		}
+		if (this.isTame()) {
+			return this.sitting ? "sitting (tamed)" : "with owner";
+		}
+		return "routine " + this.routineActivity().id();
+	}
+
+	/**
+	 * Forces a fight with another character (/loafcraft duel), for up to 2 minutes or until one of them goes down,
+	 * overriding friendships and the usual rules about who fights whom.
+	 */
+	public void startDuel(LivingEntity opponent) {
+		this.duelOpponent = opponent;
+		this.duelUntil = this.ticks + 2400;
+		if (this.player.isSleeping()) {
+			this.player.stopSleeping();
+		}
+		this.sitting = false;
+		this.target = opponent;
+		this.onNewTarget(opponent);
+	}
+
+	/** Keeps a forced duel going: the opponent stays the target, and counts as having just attacked them. */
+	private void tickDuel() {
+		if (this.duelOpponent == null) {
+			return;
+		}
+		if (!this.duelOpponent.isAlive() || this.duelOpponent.isRemoved() || this.ticks > this.duelUntil
+				|| this.duelOpponent.level() != this.player.level() || this.duelOpponent.distanceTo(this.player) > 48.0) {
+			this.duelOpponent = null;
+			this.setTarget(null);
+			return;
+		}
+		this.target = this.duelOpponent;
+		this.lastAttacker = this.duelOpponent;
+		this.lastHurtTick = this.ticks;
+		if (this instanceof NeutralBrain neutral) {
+			neutral.anger = Math.max(neutral.anger, 200);
+		}
+	}
+
+	// ================================================================ mace techniques
+
+	/** The mace moves this character knows (FelixSyn, Harley, Master BreadLoaf), or null. */
+	public @Nullable MaceTechniques techniques() {
+		return null;
+	}
+
+	/** Forces a mace technique at a target, for testing. False if this character doesn't do mace moves. */
+	public boolean forceTechnique(MaceTechniques.Technique technique, LivingEntity at) {
+		MaceTechniques techniques = this.techniques();
+		if (techniques == null) {
+			return false;
+		}
+		if (this.player.isSleeping()) {
+			this.player.stopSleeping();
+		}
+		this.combat.stop();
+		techniques.limits.failChance = this.kind == CharacterKind.MASTER ? techniques.limits.failChance : this.skill().techniqueFailChance;
+		techniques.start(technique, at, 0);
+		this.forcedTechniqueTarget = at;
+		return true;
+	}
+
+	// ================================================================ mind: mood, memory, routine, skill, play style
+
+	public com.itzbreadloaf.brain.ai.MoodState mood() {
+		return this.mood;
+	}
+
+	public com.itzbreadloaf.brain.ai.PlayerMemory memory() {
+		return this.memory;
+	}
+
+	/** The skill numbers this character fights with (config "skillProfiles", by its preset). */
+	public com.itzbreadloaf.brain.ai.SkillProfile skill() {
+		return com.itzbreadloaf.config.ModConfig.get().skillFor(this.kind);
+	}
+
+	/** How this character likes to fight (config "playStyleOverrides", or picked from who they are). */
+	public com.itzbreadloaf.brain.ai.PlayStyle playStyle() {
+		var overrides = com.itzbreadloaf.config.ModConfig.get().playStyleOverrides;
+		String id = overrides == null ? null : overrides.get(this.kind.id);
+		com.itzbreadloaf.brain.ai.PlayStyle style = id == null ? null : com.itzbreadloaf.brain.ai.PlayStyle.byId(id);
+		return style != null ? style : com.itzbreadloaf.brain.ai.PlayStyle.forCharacter(this.kind, this.variant);
+	}
+
+	/** Characters who start fights (the others only defend themselves and their friends). */
+	public boolean isFighter() {
+		return this.kind == CharacterKind.BREADLOAF || this.kind == CharacterKind.FELIXSYN || this.kind == CharacterKind.HARLEY
+				|| this.kind == CharacterKind.MASTER;
+	}
+
+	/**
+	 * Friends among the characters: the same owner, cousins Lily and Madison, FelixSyn and Harley, ItzBreadLoafs with
+	 * each other, and ItzBreadLoaf with Lily or Madison (the couples). FelixSyn and ItzBreadLoaf are rivals, not friends.
+	 */
+	public boolean isFriendCharacter(LoafBrain other) {
+		if (this.owner != null && this.owner.equals(other.owner)) {
+			return true;
+		}
+		if (this.kind == CharacterKind.MASTER || other.kind == CharacterKind.MASTER) {
+			return false;
+		}
+		CharacterKind a = this.kind;
+		CharacterKind b = other.kind;
+		return a == b && a != CharacterKind.FELIXSYN
+				|| pair(a, b, CharacterKind.LILY, CharacterKind.MADISON)
+				|| pair(a, b, CharacterKind.FELIXSYN, CharacterKind.HARLEY)
+				|| isCouple(a, b);
+	}
+
+	private static boolean pair(CharacterKind a, CharacterKind b, CharacterKind x, CharacterKind y) {
+		return a == x && b == y || a == y && b == x;
+	}
+
+	/** Feel this way (if the push is strong enough). Shows the change with a line now and then. */
+	public void pushMood(com.itzbreadloaf.brain.ai.Mood mood, float amount) {
+		if (!com.itzbreadloaf.config.ModConfig.get().moods) {
+			return;
+		}
+		com.itzbreadloaf.brain.ai.Mood old = this.mood.mood();
+		this.mood.push(mood, amount, this.player.level().getGameTime());
+		if (this.mood.mood() != old) {
+			this.onMoodChanged(old, this.mood.mood());
+		}
+	}
+
+	/** Forces a mood for a while (/loafcraft mood). */
+	public void setMood(com.itzbreadloaf.brain.ai.Mood mood, int ticks) {
+		com.itzbreadloaf.brain.ai.Mood old = this.mood.mood();
+		this.mood.set(mood, this.player.level().getGameTime(), ticks);
+		this.applyMoodEffects();
+		if (old != mood) {
+			this.onMoodChanged(old, mood);
+		}
+	}
+
+	/** The everyday mood when nothing in particular is going on: tired at night, bored after 3 quiet minutes, else happy. */
+	protected com.itzbreadloaf.brain.ai.Mood everydayMood() {
+		long time = Math.floorMod(this.player.level().getDayTime(), 24000L);
+		if (time >= 12500 && time < 23500) {
+			return com.itzbreadloaf.brain.ai.Mood.TIRED;
+		}
+		if (this.target == null && this.ticks - this.lastEventTick > 3600) {
+			return com.itzbreadloaf.brain.ai.Mood.BORED;
+		}
+		return com.itzbreadloaf.brain.ai.Mood.HAPPY;
+	}
+
+	/** Once a second: notice players, feel the fight, fade toward the everyday mood, apply the mood. */
+	private void tickMind() {
+		this.combat.skill = this.skill();
+		this.combat.style = this.playStyle();
+		// Fighters always fight with full skill; Lily and Madison only once they're angry.
+		this.combat.focused = this.isFighter() || this.isAngry() || this.mood.mood() == com.itzbreadloaf.brain.ai.Mood.ANGRY;
+		float healthShare = this.player.getHealth() / this.player.getMaxHealth();
+		if (this.target != null) {
+			this.wasFighting = true;
+			if (healthShare < 0.3F && !this.saidLowHealth) {
+				this.saidLowHealth = true;
+				this.speak(com.itzbreadloaf.brain.ai.Situation.LOW_HEALTH, null);
+			}
+		} else if (this.wasFighting) {
+			// The fight's over: after a close one, catch their breath for a moment.
+			this.wasFighting = false;
+			if (healthShare < 0.5F && this.kind != CharacterKind.MASTER) {
+				this.idleActions.rest();
+			}
+		}
+		if (!com.itzbreadloaf.config.ModConfig.get().moods) {
+			this.removeMoodSpeed();
+			return;
+		}
+		long gameTime = this.player.level().getGameTime();
+		com.itzbreadloaf.brain.ai.Mood old = this.mood.mood();
+		if ((this.ticks + this.mindOffset) % 40 == 0) {
+			this.noticePlayersNearby(gameTime);
+		}
+		if (this.target != null) {
+			this.lastEventTick = this.ticks;
+			float health = this.player.getHealth() / this.player.getMaxHealth();
+			if (health < this.skill().panicHealth) {
+				this.mood.push(com.itzbreadloaf.brain.ai.Mood.SCARED, 0.7F, gameTime);
+			} else if (this.isFighter() || this.isAngry()) {
+				this.mood.push(com.itzbreadloaf.brain.ai.Mood.ANGRY, 0.3F, gameTime);
+			}
+		}
+		this.mood.tickSecond(this.everydayMood(), gameTime);
+		this.applyMoodEffects();
+		if (this.mood.mood() != old) {
+			this.onMoodChanged(old, this.mood.mood());
+		}
+	}
+
+	/** Players nearby: new faces make them curious, feared ones scare (or anger) them, liked ones cheer them up. */
+	private void noticePlayersNearby(long gameTime) {
+		for (ServerPlayer viewer : this.player.level().players()) {
+			if (!LoafIds.isRealPlayer(viewer) || viewer.isSpectator() || viewer.distanceTo(this.player) > 12.0
+					|| !viewer.hasLineOfSight(this.player)) {
+				continue;
+			}
+			this.lastEventTick = this.ticks;
+			boolean first = this.memory.seen(viewer.getUUID(), gameTime);
+			if (this.memory.isFeared(viewer.getUUID(), gameTime)) {
+				this.mood.push(this.isFighter() || this.kind == CharacterKind.MADISON
+						? com.itzbreadloaf.brain.ai.Mood.ANGRY : com.itzbreadloaf.brain.ai.Mood.SCARED, 0.5F, gameTime);
+			} else if (this.memory.isLiked(viewer.getUUID()) || this.isOwnedBy(viewer)) {
+				this.mood.push(com.itzbreadloaf.brain.ai.Mood.HAPPY, 0.3F, gameTime);
+			} else if (first) {
+				this.mood.push(com.itzbreadloaf.brain.ai.Mood.CURIOUS, 0.5F, gameTime);
+			}
+		}
+	}
+
+	/**
+	 * What the mood does right now: a little faster or slower (not Master BreadLoaf, whose speed is part of his
+	 * balance), and backing off from a fight sooner or later. Lily and Madison back off sooner still from a player
+	 * who hurt them before.
+	 */
+	protected void applyMoodEffects() {
+		com.itzbreadloaf.brain.ai.Mood now = this.mood.mood();
+		if (this.kind != CharacterKind.MASTER && this.speedMood != now) {
+			this.speedMood = now;
+			AttributeInstance speed = this.player.getAttribute(Attributes.MOVEMENT_SPEED);
+			if (speed != null) {
+				if (now.speedBonus == 0.0) {
+					speed.removeModifier(MOOD_SPEED_ID);
+				} else {
+					speed.addOrReplacePermanentModifier(new AttributeModifier(MOOD_SPEED_ID, now.speedBonus, AttributeModifier.Operation.ADD_MULTIPLIED_BASE));
+				}
+			}
+		}
+		if (this.baseRetreatBelow < 0.0F) {
+			this.baseRetreatBelow = this.combat.retreatBelow;
+		}
+		if (this.baseRetreatBelow > 0.0F) {
+			float shift = now.retreatShift;
+			if (!this.isFighter() && this.target instanceof Player p
+					&& this.memory.isFeared(p.getUUID(), this.player.level().getGameTime())) {
+				shift += 0.15F;
+			}
+			this.combat.retreatBelow = Math.max(0.05F, Math.min(0.8F, this.baseRetreatBelow + shift));
+		}
+	}
+
+	private void removeMoodSpeed() {
+		if (this.speedMood != null) {
+			this.speedMood = null;
+			AttributeInstance speed = this.player.getAttribute(Attributes.MOVEMENT_SPEED);
+			if (speed != null) {
+				speed.removeModifier(MOOD_SPEED_ID);
+			}
+		}
+	}
+
+	/** A short line when the mood changes (at most every 30 seconds), to a player watching. */
+	protected void onMoodChanged(com.itzbreadloaf.brain.ai.Mood old, com.itzbreadloaf.brain.ai.Mood now) {
+		if (this.ticks < this.nextMoodLineTick || this.baby || this.player.isSleeping()
+				|| !com.itzbreadloaf.config.ModConfig.get().personalityLines) {
+			return;
+		}
+		String[] lines = this.moodLines(now);
+		if (lines.length == 0) {
+			return;
+		}
+		String line = lines[this.random.nextInt(lines.length)];
+		if (line.equals("...")) {
+			return;
+		}
+		for (ServerPlayer viewer : this.player.level().players()) {
+			if (LoafIds.isRealPlayer(viewer) && viewer.distanceTo(this.player) < 8.0 && viewer.hasLineOfSight(this.player)) {
+				this.say(viewer, line);
+				this.nextMoodLineTick = this.ticks + 600;
+				return;
+			}
+		}
+	}
+
+	/** Lines for a new mood. Each character has its own (part 6 adds more). */
+	protected String[] moodLines(com.itzbreadloaf.brain.ai.Mood mood) {
+		return switch (mood) {
+			case TIRED -> new String[]{"*yawns*", "getting sleepy..."};
+			case BORED -> new String[]{"*sighs*", "nothing to do..."};
+			case HAPPY -> new String[]{"*hums*", "nice day!"};
+			case CURIOUS -> new String[]{"hm? who's that?", "oh, hello there"};
+			case SCARED -> new String[]{"eek!", "uh oh..."};
+			case ANGRY -> new String[]{"hey!", "that's it!"};
+		};
+	}
+
+	/** What the routine says they should be doing right now (fixed per character, day and hour). */
+	public com.itzbreadloaf.brain.ai.Routine.Activity routineActivity() {
+		return com.itzbreadloaf.brain.ai.Routine.at(this.player.level().getDayTime(), this.mood.mood(),
+				this.player.getUUID().getLeastSignificantBits());
+	}
+
+	/**
+	 * The daily routine, for wild and resident characters with nothing better to do (never while fighting, tamed,
+	 * as a baby, or for Master BreadLoaf). True while busy with it; otherwise the character's own idle behavior runs.
+	 */
+	protected boolean tickRoutine() {
+		if (!com.itzbreadloaf.config.ModConfig.get().routines || this.target != null || this.isTame() || this.baby
+				|| this.kind == CharacterKind.MASTER) {
+			this.activities.stopAll();
+			return false;
+		}
+		com.itzbreadloaf.brain.ai.Routine.Activity activity = this.routineActivity();
+		if (activity != com.itzbreadloaf.brain.ai.Routine.Activity.WORK) {
+			this.activities.stopWork();
+		}
+		if (activity != com.itzbreadloaf.brain.ai.Routine.Activity.FRIENDS) {
+			this.activities.stopVisit();
+		}
+		return switch (activity) {
+			case WORK -> this.doWork();
+			case FRIENDS -> this.socialize();
+			case HEAD_HOME -> this.activities.stayNearHome();
+			default -> false;
+		};
+	}
+
+	/** Each character's work (bake, train, read, garden, farm, practice...). True while busy. */
+	protected boolean doWork() {
+		return false;
+	}
+
+	/** Friends time: visit a friend character nearby. */
+	protected boolean socialize() {
+		return this.activities.visitFriend();
+	}
+
 	// ================================================================ saving
 
 	public void save(CompoundTag tag) {
@@ -7292,6 +10110,8 @@ public abstract class LoafBrain {
 			tag.store("ParentA", UUIDUtil.CODEC, this.parentA);
 			tag.store("ParentB", UUIDUtil.CODEC, this.parentB);
 		}
+		this.mood.save(tag);
+		this.memory.save(tag);
 	}
 
 	public void load(CompoundTag tag) {
@@ -7307,6 +10127,8 @@ public abstract class LoafBrain {
 		this.breedCooldown = tag.getIntOr("BreedCooldown", 0);
 		this.parentA = tag.read("ParentA", UUIDUtil.CODEC).orElse(null);
 		this.parentB = tag.read("ParentB", UUIDUtil.CODEC).orElse(null);
+		this.mood.load(tag);
+		this.memory.load(tag);
 	}
 
 	protected static List<UUID> uuids(@Nullable UUID... ids) {
@@ -7321,36 +10143,144 @@ public abstract class LoafBrain {
 }
 ```
 
-## src/main/java/com/itzbreadloaf/brain/MaceJump.java
+## src/main/java/com/itzbreadloaf/brain/MaceTechniques.java
 
 ```java
 package com.itzbreadloaf.brain;
 
+import com.itzbreadloaf.brain.ai.PlayStyle;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.function.Consumer;
+import net.minecraft.core.Holder;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.Mth;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.enchantment.Enchantment;
+import net.minecraft.world.item.enchantment.EnchantmentHelper;
+import net.minecraft.world.item.enchantment.Enchantments;
+import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
 
 /**
- * The PvP mace move, with real inputs: look straight down, jump, throw a wind charge at your feet (it launches you
- * up), switch to the mace, drift toward the target and smash them on the way down (a mace hit while falling more than
- * 1.5 blocks is a smash attack; Wind Burst bounces you back up for another). Used by FelixSyn and Harley.
+ * The mace moves (AI overhaul part 5), shared by FelixSyn, Harley and Master BreadLoaf, with real inputs only.
+ * Mechanics checked against Minecraft 1.21.11 (AI_DESIGN.md section 2):
+ *
+ * <ul>
+ * <li><b>Wind jump:</b> look down, jump, throw a wind charge at your feet (launches you up ~6-8 blocks), mace out,
+ *   drift onto the target and smash on the way down (a smash needs more than 1.5 blocks of fall and not gliding;
+ *   the fall bonus isn't reduced by the attack charge, so switching to the mace mid-air is fine).</li>
+ * <li><b>Wind chain:</b> a wind jump, then after each smash a wind charge thrown straight down at the target bursts
+ *   on them and launches you up again (a Wind Burst mace bounces you by itself). Each new fall starts at 0 (a smash
+ *   resets fall distance).</li>
+ * <li><b>Pearl catch:</b> a wind jump, then at the top of it a wind charge and a pearl thrown down the same line one
+ *   tick apart, so the pearl meets the wind charge in the air: you teleport there (a pearl teleport keeps your
+ *   momentum, resets fall distance to 0 and costs 5 damage) and the burst launches you again, from mid-air.
+ *   <b>[check]</b> Vanilla makes this inconsistent (the wind charge doesn't always count as having left you, so it
+ *   may not burst on you). When the catch doesn't happen they simply fall and smash from the first jump.</li>
+ * <li><b>Diagonal pearl:</b> from 8-18 blocks away, a pearl thrown in an arc to land beside the target (2-3 blocks to
+ *   one side), then a wind jump from there: they come down on the target from the side.</li>
+ * <li><b>Elytra mace:</b> swap the chestplate for the elytra (right-click it from the hotbar), take off, climb on
+ *   firework rockets to ~16 blocks over the target, glide over them, swap the chestplate back on (the glide stops;
+ *   gliding slowly keeps fall distance at 1, so the fall only counts from here), mace out, smash.</li>
+ * </ul>
+ *
+ * The mace is picked for the moment: Breach against heavy armor, Density for big drops, Wind Burst for chains.
+ * Moves fail now and then by skill (a pearl thrown off line, a dive that comes down next to the target). Each user
+ * sets {@link Limits}: how much fall a smash may count, how many hits a chain may have, and (Master BreadLoaf) a
+ * warning wind-up before the move.
  */
-public final class MaceJump {
+public final class MaceTechniques {
+	public enum Technique {
+		WIND_JUMP, WIND_CHAIN, PEARL_CATCH, DIAGONAL_PEARL, ELYTRA_MACE;
+
+		public String id() {
+			return this.name().toLowerCase(Locale.ROOT);
+		}
+
+		/** By id, accepting the test command's names ("elytra_mace" and "wind_chain" included). */
+		public static @Nullable Technique byId(String id) {
+			for (Technique t : values()) {
+				if (t.id().equalsIgnoreCase(id)) {
+					return t;
+				}
+			}
+			return null;
+		}
+	}
+
+	/** What a user allows. */
+	public static final class Limits {
+		/** Largest fall a smash may count (mace damage grows with the fall). */
+		public float maxFall = 6.0F;
+		/** Most smashes per move (Wind Burst bounces and wind-charge relaunches included). */
+		public int maxChain = 3;
+		/** Ticks of warning before the move starts (and before a dive comes down). 0 = none. */
+		public int warnTicks;
+		/** Shows the warning (true = with sound). */
+		public @Nullable Consumer<Boolean> warn;
+		/** Chance the move goes wrong on purpose (by skill). */
+		public float failChance = 0.15F;
+	}
+
+	private enum Phase { WARN, PEARL_IN, LAUNCH, RISE, CATCH, AIR, RELAUNCH, TAKEOFF, CLIMB, CRUISE, OVER, DROP, ARMOR }
+
+	public static final int MACE_SLOT = 2;
+	public static final int WIND_SLOT = 4;
+	public static final int PEARL_SLOT = 5;
+	public static final int ROCKET_SLOT = 7;
+	public static final int ELYTRA_SLOT = 8;
+
 	private final ServerPlayer player;
 	private final Controls controls;
 	private final Combat combat;
-	private int ticks = -1;
-	private int cooldown;
+	private final RandomSource random;
+	public Limits limits = new Limits();
 
-	public MaceJump(ServerPlayer player, Controls controls, Combat combat) {
+	private @Nullable Technique technique;
+	private Phase phase = Phase.WARN;
+	private int phaseTicks;
+	private int totalTicks;
+	private int cooldown;
+	private int chainHits;
+	private boolean failed;
+	private Vec3 missOffset = Vec3.ZERO;
+	private int sideSign = 1;
+	private boolean warnedBounce;
+	private boolean wasRising;
+	private @Nullable Vec3 lastPos;
+	private double lastDy;
+	private boolean caught;
+	private int lastRocketTick = -100;
+	private double diveTopY;
+	private int tidyTicks;
+
+	public MaceTechniques(ServerPlayer player, Controls controls, Combat combat, RandomSource random) {
 		this.player = player;
 		this.controls = controls;
 		this.combat = combat;
+		this.random = random;
 	}
 
 	public boolean isActive() {
-		return this.ticks >= 0;
+		return this.technique != null;
+	}
+
+	public @Nullable Technique current() {
+		return this.technique;
+	}
+
+	public boolean isReady() {
+		return this.technique == null && this.cooldown <= 0;
 	}
 
 	public void tickCooldown() {
@@ -7359,67 +10289,556 @@ public final class MaceJump {
 		}
 	}
 
-	public boolean canStart() {
-		return this.ticks < 0 && this.cooldown <= 0 && this.player.onGround()
-				&& Inv.find(this.player, stack -> stack.is(Items.WIND_CHARGE)) >= 0
-				&& Inv.find(this.player, stack -> stack.is(Items.MACE)) >= 0;
-	}
-
-	public void start(int cooldownTicks) {
-		this.ticks = 0;
-		this.cooldown = cooldownTicks;
-		this.combat.stop();
-	}
-
+	/**
+	 * No fight going on: drop any move. Called every idle tick, so it also puts the chestplate back on (right-click
+	 * from the hotbar) if a move ended with the elytra still worn.
+	 */
 	public void cancel() {
-		this.ticks = -1;
+		this.technique = null;
+		if (this.player.onGround() && this.player.getItemBySlot(EquipmentSlot.CHEST).is(Items.ELYTRA)) {
+			int chestplate = Inv.ready(this.player, MaceTechniques::isChestplate, ELYTRA_SLOT);
+			if (chestplate >= 0 && ++this.tidyTicks % 3 == 1) {
+				this.controls.selectSlot(chestplate);
+				this.controls.look(this.player.getYRot(), -60.0F);
+				this.controls.useOnce();
+			}
+		}
 	}
 
-	/** One tick of the move. Returns false once it's over (landed or gave up). */
-	public boolean tick(LivingEntity target, float maxSmashFall) {
-		this.ticks++;
-		if (this.ticks <= 6) {
-			int charge = Inv.ready(this.player, stack -> stack.is(Items.WIND_CHARGE), 4);
-			if (charge < 0) {
-				this.ticks = -1;
-				return false;
+	// ---------------------------------------------------------------- what can be done
+
+	private int count(net.minecraft.world.item.Item item) {
+		return Inv.count(this.player, stack -> stack.is(item));
+	}
+
+	private boolean roomAbove(int blocks) {
+		AABB above = this.player.getBoundingBox().move(0.0, 1.0, 0.0).expandTowards(0.0, blocks, 0.0);
+		return this.player.level().noCollision(this.player, above);
+	}
+
+	/** Open sky over the target (nothing to crash into on a dive). */
+	private boolean skyOver(LivingEntity target) {
+		int top = this.player.level().getHeight(Heightmap.Types.MOTION_BLOCKING, target.getBlockX(), target.getBlockZ());
+		return top <= target.getBlockY() + 1;
+	}
+
+	private static boolean isChestplate(ItemStack stack) {
+		EquipmentSlot slot = stack.has(net.minecraft.core.component.DataComponents.EQUIPPABLE)
+				? stack.get(net.minecraft.core.component.DataComponents.EQUIPPABLE).slot() : null;
+		return slot == EquipmentSlot.CHEST && !stack.is(Items.ELYTRA);
+	}
+
+	/** Has what the move needs, is on the ground with room, and (for pearls) has the health to spare. */
+	public boolean canStart(Technique t, LivingEntity target) {
+		if (!this.player.onGround() || this.count(Items.MACE) == 0 || this.player.isInWater()) {
+			return false;
+		}
+		int wind = this.count(Items.WIND_CHARGE);
+		int pearls = this.count(Items.ENDER_PEARL);
+		boolean healthy = this.player.getHealth() > 10.0F;
+		return switch (t) {
+			case WIND_JUMP -> wind >= 1 && this.roomAbove(5);
+			case WIND_CHAIN -> wind >= 2 && this.roomAbove(5);
+			case PEARL_CATCH -> wind >= 2 && pearls >= 1 && healthy && this.roomAbove(12);
+			case DIAGONAL_PEARL -> wind >= 1 && pearls >= 1 && healthy;
+			case ELYTRA_MACE -> this.count(Items.ELYTRA) + (this.player.getItemBySlot(EquipmentSlot.CHEST).is(Items.ELYTRA) ? 1 : 0) > 0
+					&& this.count(Items.FIREWORK_ROCKET) >= 2 && this.roomAbove(8) && this.skyOver(target)
+					&& Inv.find(this.player, MaceTechniques::isChestplate) >= 0;
+		};
+	}
+
+	/**
+	 * A sensible move for this distance and target, or null: wind jumps and chains up close (chains when the mace has
+	 * Wind Burst or the target is heavily armored), pearl catches at 3-8 blocks, diagonal pearls at 8-18, elytra dives
+	 * at 12-40. Aerialists (FelixSyn) favor the pearl and elytra moves.
+	 */
+	public @Nullable Technique choose(LivingEntity target, double distance, PlayStyle style) {
+		if (!this.isReady()) {
+			return null;
+		}
+		boolean armored = target.getArmorValue() >= 15;
+		boolean windBurst = Inv.find(this.player, stack -> stack.is(Items.MACE) && this.level(stack, Enchantments.WIND_BURST) > 0) >= 0;
+		float air = style == PlayStyle.AERIALIST ? 1.6F : 1.0F;
+		List<Technique> options = new ArrayList<>();
+		List<Float> weights = new ArrayList<>();
+		if (distance > 1.5 && distance < 5.5) {
+			options.add(Technique.WIND_JUMP);
+			weights.add(3.0F);
+			options.add(Technique.WIND_CHAIN);
+			weights.add(windBurst || armored ? 3.0F : 1.0F);
+		}
+		if (distance > 3.0 && distance < 8.0) {
+			options.add(Technique.PEARL_CATCH);
+			weights.add((armored ? 2.5F : 1.2F) * air);
+		}
+		if (distance > 8.0 && distance < 18.0) {
+			options.add(Technique.DIAGONAL_PEARL);
+			weights.add(2.5F * air);
+		}
+		if (distance > 12.0 && distance < 40.0) {
+			options.add(Technique.ELYTRA_MACE);
+			weights.add(2.0F * air);
+		}
+		float total = 0.0F;
+		for (int i = options.size() - 1; i >= 0; i--) {
+			if (!this.canStart(options.get(i), target)) {
+				options.remove(i);
+				weights.remove(i);
+			} else {
+				total += weights.get(i);
 			}
-			this.controls.selectSlot(charge);
-			this.controls.lookInstantly(Controls.yawTo(this.player.position(), target.position()), 90.0F);
-			if (this.player.onGround() && this.ticks <= 2) {
-				this.controls.jumpOnce();
-			} else if (!this.player.onGround() && this.ticks >= 3) {
+		}
+		if (options.isEmpty()) {
+			return null;
+		}
+		float roll = this.random.nextFloat() * total;
+		for (int i = 0; i < options.size(); i++) {
+			roll -= weights.get(i);
+			if (roll <= 0.0F) {
+				return options.get(i);
+			}
+		}
+		return options.get(options.size() - 1);
+	}
+
+	// ---------------------------------------------------------------- running a move
+
+	public void start(Technique t, LivingEntity target, int cooldownTicks) {
+		this.technique = t;
+		this.cooldown = cooldownTicks;
+		this.totalTicks = 0;
+		this.chainHits = 0;
+		this.caught = false;
+		this.warnedBounce = false;
+		this.wasRising = false;
+		this.failed = this.random.nextFloat() < this.limits.failChance;
+		this.sideSign = this.random.nextBoolean() ? 1 : -1;
+		double angle = this.random.nextDouble() * Math.PI * 2.0;
+		this.missOffset = this.failed && (t == Technique.ELYTRA_MACE || t == Technique.WIND_JUMP)
+				? new Vec3(Math.cos(angle) * 4.0, 0.0, Math.sin(angle) * 4.0) : Vec3.ZERO;
+		this.diveTopY = target.getY() + 16.0;
+		this.combat.stop();
+		this.setPhase(this.limits.warnTicks > 0 ? Phase.WARN : this.firstPhase(t));
+	}
+
+	private Phase firstPhase(Technique t) {
+		return switch (t) {
+			case DIAGONAL_PEARL -> Phase.PEARL_IN;
+			case ELYTRA_MACE -> Phase.TAKEOFF;
+			default -> Phase.LAUNCH;
+		};
+	}
+
+	private void setPhase(Phase phase) {
+		this.phase = phase;
+		this.phaseTicks = 0;
+	}
+
+	/** Ends the move; puts the chestplate back on first if the elytra is still worn. */
+	private boolean finish() {
+		if (this.player.getItemBySlot(EquipmentSlot.CHEST).is(Items.ELYTRA) && Inv.find(this.player, MaceTechniques::isChestplate) >= 0
+				&& this.phase != Phase.ARMOR) {
+			this.setPhase(Phase.ARMOR);
+			return true;
+		}
+		this.technique = null;
+		return false;
+	}
+
+	private void warn(boolean sound) {
+		if (this.limits.warn != null) {
+			this.limits.warn.accept(sound);
+		}
+	}
+
+	/** One tick of the move. Returns false once it's over. */
+	public boolean tick(LivingEntity target) {
+		if (this.technique == null) {
+			return false;
+		}
+		this.totalTicks++;
+		this.phaseTicks++;
+		if (this.totalTicks > 500 || !target.isAlive()) {
+			return this.finish();
+		}
+		Vec3 pos = this.player.position();
+		boolean teleported = this.lastPos != null && pos.distanceTo(this.lastPos) > 2.5;
+		// A wind-charge burst mid-air shows as a sudden upward kick.
+		double dy = this.player.getDeltaMovement().y;
+		boolean boosted = dy - this.lastDy > 0.4;
+		this.lastPos = pos;
+		this.lastDy = dy;
+		return switch (this.phase) {
+			case WARN -> this.warnPhase(target);
+			case PEARL_IN -> this.pearlIn(target, teleported);
+			case LAUNCH -> this.launch(target);
+			case RISE -> this.rise(target);
+			case CATCH -> this.catchPearl(target, teleported || boosted);
+			case AIR -> this.air(target);
+			case RELAUNCH -> this.relaunch(target);
+			case TAKEOFF -> this.takeoff(target);
+			case CLIMB -> this.climb(target);
+			case CRUISE -> this.cruise(target);
+			case OVER -> this.over(target);
+			case DROP -> this.drop(target);
+			case ARMOR -> this.armor();
+		};
+	}
+
+	/** Standing still, facing them, while the warning plays (Master BreadLoaf). */
+	private boolean warnPhase(LivingEntity target) {
+		this.controls.lookAt(target.getEyePosition());
+		if (this.phaseTicks == 1) {
+			this.warn(true);
+		} else if (this.phaseTicks % 4 == 0) {
+			this.warn(false);
+		}
+		if (this.phaseTicks >= this.limits.warnTicks) {
+			this.setPhase(this.firstPhase(this.technique));
+		}
+		return true;
+	}
+
+	/** Look down, jump, throw a wind charge at the feet. */
+	private boolean launch(LivingEntity target) {
+		int slot = Inv.ready(this.player, stack -> stack.is(Items.WIND_CHARGE), WIND_SLOT);
+		if (slot < 0) {
+			return this.finish();
+		}
+		this.controls.selectSlot(slot);
+		this.controls.lookInstantly(Controls.yawTo(this.player.position(), target.position()), 90.0F);
+		if (this.player.onGround() && this.phaseTicks <= 2) {
+			this.controls.jumpOnce();
+		} else if (!this.player.onGround() && this.phaseTicks >= 3) {
+			this.controls.useOnce();
+			this.wasRising = true;
+			this.setPhase(this.technique == Technique.PEARL_CATCH ? Phase.RISE : Phase.AIR);
+		} else if (this.phaseTicks >= 6) {
+			// The jump never happened (a ceiling, stuck): give up.
+			return this.finish();
+		}
+		return true;
+	}
+
+	/** Pearl catch: ride the wind jump up, drifting toward them, until near the top. */
+	private boolean rise(LivingEntity target) {
+		this.controls.walkToward(target.position());
+		this.controls.lookAt(target.position());
+		if (this.phaseTicks > 3 && this.player.getDeltaMovement().y < 0.12 || this.phaseTicks > 25) {
+			this.setPhase(Phase.CATCH);
+		}
+		return true;
+	}
+
+	/**
+	 * The catch: a wind charge, then a pearl down the same line the next tick (steeply down and toward the target; a
+	 * failed one is thrown off line). If the pearl meets the wind charge, they teleport there and the burst launches
+	 * them again. Either way, after a moment they go on to the smash.
+	 */
+	private boolean catchPearl(LivingEntity target, boolean teleported) {
+		float yaw = Controls.yawTo(this.player.position(), target.position()) + (this.failed ? 25.0F * this.sideSign : 0.0F);
+		float pitch = this.failed ? 50.0F : 78.0F;
+		if (this.phaseTicks == 1) {
+			int wind = Inv.ready(this.player, stack -> stack.is(Items.WIND_CHARGE), WIND_SLOT);
+			if (wind < 0) {
+				this.setPhase(Phase.AIR);
+				return true;
+			}
+			this.controls.selectSlot(wind);
+			this.controls.lookInstantly(yaw, pitch);
+			this.controls.useOnce();
+			return true;
+		}
+		if (this.phaseTicks == 2) {
+			int pearl = Inv.ready(this.player, stack -> stack.is(Items.ENDER_PEARL), PEARL_SLOT);
+			if (pearl >= 0) {
+				this.controls.selectSlot(pearl);
+				this.controls.lookInstantly(yaw, pitch);
 				this.controls.useOnce();
-				this.ticks = 6;
-			} else if (this.ticks == 6) {
-				// The jump never happened (ceiling, stuck): give up.
-				this.ticks = -1;
-				return false;
 			}
 			return true;
 		}
-		int mace = Inv.ready(this.player, stack -> stack.is(Items.MACE), 2);
-		if (mace >= 0) {
-			this.controls.selectSlot(mace);
+		if (teleported) {
+			this.caught = true;
 		}
-		Vec3 aim = this.combat.aimPoint(target);
-		this.controls.aimAt(aim);
-		this.controls.walkToward(target.position());
-		this.controls.setSprinting(false);
-		if (this.player.fallDistance > maxSmashFall) {
-			this.player.fallDistance = maxSmashFall;
-		}
-		// No waiting for a full attack charge: switching to the mace mid-air resets it, and a mace needs ~1.7 s to
-		// charge, longer than the fall, so the smash never came. The smash bonus isn't scaled by the charge anyway.
-		boolean falling = this.player.getDeltaMovement().y < 0.0 && !this.player.onGround();
-		if (falling && this.player.getEyePosition().distanceTo(aim) <= this.combat.reach() - 0.1 && this.player.fallDistance > 1.5) {
-			this.controls.attackOnce();
-		}
-		if (this.ticks > 12 && this.player.onGround() || this.ticks > 120) {
-			this.ticks = -1;
-			return false;
+		if (this.phaseTicks >= 10 || this.caught && this.phaseTicks >= 4) {
+			this.setPhase(Phase.AIR);
 		}
 		return true;
+	}
+
+	/**
+	 * Diagonal pearl: an arcing pearl to land 2-3 blocks beside the target (a failed throw lands a few blocks wide),
+	 * then a wind jump from there once the pearl has brought them over.
+	 */
+	private boolean pearlIn(LivingEntity target, boolean teleported) {
+		if (this.phaseTicks == 1) {
+			int pearl = Inv.ready(this.player, stack -> stack.is(Items.ENDER_PEARL), PEARL_SLOT);
+			if (pearl < 0) {
+				return this.finish();
+			}
+			this.controls.selectSlot(pearl);
+			Vec3 toTarget = target.position().subtract(this.player.position()).multiply(1.0, 0.0, 1.0).normalize();
+			Vec3 side = new Vec3(-toTarget.z, 0.0, toTarget.x).scale(this.sideSign * (this.failed ? 6.0 : 2.5));
+			Vec3 spot = target.position().add(side).add(target.getDeltaMovement().multiply(10.0, 0.0, 10.0));
+			float[] angles = arc(this.player.getEyePosition(), spot.add(0.0, 0.2, 0.0), 1.5, 0.03);
+			this.controls.lookInstantly(angles[0], angles[1]);
+			return true;
+		}
+		if (this.phaseTicks == 2) {
+			this.controls.useOnce();
+			return true;
+		}
+		this.controls.lookAt(target.getEyePosition());
+		if (teleported && this.player.onGround() || teleported && this.phaseTicks > 4) {
+			this.setPhase(Phase.LAUNCH);
+			return true;
+		}
+		if (this.phaseTicks > 70) {
+			// The pearl was lost (fell somewhere, hit something): no move this time.
+			return this.finish();
+		}
+		return true;
+	}
+
+	/**
+	 * In the air: the right mace for the drop, drift onto them and smash on the way down when the crosshair is on
+	 * them. Wind Burst bounces them up for another; a wind chain throws a wind charge down at them after each hit.
+	 */
+	private boolean air(LivingEntity target) {
+		double drop = this.player.getY() - target.getY();
+		this.selectMace(target, drop);
+		Vec3 aim = this.combat.aimPoint(target).add(this.missOffset);
+		this.controls.humanAim(aim, this.combat.skill.aimSpeedDegrees * 1.2F, this.combat.skill.aimErrorDegrees * 0.7F);
+		this.controls.walkToward(target.position().add(this.missOffset));
+		this.controls.setSprinting(false);
+		if (this.player.fallDistance > this.limits.maxFall) {
+			this.player.fallDistance = this.limits.maxFall;
+		}
+		double dy = this.player.getDeltaMovement().y;
+		boolean falling = dy < 0.0 && !this.player.onGround();
+		boolean canHit = this.chainHits < this.limits.maxChain;
+		// Chains: warn again at the top of each bounce (Master BreadLoaf), once per bounce.
+		if (this.wasRising && dy <= 0.0 && this.chainHits > 0 && canHit && !this.warnedBounce) {
+			this.warnedBounce = true;
+			this.warn(true);
+		}
+		this.wasRising = dy > 0.0;
+		if (canHit && falling && this.player.fallDistance > 1.5 && this.onTarget(target)) {
+			this.controls.attackOnce();
+			this.chainHits++;
+			this.warnedBounce = false;
+			ItemStack mace = this.player.getMainHandItem();
+			if (this.technique == Technique.WIND_CHAIN && this.chainHits < this.limits.maxChain
+					&& this.level(mace, Enchantments.WIND_BURST) == 0 && this.count(Items.WIND_CHARGE) > 0) {
+				this.setPhase(Phase.RELAUNCH);
+				return true;
+			}
+		}
+		if (this.player.onGround() && this.phaseTicks > 8 || this.phaseTicks > 160) {
+			return this.finish();
+		}
+		return true;
+	}
+
+	/** Right after a smash: a wind charge straight down at their feet bursts on them and launches us up again. */
+	private boolean relaunch(LivingEntity target) {
+		int wind = Inv.ready(this.player, stack -> stack.is(Items.WIND_CHARGE), WIND_SLOT);
+		if (wind < 0) {
+			this.setPhase(Phase.AIR);
+			return true;
+		}
+		this.controls.selectSlot(wind);
+		this.controls.lookInstantly(Controls.yawTo(this.player.position(), target.position()), 88.0F);
+		if (this.phaseTicks == 2) {
+			this.controls.useOnce();
+			this.wasRising = true;
+			this.setPhase(Phase.AIR);
+		}
+		return true;
+	}
+
+	/** The crosshair is on the target, within reach. */
+	private boolean onTarget(LivingEntity target) {
+		Vec3 eyes = this.player.getEyePosition();
+		Vec3 end = eyes.add(this.player.getViewVector(1.0F).scale(this.combat.reach() - 0.1));
+		return target.getBoundingBox().inflate(0.1).clip(eyes, end).isPresent();
+	}
+
+	// ---------------------------------------------------------------- elytra mace
+
+	/** Swap the chestplate for the elytra (right-click it in the hotbar), jump, and start gliding. */
+	private boolean takeoff(LivingEntity target) {
+		boolean wearingElytra = this.player.getItemBySlot(EquipmentSlot.CHEST).is(Items.ELYTRA);
+		if (!wearingElytra) {
+			int elytra = Inv.ready(this.player, stack -> stack.is(Items.ELYTRA), ELYTRA_SLOT);
+			if (elytra < 0 || this.phaseTicks > 10) {
+				return this.finish();
+			}
+			this.controls.selectSlot(elytra);
+			this.controls.look(this.player.getYRot(), -60.0F);
+			if (this.phaseTicks % 3 == 1) {
+				this.controls.useOnce();
+			}
+			return true;
+		}
+		this.controls.look(Controls.yawTo(this.player.position(), target.position()), -60.0F);
+		if (this.player.isFallFlying()) {
+			this.useRocket();
+			this.setPhase(Phase.CLIMB);
+			return true;
+		}
+		if (this.player.onGround()) {
+			this.controls.jumpOnce();
+		} else if (this.player.getDeltaMovement().y < 0.1) {
+			// The jump key in mid-air: start gliding.
+			this.player.tryToStartFallFlying();
+		}
+		return this.phaseTicks <= 40 || this.finish();
+	}
+
+	private void useRocket() {
+		if (this.totalTicks - this.lastRocketTick < 18) {
+			return;
+		}
+		int rocket = Inv.ready(this.player, stack -> stack.is(Items.FIREWORK_ROCKET), ROCKET_SLOT);
+		if (rocket < 0) {
+			return;
+		}
+		this.controls.selectSlot(rocket);
+		this.controls.useOnce();
+		this.lastRocketTick = this.totalTicks;
+	}
+
+	/** Rocket up at a steep angle until well above the target (or a ceiling). */
+	private boolean climb(LivingEntity target) {
+		if (!this.player.isFallFlying()) {
+			this.setPhase(Phase.DROP);
+			return true;
+		}
+		this.controls.look(Controls.yawTo(this.player.position(), target.position()), -55.0F);
+		this.useRocket();
+		if (this.player.getY() >= this.diveTopY || !this.roomAbove(4) || this.phaseTicks > 160) {
+			this.diveTopY = Math.max(target.getY() + 8.0, Math.min(this.diveTopY, this.player.getY()));
+			this.setPhase(Phase.CRUISE);
+		}
+		return true;
+	}
+
+	/** Glide to a point above the target (or beside them, on a dive that goes wrong). */
+	private boolean cruise(LivingEntity target) {
+		if (!this.player.isFallFlying()) {
+			this.setPhase(Phase.DROP);
+			return true;
+		}
+		Vec3 spot = target.position().add(this.missOffset);
+		Vec3 over = new Vec3(spot.x, this.diveTopY, spot.z);
+		double horizontal = Math.sqrt(Math.pow(spot.x - this.player.getX(), 2) + Math.pow(spot.z - this.player.getZ(), 2));
+		float pitch = this.player.getY() < this.diveTopY - 3.0 ? -25.0F : horizontal > 20.0 ? 5.0F : 15.0F;
+		this.controls.look(Controls.yawTo(this.player.position(), over), pitch);
+		double speed = this.player.getDeltaMovement().horizontalDistance();
+		if ((speed < 0.6 || this.player.getY() < this.diveTopY - 5.0) && horizontal > 8.0) {
+			this.useRocket();
+		}
+		if (horizontal < 4.5 || this.phaseTicks > 200) {
+			this.setPhase(this.limits.warnTicks > 0 ? Phase.OVER : Phase.DROP);
+		}
+		return true;
+	}
+
+	/** Over the target: pull up to bleed speed while the warning plays (Master BreadLoaf only). */
+	private boolean over(LivingEntity target) {
+		this.controls.look(Controls.yawTo(this.player.position(), target.position()), -35.0F);
+		if (this.phaseTicks == 1) {
+			this.warn(true);
+		} else if (this.phaseTicks % 4 == 0) {
+			this.warn(false);
+		}
+		if (this.phaseTicks >= this.limits.warnTicks || !this.player.isFallFlying()) {
+			this.setPhase(Phase.DROP);
+		}
+		return true;
+	}
+
+	/** Chestplate back on (stops the glide, so the fall starts counting), then the smash. */
+	private boolean drop(LivingEntity target) {
+		if (this.player.getItemBySlot(EquipmentSlot.CHEST).is(Items.ELYTRA)) {
+			int chestplate = Inv.ready(this.player, MaceTechniques::isChestplate, ELYTRA_SLOT);
+			if (chestplate >= 0 && this.phaseTicks <= 6) {
+				this.controls.selectSlot(chestplate);
+				this.controls.look(this.player.getYRot(), -60.0F);
+				if (this.phaseTicks % 2 == 1) {
+					this.controls.useOnce();
+				}
+				return true;
+			}
+		}
+		this.setPhase(Phase.AIR);
+		return true;
+	}
+
+	/** After the move: the chestplate back on if the elytra is still worn. */
+	private boolean armor() {
+		int chestplate = Inv.ready(this.player, MaceTechniques::isChestplate, ELYTRA_SLOT);
+		if (chestplate < 0 || this.phaseTicks > 12 || !this.player.getItemBySlot(EquipmentSlot.CHEST).is(Items.ELYTRA)) {
+			this.technique = null;
+			return false;
+		}
+		this.controls.selectSlot(chestplate);
+		this.controls.look(this.player.getYRot(), -60.0F);
+		if (this.phaseTicks % 3 == 1) {
+			this.controls.useOnce();
+		}
+		return true;
+	}
+
+	// ---------------------------------------------------------------- mace choice and aiming
+
+	private int level(ItemStack stack, ResourceKey<Enchantment> key) {
+		Holder<Enchantment> holder = this.player.level().registryAccess().lookupOrThrow(Registries.ENCHANTMENT).getOrThrow(key);
+		return EnchantmentHelper.getItemEnchantmentLevel(holder, stack);
+	}
+
+	/** Breach against heavy armor, Density for big drops, Wind Burst for chains; any mace otherwise. */
+	public void selectMace(LivingEntity target, double drop) {
+		int best = -1;
+		int bestScore = -1;
+		boolean chain = this.technique == Technique.WIND_CHAIN || this.technique == Technique.WIND_JUMP;
+		for (int i = 0; i < Inv.MAIN; i++) {
+			ItemStack stack = this.player.getInventory().getItem(i);
+			if (!stack.is(Items.MACE)) {
+				continue;
+			}
+			int score = 1;
+			if (target.getArmorValue() >= 15) {
+				score += this.level(stack, Enchantments.BREACH) * 3;
+			}
+			if (drop >= 6.0) {
+				score += this.level(stack, Enchantments.DENSITY) * 2;
+			}
+			if (chain) {
+				score += this.level(stack, Enchantments.WIND_BURST) * 3;
+			}
+			if (score > bestScore) {
+				bestScore = score;
+				best = i;
+			}
+		}
+		if (best >= 0) {
+			this.controls.selectSlot(Inv.toHotbar(this.player, best, MACE_SLOT));
+		}
+	}
+
+	/** Yaw and pitch to land a projectile (speed v, gravity g) on a point, low arc. */
+	static float[] arc(Vec3 from, Vec3 to, double v, double g) {
+		double dx = to.x - from.x;
+		double dz = to.z - from.z;
+		double dy = to.y - from.y;
+		double d = Math.sqrt(dx * dx + dz * dz);
+		double v2 = v * v;
+		double disc = v2 * v2 - g * (g * d * d + 2.0 * dy * v2);
+		double angle = disc < 0.0 ? Math.PI / 4.0 : Math.atan2(v2 - Math.sqrt(disc), g * d);
+		return new float[]{(float) (Mth.atan2(dz, dx) * Mth.RAD_TO_DEG) - 90.0F, (float) (-angle * Mth.RAD_TO_DEG)};
 	}
 }
 ```
@@ -7857,7 +11276,7 @@ public class MadisonBrain extends NeutralBrain {
 			this.stopJob();
 			return;
 		}
-		if (this.tickJob() || this.tickIdle()) {
+		if (this.tickRoutine() || this.tickJob() || this.tickIdle() || this.tickIdleActions()) {
 			return;
 		}
 		this.wander(this.variant == CharacterVariant.BAKER ? 3.0 : HOME_RADIUS);
@@ -7867,7 +11286,7 @@ public class MadisonBrain extends NeutralBrain {
 	@Override
 	protected void tickCalmWithFriend() {
 		if (!this.tickJob()) {
-			this.lookAround(6.0);
+			this.idleWithOwner();
 		}
 	}
 
@@ -8002,14 +11421,50 @@ public class MadisonBrain extends NeutralBrain {
 		return this.fishing.tick(this.workCenter(), CALM_SLOT);
 	}
 
+	/**
+	 * Work hours: her job (farming, honey, fishing), the baker works at her oven, and otherwise she tends the garden
+	 * and organizes her pantry. Merchants stay at their stall.
+	 */
+	@Override
+	protected boolean doWork() {
+		if (this.tickJob()) {
+			return true;
+		}
+		return switch (this.variant) {
+			case MERCHANT -> false;
+			case BAKER -> this.activities.useStation(state -> state.is(Blocks.FURNACE) || state.is(Blocks.SMOKER)
+					|| state.is(Blocks.CRAFTING_TABLE), 6);
+			default -> this.tickIdle(this.random.nextBoolean() ? Idle.TEND_GARDEN : Idle.CHECK_PANTRY);
+		};
+	}
+
+	/** Friends time: cousin Lily first, any other friend otherwise. */
+	@Override
+	protected boolean socialize() {
+		return this.tickIdle(Idle.VISIT_LILY) || this.activities.visitFriend();
+	}
+
 	/** Tend the garden, check the pantry, visit cousin Lily, or walk up to her friend. True while busy. */
 	private boolean tickIdle() {
+		return this.tickIdle(null);
+	}
+
+	/** With {@code forced}: start that one (the routine asked for it) instead of a random one now and then. */
+	private boolean tickIdle(@Nullable Idle forced) {
 		if (this.idle == Idle.NONE) {
-			if (this.random.nextInt(200) != 0) {
-				return false;
+			if (forced != null) {
+				if (forced != Idle.VISIT_LILY && this.random.nextInt(40) != 0) {
+					this.lookAround(6.0);
+					return true;
+				}
+				this.idle = forced;
+			} else {
+				if (this.random.nextInt(200) != 0) {
+					return false;
+				}
+				Idle[] options = {Idle.TEND_GARDEN, Idle.CHECK_PANTRY, Idle.VISIT_LILY, Idle.VISIT_FRIEND};
+				this.idle = options[this.random.nextInt(options.length)];
 			}
-			Idle[] options = {Idle.TEND_GARDEN, Idle.CHECK_PANTRY, Idle.VISIT_LILY, Idle.VISIT_FRIEND};
-			this.idle = options[this.random.nextInt(options.length)];
 			this.spot = null;
 			this.buddy = null;
 			switch (this.idle) {
@@ -8135,6 +11590,41 @@ public class MadisonBrain extends NeutralBrain {
 		this.foodBeforeTheft = tag.getIntOr("FoodBeforeTheft", -1);
 		this.thief = tag.read("Thief", UUIDUtil.CODEC).orElse(null);
 	}
+
+	// ---------------------------------------------------------------- personality (AI overhaul part 6)
+
+	/** Madison: cheerful, energetic, protective farmer. */
+	@Override
+	protected String[] lines(com.itzbreadloaf.brain.ai.Situation situation) {
+		return switch (situation) {
+			case GREET_PLAYER -> new String[]{"hey hey! welcome back!", "hiii! how's it going?", "oh, it's you! hi!"};
+			case GREET_FRIEND -> new String[]{"hey %s!", "%s!! hi hi!", "look who it is, %s!"};
+			case FIGHT_START -> new String[]{"back off!", "you're in big trouble!", "not on my farm!"};
+			case RIVAL -> new String[]{"hey!"};
+			case FIGHT_WON -> new String[]{"and don't come back!", "hmph! that'll teach you"};
+			case LOW_HEALTH -> new String[]{"ouch! okay, okay!", "I need a snack, fast!"};
+			case DEFEND_FRIEND -> new String[]{"hey! leave my cousin alone!", "nobody hurts my friends!"};
+			case SCARED_FOR_FRIEND -> new String[]{"hey, are you okay?!", "oh no!"};
+			case REST -> new String[]{"*wipes her forehead* phew", "need a minute..."};
+			case MORNING -> new String[]{"morning! the chickens are up!", "time to feed the animals!"};
+			case NIGHT -> new String[]{"night already? gotta lock up the barn", "*yawns* bedtime"};
+			case RAIN -> new String[]{"good for the crops!", "rain! the garden will love this"};
+			case ITEM -> new String[]{"ooh, %s! nice!", "want to trade that %s?", "where'd you get the %s?"};
+			case WATCH -> new String[]{"need any help?", "looking good!"};
+		};
+	}
+
+	@Override
+	protected String[] moodLines(com.itzbreadloaf.brain.ai.Mood mood) {
+		return switch (mood) {
+			case HAPPY -> new String[]{"*hums a farm song*", "what a day!"};
+			case BORED -> new String[]{"the pantry needs sorting...", "*drums her fingers*"};
+			case TIRED -> new String[]{"*yawns* long day", "my feet hurt..."};
+			case CURIOUS -> new String[]{"ooh, what's this?", "huh?"};
+			case SCARED -> new String[]{"yikes!", "eep!"};
+			case ANGRY -> new String[]{"okay, now I'm mad!", "that's it!"};
+		};
+	}
 }
 ```
 
@@ -8144,7 +11634,6 @@ public class MadisonBrain extends NeutralBrain {
 package com.itzbreadloaf.brain;
 
 import com.itzbreadloaf.ModAdvancements;
-import com.itzbreadloaf.character.CharacterKind;
 import com.itzbreadloaf.character.CharacterManager;
 import com.itzbreadloaf.character.LoafCharacter;
 import com.itzbreadloaf.character.LoafIds;
@@ -8181,43 +11670,46 @@ import net.minecraft.world.item.alchemy.Potions;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
-import org.jetbrains.annotations.Nullable;
 
 /**
- * Master BreadLoaf: a boss who fights like a PvP mace player, entirely with real player inputs.
+ * Master BreadLoaf: a boss who fights like a PvP mace player, entirely with real player inputs. Nerfed hard (AI
+ * overhaul part 2) so an average player in full diamond can beat him on Normal; see AI_DESIGN.md section 6.
  *
- * Kit (real hotbar): 1 Sharpness V netherite sword, 2 Wind Burst II mace, 3 Density V mace, 4 Breach IV mace,
- * 5 wind charges, 6 firework rockets, 7 ender pearls, 8 golden apples, 9 elytra; real potions in the inventory
- * (Strength II, Swiftness II, Fire Resistance, Splash Healing II); full netherite with Protection IV.
+ * Kit (real hotbar, Normal): 1 diamond sword (his hits do 55% damage on Normal), 2 Wind Burst I mace, 3 wind charges, 4 firework rockets,
+ * 5 ender pearls, 6 one golden apple, 9 elytra; one Speed I potion (Hard adds Strength I); diamond armor with
+ * Protection II. The Easy/Normal/Hard numbers live in {@link ModConfig.BossPreset}.
  *
- * Elytra mace dive: right-click the elytra (it swaps with the chestplate), jump, start gliding, climb on firework
- * rockets until well above the target, glide over them, warn (charge-up sound and sparks), right-click the
- * chestplate back on (the glide stops), pick a mace for the fall and the target's armor, and smash on the way down.
- * Wind-charge jumps: look down, jump, throw a wind charge at his feet, smash. Pearls to close long gaps.
+ * Limits: no hit of his deals more than 16 damage (LivingEntityMixin), at least 8 seconds between mace smashes,
+ * Wind Burst chains of at most 2 hits, elytra dives at most every 20 seconds (and some fail on purpose), a
+ * 1-second wind-up with a loud sound and particles before every smash and every dive, a 300-400 ms reaction delay
+ * to new targets, and some sword swings that miss.
  *
- * Phase 1 (100-60%): sword on the ground, an occasional dive and wind jump.
- * Phase 2 (60-25%): dives and wind jumps much more often.
- * Phase 3 (under 25%): faster, constant mace pressure, calls in 2 ItzBreadLoafs.
+ * Phase 1 (over half health): sword on the ground, a warned smash every 8+ seconds.
+ * Phase 2 (half health and below): a little faster. Nothing else changes, and nobody is summoned.
  */
 public class MasterBreadLoafBrain extends LoafBrain {
 	public static final int SLOT_SWORD = 0;
-	public static final int SLOT_WIND_BURST_MACE = 1;
-	public static final int SLOT_DENSITY_MACE = 2;
-	public static final int SLOT_BREACH_MACE = 3;
-	public static final int SLOT_WIND_CHARGE = 4;
-	public static final int SLOT_ROCKET = 5;
-	public static final int SLOT_PEARL = 6;
-	public static final int SLOT_GOLDEN_APPLE = 7;
+	public static final int SLOT_MACE = 1;
+	public static final int SLOT_WIND_CHARGE = 2;
+	public static final int SLOT_ROCKET = 3;
+	public static final int SLOT_PEARL = 4;
+	public static final int SLOT_GOLDEN_APPLE = 5;
 	public static final int SLOT_ELYTRA = 8;
 	/** How high above the target he climbs before a dive. */
 	public static final double DIVE_HEIGHT = 18.0;
 	public static final double BOSS_BAR_RANGE = 64.0;
 	public static final double HUNT_RANGE = 48.0;
+	/** Ticks of warning (charge-up sound and particles, standing still or hanging in the air) before a smash or dive. */
+	public static final int WINDUP_TICKS = 20;
+	/** Smashes in one Wind Burst chain. */
+	public static final int MAX_CHAIN = 2;
+	/** Bumped when his kit changes, so Master BreadLoafs saved in old worlds get the new kit. */
+	private static final int KIT_VERSION = 2;
 
-	private static final Identifier PHASE3_SPEED_ID = Identifier.fromNamespaceAndPath("itzbreadloaf", "boss_phase3_speed");
+	private static final Identifier PHASE2_SPEED_ID = Identifier.fromNamespaceAndPath("itzbreadloaf", "boss_phase3_speed");
 	private static final Identifier DAMAGE_PRESET_ID = Identifier.fromNamespaceAndPath("itzbreadloaf", "boss_damage_preset");
 
-	private enum State { GROUND, DRINK, WIND_JUMP, TAKEOFF, CLIMB, CRUISE, TELEGRAPH, DROP, RECOVER }
+	private enum State { GROUND, DRINK, WIND_JUMP, TAKEOFF, CLIMB, CRUISE, TELEGRAPH, DROP, RECOVER, TECHNIQUE }
 
 	private final ServerBossEvent bossEvent = (ServerBossEvent) new ServerBossEvent(
 			net.minecraft.network.chat.Component.literal("Master BreadLoaf"),
@@ -8226,19 +11718,43 @@ public class MasterBreadLoafBrain extends LoafBrain {
 
 	private State state = State.GROUND;
 	private int stateTicks;
-	private int specialCooldown = 100;
+	/** Ticks until the next mace smash is allowed (8+ seconds after the last one ends). */
+	private int smashCooldown = 100;
+	/** Ticks until the next elytra dive or pearl catch (20+ seconds). */
+	private int techniqueCooldown = 200;
 	private int pearlCooldown;
 	private int lastRocketTick = -100;
 	private int buffStep;
-	private boolean summonedHelpers;
 	private boolean drinkStarted;
 	private int smashChain;
 	private boolean telegraphed;
 	private double diveTopY;
+	/** This dive is one he fails on purpose: he comes down next to the target instead of on them. */
+	private boolean diveMisses;
+	private Vec3 missOffset = Vec3.ZERO;
+	private int kitVersion = KIT_VERSION;
+	private LivingEntity reactingTo;
+	private int reactionTicks;
+	private int idleTicks;
+	/** His pearl catches (the shared mace moves, held to his limits). */
+	private final MaceTechniques techniques;
 
 	public MasterBreadLoafBrain(LoafCharacter character) {
 		super(character);
 		this.combat.useShield = false;
+		this.techniques = new MaceTechniques(this.player, this.controls, this.combat, this.random);
+	}
+
+	/** The shared mace moves, always held to his nerf: the warning first, his fall cap, 2-hit chains, failures. */
+	@Override
+	public MaceTechniques techniques() {
+		ModConfig.BossPreset preset = preset();
+		this.techniques.limits.maxFall = preset.maxSmashFall;
+		this.techniques.limits.maxChain = MAX_CHAIN;
+		this.techniques.limits.warnTicks = WINDUP_TICKS;
+		this.techniques.limits.warn = this::windupWarning;
+		this.techniques.limits.failChance = preset.techniqueFailChance;
+		return this.techniques;
 	}
 
 	// ---------------------------------------------------------------- stats and kit
@@ -8255,38 +11771,52 @@ public class MasterBreadLoafBrain extends LoafBrain {
 	@Override
 	public void applyAttributes() {
 		super.applyAttributes();
-		this.setBase(Attributes.KNOCKBACK_RESISTANCE, 0.5);
+		this.setBase(Attributes.KNOCKBACK_RESISTANCE, 0.3);
 		AttributeInstance damage = this.player.getAttribute(Attributes.ATTACK_DAMAGE);
 		if (damage != null) {
 			damage.addOrReplacePermanentModifier(new AttributeModifier(DAMAGE_PRESET_ID, preset().damageMultiplier - 1.0,
 					AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL));
 		}
+		this.combat.whiffChance = preset().whiffChance;
+		this.combat.critChance = preset().critChance;
 	}
 
 	@Override
 	protected void rollGear() {
 		ServerLevel level = this.player.level();
-		this.player.setItemSlot(EquipmentSlot.HEAD, Gear.enchanted(level, Items.NETHERITE_HELMET, Enchantments.PROTECTION, 4));
-		this.player.setItemSlot(EquipmentSlot.CHEST, Gear.enchanted(level, Items.NETHERITE_CHESTPLATE, Enchantments.PROTECTION, 4));
-		this.player.setItemSlot(EquipmentSlot.LEGS, Gear.enchanted(level, Items.NETHERITE_LEGGINGS, Enchantments.PROTECTION, 4));
-		this.player.setItemSlot(EquipmentSlot.FEET, Gear.enchanted(level, Items.NETHERITE_BOOTS, Enchantments.PROTECTION, 4));
-		this.player.setItemSlot(EquipmentSlot.OFFHAND, ItemStack.EMPTY);
+		ModConfig.BossPreset preset = preset();
 		var inventory = this.player.getInventory();
-		inventory.setItem(SLOT_SWORD, Gear.enchanted(level, Items.NETHERITE_SWORD, Enchantments.SHARPNESS, 5));
-		inventory.setItem(SLOT_WIND_BURST_MACE, Gear.enchanted(level, Items.MACE, Enchantments.WIND_BURST, 2));
-		inventory.setItem(SLOT_DENSITY_MACE, Gear.enchanted(level, Items.MACE, Enchantments.DENSITY, 5));
-		inventory.setItem(SLOT_BREACH_MACE, Gear.enchanted(level, Items.MACE, Enchantments.BREACH, 4));
-		inventory.setItem(SLOT_WIND_CHARGE, new ItemStack(Items.WIND_CHARGE, 64));
-		inventory.setItem(SLOT_ROCKET, new ItemStack(Items.FIREWORK_ROCKET, 64));
-		inventory.setItem(SLOT_PEARL, new ItemStack(Items.ENDER_PEARL, 16));
-		inventory.setItem(SLOT_GOLDEN_APPLE, new ItemStack(Items.GOLDEN_APPLE, 3));
+		inventory.clearContent();
+		this.player.setItemSlot(EquipmentSlot.HEAD, Gear.enchanted(level, Items.DIAMOND_HELMET, Enchantments.PROTECTION, preset.protection));
+		this.player.setItemSlot(EquipmentSlot.CHEST, Gear.enchanted(level, Items.DIAMOND_CHESTPLATE, Enchantments.PROTECTION, preset.protection));
+		this.player.setItemSlot(EquipmentSlot.LEGS, Gear.enchanted(level, Items.DIAMOND_LEGGINGS, Enchantments.PROTECTION, preset.protection));
+		this.player.setItemSlot(EquipmentSlot.FEET, Gear.enchanted(level, Items.DIAMOND_BOOTS, Enchantments.PROTECTION, preset.protection));
+		this.player.setItemSlot(EquipmentSlot.OFFHAND, ItemStack.EMPTY);
+		inventory.setItem(SLOT_SWORD, preset.sharpness > 0
+				? Gear.enchanted(level, Items.DIAMOND_SWORD, Enchantments.SHARPNESS, preset.sharpness) : new ItemStack(Items.DIAMOND_SWORD));
+		inventory.setItem(SLOT_MACE, Gear.enchanted(level, Items.MACE, Enchantments.WIND_BURST, 1));
+		inventory.setItem(SLOT_WIND_CHARGE, new ItemStack(Items.WIND_CHARGE, 32));
+		inventory.setItem(SLOT_ROCKET, new ItemStack(Items.FIREWORK_ROCKET, 32));
+		inventory.setItem(SLOT_PEARL, new ItemStack(Items.ENDER_PEARL, 8));
 		inventory.setItem(SLOT_ELYTRA, new ItemStack(Items.ELYTRA));
-		inventory.setItem(9, PotionContents.createItemStack(Items.POTION, Potions.STRONG_STRENGTH));
-		inventory.setItem(10, PotionContents.createItemStack(Items.POTION, Potions.STRONG_SWIFTNESS));
-		inventory.setItem(11, PotionContents.createItemStack(Items.POTION, Potions.LONG_FIRE_RESISTANCE));
-		inventory.setItem(12, PotionContents.createItemStack(Items.SPLASH_POTION, Potions.STRONG_HEALING));
-		inventory.setItem(13, PotionContents.createItemStack(Items.SPLASH_POTION, Potions.STRONG_HEALING));
+		this.refillForNextFight();
 		inventory.setSelectedSlot(SLOT_SWORD);
+		this.kitVersion = KIT_VERSION;
+	}
+
+	/** One golden apple and the start-of-fight potions, given again once a fight is over. */
+	private void refillForNextFight() {
+		var inventory = this.player.getInventory();
+		if (Inv.count(this.player, stack -> stack.is(Items.GOLDEN_APPLE)) == 0) {
+			inventory.setItem(SLOT_GOLDEN_APPLE, new ItemStack(Items.GOLDEN_APPLE, 1));
+		}
+		if (Inv.count(this.player, stack -> stack.is(Items.POTION) && hasPotion(stack, Potions.SWIFTNESS)) == 0) {
+			Inv.give(this.player, PotionContents.createItemStack(Items.POTION, Potions.SWIFTNESS));
+		}
+		if (preset().strength > 0 && Inv.count(this.player, stack -> stack.is(Items.POTION) && hasPotion(stack, Potions.STRENGTH)) == 0) {
+			Inv.give(this.player, PotionContents.createItemStack(Items.POTION, Potions.STRENGTH));
+		}
+		this.buffStep = 0;
 	}
 
 	@Override
@@ -8318,10 +11848,13 @@ public class MasterBreadLoafBrain extends LoafBrain {
 		return false;
 	}
 
-	/** 1, 2 or 3, from his health. */
+	/** 1 over half health, 2 at half health and below. */
 	public int phase() {
-		float fraction = this.player.getHealth() / this.player.getMaxHealth();
-		return fraction > 0.6F ? 1 : fraction > 0.25F ? 2 : 3;
+		return this.player.getHealth() > this.player.getMaxHealth() * 0.5F ? 1 : 2;
+	}
+
+	private static boolean isChestplate(ItemStack stack) {
+		return stack.is(Items.DIAMOND_CHESTPLATE) || stack.is(Items.NETHERITE_CHESTPLATE);
 	}
 
 	// ---------------------------------------------------------------- lifecycle
@@ -8331,12 +11864,18 @@ public class MasterBreadLoafBrain extends LoafBrain {
 		super.onActivated();
 		// Despawned mid-dive: put the chestplate back on.
 		if (this.player.getItemBySlot(EquipmentSlot.CHEST).is(Items.ELYTRA)) {
-			int chest = Inv.find(this.player, stack -> stack.is(Items.NETHERITE_CHESTPLATE));
+			int chest = Inv.find(this.player, MasterBreadLoafBrain::isChestplate);
 			if (chest >= 0) {
 				ItemStack chestplate = this.player.getInventory().getItem(chest);
 				this.player.getInventory().setItem(chest, this.player.getItemBySlot(EquipmentSlot.CHEST));
 				this.player.setItemSlot(EquipmentSlot.CHEST, chestplate);
 			}
+		}
+		// Saved before the nerf: netherite, three maces and 200 health. New kit, new health.
+		if (this.kitVersion < KIT_VERSION) {
+			this.rollGear();
+			this.restock();
+			this.applyAttributes();
 		}
 		this.bossEvent.setName(this.player.getDisplayName());
 	}
@@ -8386,8 +11925,11 @@ public class MasterBreadLoafBrain extends LoafBrain {
 		if (this.ticks % 10 == 0) {
 			this.updateBossBar();
 		}
-		if (this.specialCooldown > 0) {
-			this.specialCooldown--;
+		if (this.smashCooldown > 0) {
+			this.smashCooldown--;
+		}
+		if (this.techniqueCooldown > 0) {
+			this.techniqueCooldown--;
 		}
 		if (this.pearlCooldown > 0) {
 			this.pearlCooldown--;
@@ -8397,6 +11939,7 @@ public class MasterBreadLoafBrain extends LoafBrain {
 		}
 		LivingEntity target = this.target;
 		if (target == null) {
+			this.reactingTo = null;
 			if (this.state != State.GROUND && this.state != State.RECOVER) {
 				this.setState(State.RECOVER);
 			}
@@ -8404,13 +11947,29 @@ public class MasterBreadLoafBrain extends LoafBrain {
 				this.recover();
 				return;
 			}
+			// A fight is over after 30 quiet seconds: one golden apple and the potions again for the next one.
+			if (++this.idleTicks == 600) {
+				this.refillForNextFight();
+			}
 			this.controls.selectSlot(SLOT_SWORD);
 			if (!this.tryEat()) {
 				this.wander(10.0);
 			}
 			return;
 		}
-		this.phaseEffects(target);
+		this.idleTicks = 0;
+		// Reaction time: a new target is noticed 300-400 ms later (Normal). Until then he only turns toward them.
+		if (target != this.reactingTo) {
+			this.reactingTo = target;
+			ModConfig.BossPreset preset = preset();
+			this.reactionTicks = preset.reactionMin + this.random.nextInt(Math.max(1, preset.reactionMax - preset.reactionMin + 1));
+		}
+		if (this.reactionTicks > 0 && this.state == State.GROUND) {
+			this.reactionTicks--;
+			this.controls.lookAt(target.getEyePosition());
+			return;
+		}
+		this.phaseEffects();
 		this.stateTicks++;
 		switch (this.state) {
 			case GROUND -> this.ground(target);
@@ -8422,6 +11981,11 @@ public class MasterBreadLoafBrain extends LoafBrain {
 			case TELEGRAPH -> this.telegraphOver(target);
 			case DROP -> this.drop(target);
 			case RECOVER -> this.recover();
+			case TECHNIQUE -> {
+				if (!this.techniques.tick(target)) {
+					this.setState(State.RECOVER);
+				}
+			}
 		}
 	}
 
@@ -8463,32 +12027,17 @@ public class MasterBreadLoafBrain extends LoafBrain {
 		}
 	}
 
-	/** Buffs at the start of a fight, healing when low, phase 3 speed and helpers. */
-	private void phaseEffects(LivingEntity target) {
-		if (this.phase() == 3) {
-			AttributeInstance speed = this.player.getAttribute(Attributes.MOVEMENT_SPEED);
-			if (speed != null && !speed.hasModifier(PHASE3_SPEED_ID)) {
-				speed.addPermanentModifier(new AttributeModifier(PHASE3_SPEED_ID, 0.15, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL));
-			}
-			if (!this.summonedHelpers) {
-				this.summonedHelpers = true;
-				this.summonHelpers(target);
-			}
+	/** Phase 2: a little faster. That's all (no summons, no extra damage). */
+	private void phaseEffects() {
+		AttributeInstance speed = this.player.getAttribute(Attributes.MOVEMENT_SPEED);
+		if (speed == null) {
+			return;
 		}
-	}
-
-	private void summonHelpers(LivingEntity target) {
-		this.playSound(SoundEvents.EVOKER_PREPARE_SUMMON, 1.5F, 0.8F);
-		ServerLevel level = this.player.level();
-		for (int i = 0; i < 2; i++) {
-			Vec3 spot = this.findSpotNear(this.player.blockPosition().offset(i == 0 ? 2 : -2, 0, 1), 1);
-			if (spot == null) {
-				spot = this.player.position();
-			}
-			LoafCharacter helper = CharacterManager.create(level, CharacterKind.BREADLOAF, spot, this.player.getYRot(), brain -> brain.setWild(true));
-			if (helper != null) {
-				helper.brain.setTarget(target);
-			}
+		if (this.phase() == 2) {
+			speed.addOrReplacePermanentModifier(new AttributeModifier(PHASE2_SPEED_ID, preset().phase2Speed,
+					AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL));
+		} else if (speed.hasModifier(PHASE2_SPEED_ID)) {
+			speed.removeModifier(PHASE2_SPEED_ID);
 		}
 	}
 
@@ -8496,38 +12045,48 @@ public class MasterBreadLoafBrain extends LoafBrain {
 
 	private void ground(LivingEntity target) {
 		double distance = this.player.distanceTo(target);
-		int phase = this.phase();
 
-		// Drink buffs (Strength II, Swiftness II, Fire Resistance) at the start of the fight.
-		if (this.buffStep < 3 && distance > 5.0) {
+		// Start of the fight: Speed I (and Strength I on Hard), drunk at a distance.
+		int buffs = preset().strength > 0 ? 2 : 1;
+		if (this.buffStep < buffs && distance > 5.0) {
 			if (this.startDrinking(this.buffPotion(this.buffStep))) {
 				this.buffStep++;
 				return;
 			}
 			this.buffStep++;
 		}
-		// Low health: Splash Healing II at his feet, then golden apples.
-		if (this.player.getHealth() < this.player.getMaxHealth() * 0.4F && this.stateTicks > 40) {
-			if (this.throwHealing() || distance > 6.0 && this.startDrinking(stack -> stack.is(Items.GOLDEN_APPLE))) {
-				return;
-			}
+		// Low health: his one golden apple, eaten at a distance. No healing potions.
+		if (this.player.getHealth() < this.player.getMaxHealth() * 0.35F && this.stateTicks > 40 && distance > 6.0
+				&& this.startDrinking(stack -> stack.is(Items.GOLDEN_APPLE))) {
+			return;
 		}
 		// Far away (or out of walking reach): ender pearl.
 		boolean unreachable = this.nav.isAtDeadEnd() || this.nav.failed();
 		if ((distance > 24.0 || unreachable && distance > 6.0) && this.pearlCooldown <= 0 && this.throwPearl(target)) {
 			return;
 		}
-		// Special moves.
-		if (this.specialCooldown <= 0 && this.player.onGround()) {
-			boolean dive = this.random.nextFloat() < (phase == 1 ? 0.5F : 0.65F) && this.hasRoomAbove(6) && distance < 40.0;
+		// A mace smash every 8+ seconds: an elytra dive (every 20+ seconds) or a wind-charge jump.
+		if (this.smashCooldown <= 0 && this.player.onGround()) {
+			boolean dive = this.techniqueCooldown <= 0 && this.random.nextFloat() < 0.5F && this.hasRoomAbove(6) && distance < 40.0;
+			boolean pearlCatch = !dive && this.techniqueCooldown <= 0 && distance > 3.0 && distance < 10.0
+					&& this.random.nextFloat() < 0.6F && this.techniques().canStart(MaceTechniques.Technique.PEARL_CATCH, target);
 			if (dive) {
 				this.setState(State.TAKEOFF);
 				this.diveTopY = target.getY() + DIVE_HEIGHT;
+				this.techniqueCooldown = preset().techniqueCooldown;
+				this.diveMisses = this.random.nextFloat() < preset().techniqueFailChance;
+				double angle = this.random.nextDouble() * Math.PI * 2.0;
+				this.missOffset = this.diveMisses ? new Vec3(Math.cos(angle) * 4.5, 0.0, Math.sin(angle) * 4.5) : Vec3.ZERO;
+			} else if (pearlCatch) {
+				// A pearl catch, at most every 20 seconds (it shares the dive's cooldown), warned like everything else.
+				this.techniqueCooldown = preset().techniqueCooldown;
+				this.techniques().start(MaceTechniques.Technique.PEARL_CATCH, target, 0);
+				this.setState(State.TECHNIQUE);
 			} else {
 				this.setState(State.WIND_JUMP);
-				this.smashChain = 0;
 			}
-			this.specialCooldown = phase == 1 ? 260 : phase == 2 ? 140 : 90;
+			this.smashChain = 0;
+			this.smashCooldown = preset().smashCooldown;
 			return;
 		}
 		this.controls.selectSlot(SLOT_SWORD);
@@ -8535,11 +12094,9 @@ public class MasterBreadLoafBrain extends LoafBrain {
 	}
 
 	private Predicate<ItemStack> buffPotion(int step) {
-		return switch (step) {
-			case 0 -> stack -> stack.is(Items.POTION) && hasPotion(stack, Potions.STRONG_STRENGTH);
-			case 1 -> stack -> stack.is(Items.POTION) && hasPotion(stack, Potions.STRONG_SWIFTNESS);
-			default -> stack -> stack.is(Items.POTION) && hasPotion(stack, Potions.LONG_FIRE_RESISTANCE);
-		};
+		return step == 0
+				? stack -> stack.is(Items.POTION) && hasPotion(stack, Potions.SWIFTNESS)
+				: stack -> stack.is(Items.POTION) && hasPotion(stack, Potions.STRENGTH);
 	}
 
 	private static boolean hasPotion(ItemStack stack, net.minecraft.core.Holder<net.minecraft.world.item.alchemy.Potion> potion) {
@@ -8547,7 +12104,7 @@ public class MasterBreadLoafBrain extends LoafBrain {
 		return contents != null && contents.is(potion);
 	}
 
-	/** Moves a drink (or food) into hotbar slot 8 and holds right-click until it's finished. */
+	/** Moves a drink (or food) into the golden apple slot and holds right-click until it's finished. */
 	private boolean startDrinking(Predicate<ItemStack> what) {
 		int slot = Inv.ready(this.player, what, SLOT_GOLDEN_APPLE);
 		if (slot < 0) {
@@ -8576,28 +12133,16 @@ public class MasterBreadLoafBrain extends LoafBrain {
 		}
 	}
 
-	/** Splash Healing II thrown straight down at his own feet. */
-	private boolean throwHealing() {
-		int slot = Inv.ready(this.player, stack -> stack.is(Items.SPLASH_POTION), SLOT_GOLDEN_APPLE);
-		if (slot < 0) {
-			return false;
-		}
-		this.controls.selectSlot(slot);
-		this.controls.lookInstantly(this.player.getYRot(), 90.0F);
-		this.controls.useOnce();
-		this.stateTicks = 0;
-		this.particles(ParticleTypes.HEART, 5);
-		return true;
-	}
-
 	private boolean throwPearl(LivingEntity target) {
 		if (this.player.getInventory().getItem(SLOT_PEARL).isEmpty()) {
 			return false;
 		}
 		this.controls.selectSlot(SLOT_PEARL);
+		// Not a perfect throw: aimed at a spot up to 3 blocks off.
 		this.combat.aimProjectile(target, 1.5, 0.03);
+		this.controls.lookInstantly(this.player.getYRot() + (this.random.nextFloat() - 0.5F) * 8.0F, this.player.getXRot());
 		this.controls.useOnce();
-		this.pearlCooldown = 120;
+		this.pearlCooldown = 160;
 		this.playSound(SoundEvents.ENDER_PEARL_THROW, 1.0F, 0.6F);
 		return true;
 	}
@@ -8605,44 +12150,54 @@ public class MasterBreadLoafBrain extends LoafBrain {
 	// ---------------------------------------------------------------- wind charge mace jump
 
 	private void windJump(LivingEntity target) {
-		if (this.stateTicks == 1) {
+		// 1 second of warning first: he stops, the charge-up sound plays and sparks fly.
+		if (this.stateTicks <= WINDUP_TICKS) {
 			this.controls.selectSlot(SLOT_WIND_CHARGE);
-		}
-		if (this.stateTicks <= 6) {
-			// Look down, jump, throw the wind charge at our feet: up we go.
-			this.controls.lookInstantly(Controls.yawTo(this.player.position(), target.position()), 90.0F);
-			if (this.player.onGround() && this.stateTicks <= 2) {
-				this.controls.jumpOnce();
-			} else if (!this.player.onGround() && this.stateTicks >= 3 && this.stateTicks <= 5) {
-				this.controls.useOnce();
-				this.stateTicks = 6;
+			this.controls.lookAt(target.getEyePosition());
+			if (this.stateTicks == 1) {
+				this.windupWarning(true);
+			} else if (this.stateTicks % 4 == 0) {
+				this.windupWarning(false);
 			}
 			return;
 		}
-		this.airSmash(target, this.stateTicks > 12 && this.player.onGround());
+		int t = this.stateTicks - WINDUP_TICKS;
+		if (t <= 6) {
+			// Look down, jump, throw the wind charge at our feet: up we go.
+			this.controls.lookInstantly(Controls.yawTo(this.player.position(), target.position()), 90.0F);
+			if (this.player.onGround() && t <= 2) {
+				this.controls.jumpOnce();
+			} else if (!this.player.onGround() && t >= 3 && t <= 5) {
+				this.controls.useOnce();
+				this.stateTicks = WINDUP_TICKS + 6;
+			}
+			return;
+		}
+		this.airSmash(target, t > 12 && this.player.onGround());
 	}
 
 	/**
-	 * In the air above or near the target: pick a mace for the fall, warn once at the top, drift toward them and
-	 * smash on the way down. Wind Burst throws him back up after a hit, so he can chain smashes.
+	 * In the air above or near the target: mace out, a warning as the fall starts, drift toward them and smash on the
+	 * way down. Wind Burst throws him back up after a hit, but he smashes at most twice per chain.
 	 */
 	private void airSmash(LivingEntity target, boolean landed) {
-		Vec3 aim = this.combat.aimPoint(target);
+		Vec3 aim = this.combat.aimPoint(target).add(this.missOffset);
 		double distance = this.player.getEyePosition().distanceTo(aim);
 		boolean falling = this.player.getDeltaMovement().y < 0.0 && !this.player.onGround();
-		if (!this.telegraphed && falling) {
-			this.telegraph(true);
+		boolean canSmash = this.smashChain < MAX_CHAIN;
+		if (canSmash && !this.telegraphed && falling) {
+			this.windupWarning(true);
 		}
-		this.selectMaceFor(target, this.player.getY() - target.getY());
+		this.controls.selectSlot(canSmash ? SLOT_MACE : SLOT_SWORD);
 		this.controls.aimAt(aim);
-		this.controls.walkToward(target.position());
+		this.controls.walkToward(target.position().add(this.missOffset));
 		this.controls.setSprinting(false);
-		// Fairness: cap how far a smash counts as a fall (mace damage grows with the fall).
+		// Fairness: cap how far a smash counts as a fall (mace damage grows with the fall). The 16-damage cap is on top.
 		if (this.player.fallDistance > preset().maxSmashFall) {
 			this.player.fallDistance = preset().maxSmashFall;
 		}
-		// No full-charge wait: switching to a mace mid-air resets the charge, which then can't refill before landing.
-		if (falling && distance <= this.combat.reach() - 0.1 && this.player.fallDistance > 1.5) {
+		// No full-charge wait: the smash bonus isn't scaled by the attack charge (only the mace's base damage is).
+		if (canSmash && falling && distance <= this.combat.reach() - 0.1 && this.player.fallDistance > 1.5) {
 			this.controls.attackOnce();
 			this.smashChain++;
 			this.telegraphed = false;
@@ -8652,26 +12207,15 @@ public class MasterBreadLoafBrain extends LoafBrain {
 		}
 	}
 
-	/** Breach against heavy armor, Density for big drops, Wind Burst otherwise. */
-	public void selectMaceFor(LivingEntity target, double dropHeight) {
-		int slot = target.getArmorValue() >= 15 ? SLOT_BREACH_MACE : dropHeight >= 6.0 ? SLOT_DENSITY_MACE : SLOT_WIND_BURST_MACE;
-		if (this.player.getInventory().getItem(slot).isEmpty()) {
-			slot = Inv.find(this.player, stack -> stack.is(Items.MACE));
-			slot = Inv.toHotbar(this.player, slot, SLOT_WIND_BURST_MACE);
-		}
-		if (slot >= 0) {
-			this.controls.selectSlot(slot);
-		}
-	}
-
-	/** Warning before every smash so players can dodge: a charge-up sound and sparks. */
-	private void telegraph(boolean withSound) {
+	/** The warning before every smash and dive: a loud charge-up sound, sparks and portal particles. */
+	private void windupWarning(boolean withSound) {
 		this.telegraphed = true;
 		ServerLevel level = this.player.level();
-		level.sendParticles(ParticleTypes.ELECTRIC_SPARK, this.player.getX(), this.player.getY(1.0), this.player.getZ(), 10, 0.5, 0.6, 0.5, 0.05);
-		level.sendParticles(ParticleTypes.REVERSE_PORTAL, this.player.getX(), this.player.getY(0.5), this.player.getZ(), 6, 0.4, 0.5, 0.4, 0.02);
+		level.sendParticles(ParticleTypes.ELECTRIC_SPARK, this.player.getX(), this.player.getY(1.0), this.player.getZ(), 16, 0.6, 0.7, 0.6, 0.08);
+		level.sendParticles(ParticleTypes.REVERSE_PORTAL, this.player.getX(), this.player.getY(0.5), this.player.getZ(), 12, 0.5, 0.6, 0.5, 0.04);
 		if (withSound) {
-			this.playSound(SoundEvents.BREEZE_CHARGE, 1.5F, 0.7F);
+			this.playSound(SoundEvents.BREEZE_CHARGE, 3.0F, 0.6F);
+			this.playSound(SoundEvents.WARDEN_SONIC_CHARGE, 2.0F, 1.4F);
 		}
 	}
 
@@ -8734,14 +12278,15 @@ public class MasterBreadLoafBrain extends LoafBrain {
 		}
 	}
 
-	/** Glide to a point above the target, rocketing when slow or too low. */
+	/** Glide to a point above the target (or beside them, on a dive he fails on purpose). */
 	private void cruise(LivingEntity target) {
 		if (!this.player.isFallFlying()) {
 			this.setState(State.DROP);
 			return;
 		}
-		Vec3 over = new Vec3(target.getX(), this.diveTopY, target.getZ());
-		double horizontal = Math.sqrt(Math.pow(target.getX() - this.player.getX(), 2) + Math.pow(target.getZ() - this.player.getZ(), 2));
+		Vec3 spot = target.position().add(this.missOffset);
+		Vec3 over = new Vec3(spot.x, this.diveTopY, spot.z);
+		double horizontal = Math.sqrt(Math.pow(spot.x - this.player.getX(), 2) + Math.pow(spot.z - this.player.getZ(), 2));
 		float pitch = this.player.getY() < this.diveTopY - 3.0 ? -25.0F : horizontal > 20.0 ? 5.0F : 15.0F;
 		this.controls.look(Controls.yawTo(this.player.position(), over), pitch);
 		double speed = this.player.getDeltaMovement().horizontalDistance();
@@ -8753,23 +12298,23 @@ public class MasterBreadLoafBrain extends LoafBrain {
 		}
 	}
 
-	/** Over the target: pull up to bleed speed, sparks and the charge-up sound, then drop. */
+	/** Over the target: pull up to bleed speed, 1 second of sparks and the charge-up sound, then drop. */
 	private void telegraphOver(LivingEntity target) {
 		this.controls.look(Controls.yawTo(this.player.position(), target.position()), -35.0F);
 		if (this.stateTicks == 1) {
-			this.telegraph(true);
+			this.windupWarning(true);
 		} else if (this.stateTicks % 4 == 0) {
-			this.telegraph(false);
+			this.windupWarning(false);
 		}
-		if (this.stateTicks >= 10 || !this.player.isFallFlying()) {
+		if (this.stateTicks >= WINDUP_TICKS || !this.player.isFallFlying()) {
 			this.setState(State.DROP);
 		}
 	}
 
-	/** Chestplate back on (stops the glide), mace out, smash. */
+	/** Chestplate back on (stops the glide, so the fall starts counting), mace out, smash. */
 	private void drop(LivingEntity target) {
 		if (this.player.getItemBySlot(EquipmentSlot.CHEST).is(Items.ELYTRA)) {
-			int chestplate = Inv.ready(this.player, stack -> stack.is(Items.NETHERITE_CHESTPLATE), SLOT_ELYTRA);
+			int chestplate = Inv.ready(this.player, MasterBreadLoafBrain::isChestplate, SLOT_ELYTRA);
 			if (chestplate >= 0 && this.stateTicks <= 6) {
 				this.controls.selectSlot(chestplate);
 				this.controls.look(this.player.getYRot(), -60.0F);
@@ -8783,10 +12328,10 @@ public class MasterBreadLoafBrain extends LoafBrain {
 		this.airSmash(target, this.player.onGround() && this.stateTicks > 4);
 	}
 
-	/** After a special move: back to the sword (and the chestplate, if the elytra is still on). */
+	/** After a smash or dive: back to the sword (and the chestplate, if the elytra is still on); the 8-second wait restarts. */
 	private void recover() {
 		if (this.player.getItemBySlot(EquipmentSlot.CHEST).is(Items.ELYTRA) && this.player.onGround()) {
-			int chestplate = Inv.ready(this.player, stack -> stack.is(Items.NETHERITE_CHESTPLATE), SLOT_ELYTRA);
+			int chestplate = Inv.ready(this.player, MasterBreadLoafBrain::isChestplate, SLOT_ELYTRA);
 			if (chestplate >= 0 && this.stateTicks < 10) {
 				this.controls.selectSlot(chestplate);
 				this.controls.look(this.player.getYRot(), -60.0F);
@@ -8796,6 +12341,10 @@ public class MasterBreadLoafBrain extends LoafBrain {
 				return;
 			}
 		}
+		this.missOffset = Vec3.ZERO;
+		this.diveMisses = false;
+		this.techniques.cancel();
+		this.smashCooldown = Math.max(this.smashCooldown, preset().smashCooldown);
 		this.controls.selectSlot(SLOT_SWORD);
 		this.setState(State.GROUND);
 	}
@@ -8812,7 +12361,7 @@ public class MasterBreadLoafBrain extends LoafBrain {
 	public void save(CompoundTag tag) {
 		super.save(tag);
 		tag.putInt("BuffStep", this.buffStep);
-		tag.putBoolean("SummonedHelpers", this.summonedHelpers);
+		tag.putInt("KitVersion", this.kitVersion);
 		tag.store("FallDamaged", UUIDUtil.CODEC_SET, Set.copyOf(this.tookFallDamage));
 	}
 
@@ -8820,9 +12369,45 @@ public class MasterBreadLoafBrain extends LoafBrain {
 	public void load(CompoundTag tag) {
 		super.load(tag);
 		this.buffStep = tag.getIntOr("BuffStep", 0);
-		this.summonedHelpers = tag.getBooleanOr("SummonedHelpers", false);
+		// No KitVersion tag: saved before the nerf.
+		this.kitVersion = tag.getIntOr("KitVersion", 1);
 		this.tookFallDamage.clear();
 		tag.read("FallDamaged", UUIDUtil.CODEC_SET).ifPresent(this.tookFallDamage::addAll);
+	}
+
+	// ---------------------------------------------------------------- personality (AI overhaul part 6)
+
+	/** Master BreadLoaf: a proud showman of a boss. */
+	@Override
+	protected String[] lines(com.itzbreadloaf.brain.ai.Situation situation) {
+		return switch (situation) {
+			case GREET_PLAYER -> new String[]{"..."};
+			case GREET_FRIEND -> new String[]{"..."};
+			case FIGHT_START -> new String[]{"so, you've come to challenge me.", "show me what you've got.", "let's see if you're ready."};
+			case RIVAL -> new String[]{"..."};
+			case FIGHT_WON -> new String[]{"train harder. come back stronger.", "not today."};
+			case LOW_HEALTH -> new String[]{"impressive... but not enough!", "you're stronger than you look."};
+			case DEFEND_FRIEND -> new String[]{"..."};
+			case SCARED_FOR_FRIEND -> new String[]{"..."};
+			case REST -> new String[]{"..."};
+			case MORNING -> new String[]{"..."};
+			case NIGHT -> new String[]{"..."};
+			case RAIN -> new String[]{"..."};
+			case ITEM -> new String[]{"..."};
+			case WATCH -> new String[]{"..."};
+		};
+	}
+
+	@Override
+	protected String[] moodLines(com.itzbreadloaf.brain.ai.Mood mood) {
+		return switch (mood) {
+			case HAPPY -> new String[]{"heh."};
+			case BORED -> new String[]{"is anyone strong enough?"};
+			case TIRED -> new String[]{"..."};
+			case CURIOUS -> new String[]{"hm. a challenger?"};
+			case SCARED -> new String[]{"..."};
+			case ANGRY -> new String[]{"now you'll see my real strength!"};
+		};
 	}
 }
 ```
@@ -8887,6 +12472,27 @@ public final class Navigator {
 	/** Path search budget shared by every character (server thread only). */
 	private static long budgetTick = -1;
 	private static int searchesThisTick;
+	/**
+	 * Recent paths, shared by every character (server thread only): the same start and goal block within 5 seconds
+	 * reuses the path instead of searching again (characters walking to the same bell, bed or friend).
+	 */
+	private static final java.util.LinkedHashMap<Long, CachedPath> PATH_CACHE = new java.util.LinkedHashMap<>(64, 0.75F, true) {
+		@Override
+		protected boolean removeEldestEntry(java.util.Map.Entry<Long, CachedPath> eldest) {
+			return this.size() > 256;
+		}
+	};
+	private static final int CACHE_TICKS = 100;
+	/** Searches and cache hits, for /loafcraft debug ai. */
+	public static int searchesCount;
+	public static int cacheHits;
+
+	private record CachedPath(Pathfinder.Path path, long time) {
+	}
+
+	private static long cacheKey(BlockPos start, BlockPos goal, double reach) {
+		return start.asLong() * 31L ^ goal.asLong() * 17L ^ Math.round(reach * 4.0);
+	}
 
 	public Navigator(ServerPlayer player, Controls controls) {
 		this.player = player;
@@ -9011,7 +12617,8 @@ public final class Navigator {
 			return;
 		}
 
-		boolean goalMoved = this.pathGoal != null && this.pathGoal.distanceToSqr(goal) > 2.25;
+		// The path is kept until the goal has moved 2 blocks (a target strafing around doesn't cost a new search).
+		boolean goalMoved = this.pathGoal != null && this.pathGoal.distanceToSqr(goal) > 4.0;
 		this.repathTimer--;
 		if ((this.path == null || goalMoved || this.partial) && this.repathTimer <= 0 && !this.failed) {
 			this.repath(goal);
@@ -9056,8 +12663,22 @@ public final class Navigator {
 
 	private void repath(Vec3 goal) {
 		ServerLevel level = this.player.level();
-		// Spread path searches out: only a few per tick for all characters together, and each one on its own beat.
 		long now = level.getGameTime();
+		BlockPos start = this.player.blockPosition();
+		BlockPos end = BlockPos.containing(goal);
+		double searchReach = Math.max(0.9, this.reach);
+		long key = cacheKey(start, end, searchReach) ^ level.dimension().identifier().hashCode();
+		CachedPath cached = PATH_CACHE.get(key);
+		if (cached != null && now - cached.time() <= CACHE_TICKS) {
+			cacheHits++;
+			this.repathTimer = REPATH_TICKS + (this.player.getId() & 7);
+			this.pathGoal = goal;
+			this.path = cached.path().nodes();
+			this.partial = !cached.path().complete();
+			this.index = 0;
+			return;
+		}
+		// Spread path searches out: only a few per tick for all characters together, and each one on its own beat.
 		if (now != budgetTick) {
 			budgetTick = now;
 			searchesThisTick = 0;
@@ -9068,8 +12689,11 @@ public final class Navigator {
 		}
 		searchesThisTick++;
 		this.repathTimer = REPATH_TICKS + (this.player.getId() & 7);
-		Pathfinder.Path found = Pathfinder.find(level, this.player.blockPosition(), BlockPos.containing(goal),
-				Math.max(0.9, this.reach), MAX_RANGE);
+		Pathfinder.Path found = Pathfinder.find(level, start, end, searchReach, MAX_RANGE);
+		searchesCount++;
+		if (found != null) {
+			PATH_CACHE.put(key, new CachedPath(found, now));
+		}
 		this.pathGoal = goal;
 		if (found == null) {
 			this.path = null;
@@ -9361,7 +12985,22 @@ public abstract class NeutralBrain extends LoafBrain {
 
 	/** With her friend: mostly the same quiet routine, but staying close. */
 	protected void tickCalmWithFriend() {
-		this.lookAround(8.0);
+		this.idleWithOwner();
+	}
+
+	/** Players she trusts (her gifts system) count as liked, too: she greets them. */
+	@Override
+	public boolean likesPlayer(Player player) {
+		return super.likesPlayer(player) || this.trustsPlayer(player);
+	}
+
+	/** Stepping in for a friend: angry at whoever hurt them (without the trust reset that hitting her causes). */
+	@Override
+	protected void defendAgainst(LivingEntity attacker) {
+		this.anger = this.angerTicksOnHit();
+		this.setTarget(attacker);
+		this.drawWeapon();
+		this.sitting = false;
 	}
 
 	private void drawWeapon() {
@@ -9373,7 +13012,10 @@ public abstract class NeutralBrain extends LoafBrain {
 				this.player.getInventory().setItem(WEAPON_SLOT, this.createFightWeapon());
 			}
 		}
-		this.controls.selectSlot(WEAPON_SLOT);
+		// Only from the calm item (book, flower...): once she has a weapon or bow out, the fight code picks what to hold.
+		if (this.player.getInventory().getSelectedSlot() == CALM_SLOT) {
+			this.controls.switchSlot(WEAPON_SLOT, this.skill().hotbarSwitchTicks);
+		}
 	}
 
 	private void holsterWeapon() {
@@ -9399,10 +13041,16 @@ public abstract class NeutralBrain extends LoafBrain {
 		}
 	}
 
-	/** The nearest real player within {@code range} she doesn't trust, or null. */
+	/**
+	 * The nearest real player within {@code range} she doesn't trust, or null. She remembers who hurt her: those count
+	 * from twice as far away, and everyone counts from a bit farther when she's scared.
+	 */
 	protected @Nullable Player nearestStranger(double range) {
-		return this.player.level().getNearestPlayer(this.player.getX(), this.player.getY(), this.player.getZ(), range,
-				p -> p != this.player && p instanceof Player pl && LoafIds.isRealPlayer(pl) && !pl.isSpectator() && !this.trustsPlayer(pl));
+		double near = this.mood.mood() == com.itzbreadloaf.brain.ai.Mood.SCARED ? range * 1.3 : range;
+		long gameTime = this.player.level().getGameTime();
+		return this.player.level().getNearestPlayer(this.player.getX(), this.player.getY(), this.player.getZ(), range * 2.0,
+				p -> p != this.player && p instanceof Player pl && LoafIds.isRealPlayer(pl) && !pl.isSpectator() && !this.trustsPlayer(pl)
+						&& (pl.distanceTo(this.player) <= near || this.memory.isFeared(pl.getUUID(), gameTime)));
 	}
 
 	/** Walks to a spot {@code distance} blocks away from {@code from}, trying angled escapes if straight away is blocked. */
@@ -9983,6 +13631,633 @@ public final class Pathfinder {
 }
 ```
 
+## src/main/java/com/itzbreadloaf/brain/ai/Mood.java
+
+```java
+package com.itzbreadloaf.brain.ai;
+
+import java.util.Locale;
+
+/**
+ * How a character feels right now. Moods change speed, how soon they back off from a fight, what they do in their
+ * free time, and what they say.
+ */
+public enum Mood {
+	HAPPY(0.03, 0.0F),
+	BORED(-0.03, 0.0F),
+	TIRED(-0.10, 0.05F),
+	SCARED(0.10, 0.15F),
+	ANGRY(0.05, -0.10F),
+	CURIOUS(0.0, 0.0F);
+
+	/** Extra movement speed (a share of their normal speed). */
+	public final double speedBonus;
+	/** Added to the share of health below which they back off from a fight (scared: sooner, angry: later). */
+	public final float retreatShift;
+
+	Mood(double speedBonus, float retreatShift) {
+		this.speedBonus = speedBonus;
+		this.retreatShift = retreatShift;
+	}
+
+	public String id() {
+		return this.name().toLowerCase(Locale.ROOT);
+	}
+
+	public static Mood byId(String id) {
+		for (Mood mood : values()) {
+			if (mood.id().equalsIgnoreCase(id)) {
+				return mood;
+			}
+		}
+		return HAPPY;
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/brain/ai/MoodState.java
+
+```java
+package com.itzbreadloaf.brain.ai;
+
+import net.minecraft.nbt.CompoundTag;
+
+/**
+ * The current mood and how strong it is (0-1). Events push a mood up; strength fades by itself, and when it runs
+ * out the character drifts back to its everyday mood (happy in the day, tired at night, bored after a long time with
+ * nothing going on). A stronger mood isn't replaced by a weaker push.
+ */
+public final class MoodState {
+	/** Strength lost per second. A full-strength mood lasts a bit under 2 minutes without new events. */
+	private static final float FADE_PER_SECOND = 0.01F;
+
+	private Mood mood = Mood.HAPPY;
+	private float strength = 0.3F;
+	/** Set with /loafcraft mood: held until this game tick, whatever happens. */
+	private long lockedUntil;
+
+	public Mood mood() {
+		return this.mood;
+	}
+
+	public float strength() {
+		return this.strength;
+	}
+
+	/**
+	 * Something happened that makes them feel this way. Returns true if the mood changed (to show it).
+	 * Pushing the current mood again adds to its strength.
+	 */
+	public boolean push(Mood mood, float amount, long gameTime) {
+		if (gameTime < this.lockedUntil) {
+			return false;
+		}
+		if (mood == this.mood) {
+			this.strength = Math.min(1.0F, this.strength + amount);
+			return false;
+		}
+		if (amount < this.strength * 0.8F) {
+			return false;
+		}
+		this.mood = mood;
+		this.strength = Math.min(1.0F, amount);
+		return true;
+	}
+
+	/** Forces a mood (the test command): it holds for {@code ticks}. */
+	public void set(Mood mood, long gameTime, int ticks) {
+		this.mood = mood;
+		this.strength = 1.0F;
+		this.lockedUntil = gameTime + ticks;
+	}
+
+	/** Once a second: fade, and settle into the everyday mood once the current one has worn off. Returns true if it changed. */
+	public boolean tickSecond(Mood everyday, long gameTime) {
+		if (gameTime < this.lockedUntil) {
+			return false;
+		}
+		this.strength = Math.max(0.0F, this.strength - FADE_PER_SECOND);
+		if (this.strength <= 0.05F && this.mood != everyday) {
+			this.mood = everyday;
+			this.strength = 0.3F;
+			return true;
+		}
+		return false;
+	}
+
+	public void save(CompoundTag tag) {
+		tag.putString("Mood", this.mood.id());
+		tag.putFloat("MoodStrength", this.strength);
+	}
+
+	public void load(CompoundTag tag) {
+		this.mood = Mood.byId(tag.getStringOr("Mood", "happy"));
+		this.strength = tag.getFloatOr("MoodStrength", 0.3F);
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/brain/ai/PlayStyle.java
+
+```java
+package com.itzbreadloaf.brain.ai;
+
+import com.itzbreadloaf.character.CharacterKind;
+import com.itzbreadloaf.character.CharacterVariant;
+import java.util.Locale;
+
+/**
+ * How a character likes to fight. Picked from who they are (ItzBreadLoaf's types each lean their own way) unless
+ * "playStyleOverrides" in the config says otherwise. Part 4 (combat) reads these numbers.
+ */
+public enum PlayStyle {
+	/** ItzBreadLoaf: sprint in, W-tap, jump crits, rarely blocks, chases too far. */
+	BRAWLER(2.6, 0.15F, 1.4F, 0.9F, false),
+	/** Knight: shield up, steady, waits for openings. */
+	TURTLE(2.8, 0.70F, 0.9F, 0.5F, false),
+	/** Pirate: axe first to break shields, then swings hard. */
+	SHIELD_BREAKER(2.7, 0.20F, 1.2F, 0.8F, false),
+	/** Archer types: keep distance and shoot, back off when rushed. */
+	KITER(9.0, 0.25F, 0.8F, 0.4F, true),
+	/** Sweaty: combos (W-tap, strafe, jump resets), tight spacing. */
+	COMBO(2.4, 0.30F, 1.2F, 0.85F, false),
+	/** Bandit: hit, back off, come back from another side. */
+	HIT_AND_RUN(3.2, 0.10F, 1.0F, 0.7F, false),
+	/** Captain: steady front-liner, blocks and trades evenly. */
+	FRONTLINER(2.7, 0.45F, 1.0F, 0.7F, false),
+	/** FelixSyn: fights from the air with wind charges, pearls and the mace. */
+	AERIALIST(3.5, 0.20F, 1.1F, 0.75F, false),
+	/** Harley: clean duelist, perfect spacing and timing. */
+	DUELIST(2.6, 0.45F, 1.0F, 0.7F, false),
+	/** Lily: keeps her distance, bow and potions, runs when scared. */
+	SUPPORT(7.0, 0.35F, 0.6F, 0.3F, true),
+	/** Madison: shield-heavy, stands between danger and her friends and animals. */
+	DEFENDER(2.6, 0.65F, 0.7F, 0.4F, false),
+	/** Master BreadLoaf: sword pressure between big warned moves. */
+	SHOWMAN(2.8, 0.0F, 1.2F, 0.8F, false);
+
+	/** Distance they like to fight at (blocks). */
+	public final double preferredRange;
+	/** How much they lean on the shield (0-1). */
+	public final float shieldBias;
+	/** How far they chase, as a multiple of normal. */
+	public final float chaseMultiplier;
+	/** How eager they are to start and press a fight (0-1). */
+	public final float pressure;
+	public final boolean ranged;
+
+	PlayStyle(double preferredRange, float shieldBias, float chaseMultiplier, float pressure, boolean ranged) {
+		this.preferredRange = preferredRange;
+		this.shieldBias = shieldBias;
+		this.chaseMultiplier = chaseMultiplier;
+		this.pressure = pressure;
+		this.ranged = ranged;
+	}
+
+	public String id() {
+		return this.name().toLowerCase(Locale.ROOT);
+	}
+
+	public static PlayStyle forCharacter(CharacterKind kind, CharacterVariant variant) {
+		return switch (kind) {
+			case BREADLOAF -> switch (variant) {
+				case KNIGHT -> TURTLE;
+				case PIRATE -> SHIELD_BREAKER;
+				case ARCHER -> KITER;
+				case SWEATY -> COMBO;
+				case BANDIT -> HIT_AND_RUN;
+				case CAPTAIN -> FRONTLINER;
+				default -> BRAWLER;
+			};
+			case LILY -> variant == CharacterVariant.ARCHER_LILY ? KITER : SUPPORT;
+			case MADISON -> DEFENDER;
+			case MASTER -> SHOWMAN;
+			case FELIXSYN -> AERIALIST;
+			case HARLEY -> DUELIST;
+		};
+	}
+
+	/** A style by id, or null if unknown (or "auto"). */
+	public static PlayStyle byId(String id) {
+		for (PlayStyle style : values()) {
+			if (style.id().equalsIgnoreCase(id)) {
+				return style;
+			}
+		}
+		return null;
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/brain/ai/PlayerMemory.java
+
+```java
+package com.itzbreadloaf.brain.ai;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import net.minecraft.core.UUIDUtil;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * What a character remembers about each real player: who fed them, who hurt them, when they last saw them, and a
+ * trust score built from that (-100 to 100). Saved with the character; the 32 most recently seen players are kept.
+ *
+ * This sits next to the existing trust and taming systems (Lily's 5 gifts, taming food) and doesn't replace them:
+ * it changes how they feel and act around a player, not whether they're tamed or trusted.
+ */
+public final class PlayerMemory {
+	public static final int MAX_PLAYERS = 32;
+
+	public static final class Entry {
+		public int fed;
+		public int hurt;
+		public float damageTaken;
+		public int helped;
+		public long lastHurt = -1;
+		public long lastSeen;
+		public int trust;
+
+		/** Hurt them in the last 20 minutes, or hurt them a lot and never made up for it. */
+		public boolean isFeared(long gameTime) {
+			return this.lastHurt >= 0 && gameTime - this.lastHurt < 24000 || this.trust <= -30;
+		}
+
+		public boolean isLiked() {
+			return this.trust >= 30;
+		}
+	}
+
+	private final Map<UUID, Entry> players = new HashMap<>();
+
+	public @Nullable Entry get(UUID player) {
+		return this.players.get(player);
+	}
+
+	public int trust(UUID player) {
+		Entry entry = this.players.get(player);
+		return entry == null ? 0 : entry.trust;
+	}
+
+	public boolean isFeared(UUID player, long gameTime) {
+		Entry entry = this.players.get(player);
+		return entry != null && entry.isFeared(gameTime);
+	}
+
+	public boolean isLiked(UUID player) {
+		Entry entry = this.players.get(player);
+		return entry != null && entry.isLiked();
+	}
+
+	public boolean knows(UUID player) {
+		return this.players.containsKey(player);
+	}
+
+	private Entry entry(UUID player, long gameTime) {
+		Entry entry = this.players.computeIfAbsent(player, id -> new Entry());
+		entry.lastSeen = gameTime;
+		if (this.players.size() > MAX_PLAYERS) {
+			this.players.entrySet().stream().min(Comparator.comparingLong(e -> e.getValue().lastSeen))
+					.map(Map.Entry::getKey).ifPresent(this.players::remove);
+		}
+		return entry;
+	}
+
+	/** Gave them food or a gift. */
+	public void fed(UUID player, long gameTime) {
+		Entry entry = this.entry(player, gameTime);
+		entry.fed++;
+		entry.trust = Math.min(100, entry.trust + 8);
+	}
+
+	/** Hurt them. A bigger hit costs more trust. */
+	public void hurt(UUID player, float damage, long gameTime) {
+		Entry entry = this.entry(player, gameTime);
+		entry.hurt++;
+		entry.damageTaken += damage;
+		entry.lastHurt = gameTime;
+		entry.trust = Math.max(-100, entry.trust - Math.max(5, Math.round(damage * 3)));
+	}
+
+	/** Fought next to them, defended them, tamed them. */
+	public void helped(UUID player, int amount, long gameTime) {
+		Entry entry = this.entry(player, gameTime);
+		entry.helped++;
+		entry.trust = Math.min(100, entry.trust + amount);
+	}
+
+	/** Saw them nearby. Returns true the first time ever (something new to be curious about). */
+	public boolean seen(UUID player, long gameTime) {
+		boolean first = !this.players.containsKey(player);
+		this.entry(player, gameTime);
+		return first;
+	}
+
+	public void save(CompoundTag tag) {
+		ListTag list = new ListTag();
+		for (Map.Entry<UUID, Entry> e : this.players.entrySet()) {
+			CompoundTag t = new CompoundTag();
+			t.store("Id", UUIDUtil.CODEC, e.getKey());
+			Entry entry = e.getValue();
+			t.putInt("Fed", entry.fed);
+			t.putInt("Hurt", entry.hurt);
+			t.putFloat("Damage", entry.damageTaken);
+			t.putInt("Helped", entry.helped);
+			t.putLong("LastHurt", entry.lastHurt);
+			t.putLong("LastSeen", entry.lastSeen);
+			t.putInt("Trust", entry.trust);
+			list.add(t);
+		}
+		tag.put("Memory", list);
+	}
+
+	public void load(CompoundTag tag) {
+		this.players.clear();
+		List<Tag> list = new ArrayList<>(tag.getListOrEmpty("Memory"));
+		for (Tag element : list) {
+			if (!(element instanceof CompoundTag t)) {
+				continue;
+			}
+			UUID id = t.read("Id", UUIDUtil.CODEC).orElse(null);
+			if (id == null) {
+				continue;
+			}
+			Entry entry = new Entry();
+			entry.fed = t.getIntOr("Fed", 0);
+			entry.hurt = t.getIntOr("Hurt", 0);
+			entry.damageTaken = t.getFloatOr("Damage", 0.0F);
+			entry.helped = t.getIntOr("Helped", 0);
+			entry.lastHurt = t.getLongOr("LastHurt", -1);
+			entry.lastSeen = t.getLongOr("LastSeen", 0);
+			entry.trust = t.getIntOr("Trust", 0);
+			this.players.put(id, entry);
+		}
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/brain/ai/Routine.java
+
+```java
+package com.itzbreadloaf.brain.ai;
+
+import java.util.Locale;
+
+/**
+ * A character's day, by Minecraft time (0 = sunrise, 6000 = noon, 12000 = sunset, 18000 = midnight):
+ *
+ * <pre>
+ *   23500-1000  wake up      stretch, look around, eat if hungry
+ *    1000-6000  work         their job or hobby (bake, train, read, garden, farm, mace practice, spar)
+ *    6000-7000  friends      lunch with a friend: walk over and hang out
+ *    7000-10000 work         more work (or free time when bored)
+ *   10000-11500 free time    hobbies, wandering, chatting
+ *   11500-12500 head home    back home, near the bed
+ *   12500-23500 sleep        bed (the existing night behavior)
+ * </pre>
+ *
+ * Moods bend it: tired goes home and to bed an hour early and gets up late, bored skips work for free time or
+ * friends, happy and curious visit friends more. Each hour's choice is fixed per character and day, so they don't
+ * flip back and forth.
+ */
+public final class Routine {
+	public enum Activity {
+		WAKE_UP, WORK, FRIENDS, FREE, HEAD_HOME, SLEEP;
+
+		public String id() {
+			return this.name().toLowerCase(Locale.ROOT);
+		}
+	}
+
+	private Routine() {
+	}
+
+	public static Activity at(long dayTime, Mood mood, long seed) {
+		long day = Math.floorDiv(dayTime, 24000L);
+		int time = (int) Math.floorMod(dayTime, 24000L);
+		int hour = time / 1000;
+		// A stable "dice roll" for this character, day and hour.
+		long mix = seed * 31L + day * 1009L + hour * 7919L;
+		mix ^= mix >>> 17;
+		mix *= 0x9E3779B97F4A7C15L;
+		float roll = (float) ((mix >>> 40) & 0xFFFF) / 65536.0F;
+
+		boolean tired = mood == Mood.TIRED;
+		if (time >= (tired ? 11500 : 12500) && time < 23500) {
+			return Activity.SLEEP;
+		}
+		if (time >= 23500 || time < (tired ? 2000 : 1000)) {
+			return Activity.WAKE_UP;
+		}
+		if (time >= (tired ? 10500 : 11500)) {
+			return Activity.HEAD_HOME;
+		}
+		if (time >= 10000) {
+			return mood == Mood.HAPPY && roll < 0.4F ? Activity.FRIENDS : Activity.FREE;
+		}
+		if (time >= 6000 && time < 7000) {
+			return mood == Mood.SCARED ? Activity.FREE : Activity.FRIENDS;
+		}
+		// Work hours.
+		if (mood == Mood.BORED) {
+			return roll < 0.35F ? Activity.FRIENDS : roll < 0.7F ? Activity.FREE : Activity.WORK;
+		}
+		if ((mood == Mood.HAPPY || mood == Mood.CURIOUS) && roll < 0.15F) {
+			return Activity.FRIENDS;
+		}
+		return roll < 0.1F ? Activity.FREE : Activity.WORK;
+	}
+}
+```
+
+## src/main/java/com/itzbreadloaf/brain/ai/Situation.java
+
+```java
+package com.itzbreadloaf.brain.ai;
+
+/**
+ * Moments a character says something about (AI overhaul part 6). Each character has its own lines for each; a line may
+ * contain %s (a friend's name, or the item a player is holding).
+ */
+public enum Situation {
+	/** A trusted player shows up again. */
+	GREET_PLAYER,
+	/** A friend character shows up again (%s = their name). */
+	GREET_FRIEND,
+	/** A fight starts. */
+	FIGHT_START,
+	/** A fight with the rival starts (ItzBreadLoaf and FelixSyn trash-talk). */
+	RIVAL,
+	/** Won a fight. */
+	FIGHT_WON,
+	/** Very low on health in a fight. */
+	LOW_HEALTH,
+	/** Jumping in to defend a friend. */
+	DEFEND_FRIEND,
+	/** A friend got hurt and they're scared for them. */
+	SCARED_FOR_FRIEND,
+	/** Catching their breath after a close fight. */
+	REST,
+	/** Stretching in the morning. */
+	MORNING,
+	/** Looking at the night sky. */
+	NIGHT,
+	/** Caught in the rain. */
+	RAIN,
+	/** Looking at what a player is holding (%s = the item). */
+	ITEM,
+	/** Watching a player build or mine. */
+	WATCH
+}
+```
+
+## src/main/java/com/itzbreadloaf/brain/ai/SkillProfile.java
+
+```java
+package com.itzbreadloaf.brain.ai;
+
+import com.itzbreadloaf.character.CharacterKind;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+/**
+ * How well a character fights, as numbers. Every character has an Easy, Normal and Hard profile in
+ * config/itzbreadloaf.json ("skillProfiles"), filled in with these defaults the first time; edit them there.
+ * Which preset is used: "aiDifficulty" (or "aiDifficultyOverrides" per character); Harley follows
+ * "harleyDifficulty" and Master BreadLoaf "bossDifficulty".
+ *
+ * Harley's crit chance and Master BreadLoaf's reaction, crits, misses and technique fails come from their own presets
+ * (HarleyPreset, BossPreset) so their balance stays exactly as tuned.
+ *
+ * Fields are public and plain so Gson can read and write them.
+ */
+public final class SkillProfile {
+	/** Reaction delay to a new threat, picked between these each time (milliseconds). */
+	public int reactionMinMs;
+	public int reactionMaxMs;
+	/** How far off the aim wobbles (degrees) and how fast the view can turn (degrees per tick). */
+	public float aimErrorDegrees;
+	public float aimSpeedDegrees;
+	/** Ticks a hotbar slot change takes. */
+	public int hotbarSwitchTicks;
+	/** Chance to go for a jump crit when the timing allows. */
+	public float critChance;
+	/** Chance to W-tap (re-sprint) or S-tap (step back) after a hit. */
+	public float wTapChance;
+	public float sTapChance;
+	/** Chance to keep circling the target instead of standing still. */
+	public float strafeChance;
+	/** Chance to jump on the tick they're hit, to take less knockback. */
+	public float jumpResetChance;
+	/** 0-1: how well-timed shield blocks are (1 = only when the hit is coming, 0 = random). */
+	public float shieldSkill;
+	/** Chance a swing misses on purpose. */
+	public float mistakeChance;
+	/** Chance a mace technique (pearl catch, dive, chain) goes wrong. */
+	public float techniqueFailChance;
+	/** Below this share of health they may panic (erratic moves, early retreat). */
+	public float panicHealth;
+	/** 0-1: how far they chase and how fast they engage. */
+	public float aggression;
+
+	public SkillProfile() {
+	}
+
+	private SkillProfile(int reactionMinMs, int reactionMaxMs, float aimErrorDegrees, float aimSpeedDegrees, int hotbarSwitchTicks,
+			float critChance, float wTapChance, float sTapChance, float strafeChance, float jumpResetChance, float shieldSkill,
+			float mistakeChance, float techniqueFailChance, float panicHealth, float aggression) {
+		this.reactionMinMs = reactionMinMs;
+		this.reactionMaxMs = reactionMaxMs;
+		this.aimErrorDegrees = aimErrorDegrees;
+		this.aimSpeedDegrees = aimSpeedDegrees;
+		this.hotbarSwitchTicks = hotbarSwitchTicks;
+		this.critChance = critChance;
+		this.wTapChance = wTapChance;
+		this.sTapChance = sTapChance;
+		this.strafeChance = strafeChance;
+		this.jumpResetChance = jumpResetChance;
+		this.shieldSkill = shieldSkill;
+		this.mistakeChance = mistakeChance;
+		this.techniqueFailChance = techniqueFailChance;
+		this.panicHealth = panicHealth;
+		this.aggression = aggression;
+	}
+
+	/** Reaction delay in ticks, picked at random between min and max. */
+	public int reactionTicks(net.minecraft.util.RandomSource random) {
+		int min = Math.max(0, this.reactionMinMs);
+		int max = Math.max(min, this.reactionMaxMs);
+		return Math.round((min + random.nextInt(max - min + 1)) / 50.0F);
+	}
+
+	/** The Normal profile for each character. */
+	private static SkillProfile normal(CharacterKind kind) {
+		return switch (kind) {
+			// Average, aggressive, scrappy, sometimes reckless.
+			case BREADLOAF -> new SkillProfile(200, 300, 4.0F, 30.0F, 4, 0.60F, 0.50F, 0.10F, 0.50F, 0.25F, 0.30F, 0.08F, 0.40F, 0.20F, 0.90F);
+			// Shy, defensive and basic until angry.
+			case LILY -> new SkillProfile(220, 300, 5.0F, 25.0F, 5, 0.30F, 0.20F, 0.30F, 0.40F, 0.15F, 0.50F, 0.12F, 0.50F, 0.40F, 0.30F);
+			// Defender: good with a shield, slow to start a fight.
+			case MADISON -> new SkillProfile(200, 300, 4.5F, 27.0F, 4, 0.35F, 0.30F, 0.20F, 0.40F, 0.20F, 0.70F, 0.10F, 0.50F, 0.30F, 0.40F);
+			// Knows everything; the boss preset limits him (reaction, crits, misses and fails come from it).
+			case MASTER -> new SkillProfile(300, 400, 5.0F, 28.0F, 4, 0.25F, 0.40F, 0.20F, 0.50F, 0.30F, 0.0F, 0.12F, 0.25F, 0.0F, 0.80F);
+			// Great at mace movement, decent on the ground.
+			case FELIXSYN -> new SkillProfile(170, 250, 3.0F, 35.0F, 3, 0.75F, 0.50F, 0.30F, 0.70F, 0.40F, 0.40F, 0.06F, 0.15F, 0.15F, 0.70F);
+			// Clean and consistent duelist (crit chance comes from harleyDifficulty).
+			case HARLEY -> new SkillProfile(150, 220, 2.0F, 40.0F, 2, 0.40F, 0.70F, 0.40F, 0.80F, 0.60F, 0.70F, 0.03F, 0.10F, 0.10F, 0.60F);
+		};
+	}
+
+	/** Easy: slower, sloppier, fewer tricks. */
+	private static SkillProfile easy(CharacterKind kind) {
+		SkillProfile n = normal(kind);
+		return new SkillProfile(Math.round(n.reactionMinMs * 1.25F), Math.round(n.reactionMaxMs * 1.25F), n.aimErrorDegrees * 1.5F,
+				n.aimSpeedDegrees * 0.8F, n.hotbarSwitchTicks + 2, n.critChance * 0.7F, n.wTapChance * 0.7F, n.sTapChance * 0.7F,
+				n.strafeChance * 0.7F, n.jumpResetChance * 0.6F, n.shieldSkill * 0.7F, Math.min(0.5F, n.mistakeChance * 1.6F),
+				Math.min(0.9F, n.techniqueFailChance * 1.4F), Math.min(0.6F, n.panicHealth * 1.3F), n.aggression * 0.85F);
+	}
+
+	/** Hard: quicker, cleaner, more tricks (never perfect). */
+	private static SkillProfile hard(CharacterKind kind) {
+		SkillProfile n = normal(kind);
+		return new SkillProfile(Math.round(n.reactionMinMs * 0.85F), Math.round(n.reactionMaxMs * 0.85F), n.aimErrorDegrees * 0.7F,
+				n.aimSpeedDegrees * 1.2F, Math.max(1, n.hotbarSwitchTicks - 1), Math.min(0.95F, n.critChance * 1.25F),
+				Math.min(0.95F, n.wTapChance * 1.25F), Math.min(0.95F, n.sTapChance * 1.25F), Math.min(0.95F, n.strafeChance * 1.2F),
+				Math.min(0.9F, n.jumpResetChance * 1.25F), Math.min(0.95F, n.shieldSkill * 1.2F), n.mistakeChance * 0.6F,
+				n.techniqueFailChance * 0.6F, n.panicHealth * 0.8F, Math.min(1.0F, n.aggression * 1.1F));
+	}
+
+	/** All defaults: character id -> "easy"/"normal"/"hard" -> profile. */
+	public static Map<String, Map<String, SkillProfile>> defaults() {
+		Map<String, Map<String, SkillProfile>> all = new LinkedHashMap<>();
+		for (CharacterKind kind : CharacterKind.values()) {
+			Map<String, SkillProfile> presets = new LinkedHashMap<>();
+			presets.put("easy", easy(kind));
+			presets.put("normal", normal(kind));
+			presets.put("hard", hard(kind));
+			all.put(kind.id, presets);
+		}
+		return all;
+	}
+
+	/** The built-in profile, for when the config's is missing. */
+	public static SkillProfile fallback(CharacterKind kind, String preset) {
+		return switch (preset) {
+			case "easy" -> easy(kind);
+			case "hard" -> hard(kind);
+			default -> normal(kind);
+		};
+	}
+}
+```
+
 ## src/main/java/com/itzbreadloaf/character/BastionThrones.java
 
 ```java
@@ -10293,6 +14568,15 @@ public final class CharacterManager {
 			if (attacker != null && !attacker.isGone() && entity != attacker.player) {
 				attacker.brain.onDealtDamage(entity, damageTaken);
 			}
+			// Characters nearby glance at the commotion.
+			if (damageTaken > 0.0F) {
+				for (LoafCharacter nearby : active()) {
+					if (nearby != character && nearby != attacker && nearby.brain != null && !nearby.isGone()
+							&& nearby.player.level() == entity.level() && nearby.player.distanceToSqr(entity) < 144.0) {
+						nearby.brain.noticeCommotion(entity);
+					}
+				}
+			}
 		});
 		ServerLivingEntityEvents.ALLOW_DEATH.register((entity, source, amount) -> {
 			LoafCharacter character = get(entity);
@@ -10578,7 +14862,7 @@ public final class CharacterManager {
 				continue;
 			}
 			try {
-				character.brain.tick();
+				character.brain.serverTick(server.getTickCount());
 			} catch (RuntimeException e) {
 				ItzBreadLoaf.LOGGER.error("{}'s brain crashed, pausing it", character.record.profileName(), e);
 				character.brain.setPaused(true);
@@ -11830,7 +16114,9 @@ public final class ModConfig {
 	public double maceDropChance = 0.008;
 
 	public enum HarleyPreset {
-		EASY(20.0, 0.85, 0.11, 0.25F), NORMAL(26.0, 1.0, 0.115, 0.4F), HARD(32.0, 1.15, 0.12, 0.6F);
+		// Crit chance is per swing since the AI overhaul (it used to be rolled every tick of the ~2-tick window, which
+		// made it about 1-(1-c)^2): these keep her crit rate where it was.
+		EASY(20.0, 0.85, 0.11, 0.44F), NORMAL(26.0, 1.0, 0.115, 0.64F), HARD(32.0, 1.15, 0.12, 0.84F);
 
 		public final double health;
 		public final double damageMultiplier;
@@ -11855,20 +16141,66 @@ public final class ModConfig {
 		};
 	}
 
+	/**
+	 * Master BreadLoaf's difficulty (the big nerf: an average player in full diamond can beat Normal). Every preset keeps
+	 * the 16-damage cap per hit ({@link #BOSS_MAX_HIT_DAMAGE}) and the 1-second warning before every smash and dive.
+	 */
 	public enum BossPreset {
-		EASY(150, 0.7, 4.0F), NORMAL(200, 1.0, 6.0F), HARD(300, 1.3, 9.0F);
+		// Tuned with tools/boss_fight_sim.py (1.21.11 damage, armor and Protection rules): on Normal an average player in
+		// plain full diamond with a sword, shield and 8 golden apples wins about 70% of fights.
+		//   health, damage, prot, sharp, strength, smashCd, techCd, fail,  react ticks, whiff, fall, phase2, crit
+		EASY(70, 0.40, 1, 0, 0, 300, 600, 0.35F, 7, 9, 0.18F, 3.0F, 0.05, 0.15F),
+		NORMAL(100, 0.55, 2, 0, 0, 240, 400, 0.25F, 6, 8, 0.12F, 3.0F, 0.08, 0.25F),
+		HARD(120, 0.50, 3, 0, 1, 240, 400, 0.15F, 5, 7, 0.08F, 4.0F, 0.12, 0.30F);
 
 		public final double health;
 		public final double damageMultiplier;
+		/** Protection level on his diamond armor. */
+		public final int protection;
+		/** Sharpness level on his diamond sword (0 = none). */
+		public final int sharpness;
+		/** Strength potion level he drinks at the start (0 = none). */
+		public final int strength;
+		/** Ticks between mace smashes (at least 160 = 8 seconds). */
+		public final int smashCooldown;
+		/** Ticks between elytra dives and pearl catches (at least 400 = 20 seconds). */
+		public final int techniqueCooldown;
+		/** Chance he fails a dive or pearl catch on purpose. */
+		public final float techniqueFailChance;
+		/** Reaction delay to a new target, in ticks (1 tick = 50 ms). */
+		public final int reactionMin;
+		public final int reactionMax;
+		/** Chance a sword swing misses on purpose. */
+		public final float whiffChance;
 		/** Largest fall distance a mace smash counts (mace damage grows with the fall). */
 		public final float maxSmashFall;
+		/** Extra speed in phase 2 (under half health). */
+		public final double phase2Speed;
+		/** How often he jumps for a sword crit when the timing allows. */
+		public final float critChance;
 
-		BossPreset(double health, double damageMultiplier, float maxSmashFall) {
+		BossPreset(double health, double damageMultiplier, int protection, int sharpness, int strength, int smashCooldown,
+				int techniqueCooldown, float techniqueFailChance, int reactionMin, int reactionMax, float whiffChance,
+				float maxSmashFall, double phase2Speed, float critChance) {
 			this.health = health;
 			this.damageMultiplier = damageMultiplier;
+			this.protection = protection;
+			this.sharpness = sharpness;
+			this.strength = strength;
+			this.smashCooldown = Math.max(160, smashCooldown);
+			this.techniqueCooldown = Math.max(400, techniqueCooldown);
+			this.techniqueFailChance = techniqueFailChance;
+			this.reactionMin = reactionMin;
+			this.reactionMax = reactionMax;
+			this.whiffChance = whiffChance;
 			this.maxSmashFall = maxSmashFall;
+			this.phase2Speed = phase2Speed;
+			this.critChance = critChance;
 		}
 	}
+
+	/** No single hit from Master BreadLoaf deals more than this (8 hearts), whatever the preset or fall height. */
+	public static final float BOSS_MAX_HIT_DAMAGE = 16.0F;
 
 	public BossPreset bossPreset() {
 		return switch (this.bossDifficulty == null ? "" : this.bossDifficulty.toLowerCase(java.util.Locale.ROOT)) {
@@ -11876,6 +16208,69 @@ public final class ModConfig {
 			case "hard" -> BossPreset.HARD;
 			default -> BossPreset.NORMAL;
 		};
+	}
+
+	// ---------------------------------------------------------------- AI overhaul (part 3)
+
+	/** Fighting skill preset for every character: "easy", "normal" or "hard". Harley uses harleyDifficulty, Master BreadLoaf bossDifficulty. */
+	public String aiDifficulty = "normal";
+	/** Per-character preset, overriding aiDifficulty: e.g. {"felixsyn": "hard"}. Keys: itzbreadloaf, imlilylol, madison, master_breadloaf, felixsyn, harley. */
+	public java.util.Map<String, String> aiDifficultyOverrides = new java.util.LinkedHashMap<>();
+	/** The skill numbers for each character and preset (filled in with the defaults; edit freely). */
+	public java.util.Map<String, java.util.Map<String, com.itzbreadloaf.brain.ai.SkillProfile>> skillProfiles = new java.util.LinkedHashMap<>();
+	/** Play style per character, or "auto" to pick from who they are (ItzBreadLoaf's types differ). E.g. {"itzbreadloaf": "turtle"}. */
+	public java.util.Map<String, String> playStyleOverrides = new java.util.LinkedHashMap<>();
+	/** Moods (happy, bored, tired, scared, angry, curious) that change how characters act. */
+	public boolean moods = true;
+	/** Daily routines: wake up, work, see friends, free time, head home, sleep. */
+	public boolean routines = true;
+	/** Characters within this many blocks of a real player think every tick (full AI). */
+	public double aiFullDetailRange = 32.0;
+	/** Out to this range they think every 4th tick (simple AI); beyond it they stand still until a player comes closer. */
+	public double aiSimpleDetailRange = 56.0;
+	/** Personality lines: greetings, mood lines, fight and rivalry trash-talk, morning and rain comments (actionBarMessages turns off every line). */
+	public boolean personalityLines = true;
+
+	/** The preset name used for a character. */
+	public String aiPresetFor(com.itzbreadloaf.character.CharacterKind kind) {
+		String preset = this.aiDifficultyOverrides == null ? null : this.aiDifficultyOverrides.get(kind.id);
+		if (preset == null || preset.isBlank()) {
+			preset = switch (kind) {
+				case HARLEY -> this.harleyDifficulty;
+				case MASTER -> this.bossDifficulty;
+				default -> this.aiDifficulty;
+			};
+		}
+		preset = preset == null ? "normal" : preset.toLowerCase(java.util.Locale.ROOT);
+		return preset.equals("easy") || preset.equals("hard") ? preset : "normal";
+	}
+
+	/** The skill profile a character fights with right now. */
+	public com.itzbreadloaf.brain.ai.SkillProfile skillFor(com.itzbreadloaf.character.CharacterKind kind) {
+		String preset = this.aiPresetFor(kind);
+		var byPreset = this.skillProfiles == null ? null : this.skillProfiles.get(kind.id);
+		var profile = byPreset == null ? null : byPreset.get(preset);
+		return profile != null ? profile : com.itzbreadloaf.brain.ai.SkillProfile.fallback(kind, preset);
+	}
+
+	/** Fills in any missing skill profiles with the defaults (so they show up in the file). */
+	private void fillDefaults() {
+		if (this.skillProfiles == null) {
+			this.skillProfiles = new java.util.LinkedHashMap<>();
+		}
+		if (this.aiDifficultyOverrides == null) {
+			this.aiDifficultyOverrides = new java.util.LinkedHashMap<>();
+		}
+		if (this.playStyleOverrides == null) {
+			this.playStyleOverrides = new java.util.LinkedHashMap<>();
+		}
+		com.itzbreadloaf.brain.ai.SkillProfile.defaults().forEach((kind, presets) -> {
+			var existing = this.skillProfiles.computeIfAbsent(kind, k -> new java.util.LinkedHashMap<>());
+			presets.forEach(existing::putIfAbsent);
+		});
+		for (com.itzbreadloaf.character.CharacterKind kind : com.itzbreadloaf.character.CharacterKind.values()) {
+			this.playStyleOverrides.putIfAbsent(kind.id, "auto");
+		}
 	}
 
 	public static ModConfig get() {
@@ -11894,6 +16289,7 @@ public final class ModConfig {
 				ItzBreadLoaf.LOGGER.warn("Could not read {}, using defaults", path, e);
 			}
 		}
+		instance.fillDefaults();
 		// Write it back so new options show up in old files.
 		try (Writer writer = Files.newBufferedWriter(path)) {
 			GSON.toJson(instance, writer);
@@ -12615,23 +17011,41 @@ public abstract class ItemEntityMixin {
 ```java
 package com.itzbreadloaf.mixin;
 
+import com.itzbreadloaf.brain.MasterBreadLoafBrain;
 import com.itzbreadloaf.character.CharacterManager;
 import com.itzbreadloaf.character.LoafIds;
+import com.itzbreadloaf.config.ModConfig;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.LivingEntity;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.ModifyVariable;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-/** Vanilla mobs ignore friendly characters (Lily, Madison, tamed ItzBreadLoafs) but still fight hostile ones. */
 @Mixin(LivingEntity.class)
 public abstract class LivingEntityMixin {
+	/** Vanilla mobs ignore friendly characters (Lily, Madison, tamed ItzBreadLoafs) but still fight hostile ones. */
 	@Inject(method = "canBeSeenAsEnemy", at = @At("HEAD"), cancellable = true)
 	private void loaf$friendlyCharacters(CallbackInfoReturnable<Boolean> cir) {
 		LivingEntity self = (LivingEntity) (Object) this;
 		if (!self.level().isClientSide() && LoafIds.isCharacter(self) && CharacterManager.isFriendlyToMobs(self.getUUID())) {
 			cir.setReturnValue(false);
 		}
+	}
+
+	/**
+	 * Master BreadLoaf's damage cap: no single hit of his (sword, mace smash, anything he causes) deals more than
+	 * 16 damage, whatever the fall height. Capped before armor, so after armor it's even less.
+	 */
+	@ModifyVariable(method = "hurtServer", at = @At("HEAD"), argsOnly = true)
+	private float loaf$capBossHits(float amount, ServerLevel level, DamageSource source) {
+		if (amount > ModConfig.BOSS_MAX_HIT_DAMAGE && source.getEntity() != null
+				&& CharacterManager.brain(source.getEntity()) instanceof MasterBreadLoafBrain) {
+			return ModConfig.BOSS_MAX_HIT_DAMAGE;
+		}
+		return amount;
 	}
 }
 ```
@@ -51535,7 +55949,7 @@ final class UndergroundBlueprints {
         },
         {
           "type": "minecraft:item",
-          "name": "minecraft:enchanted_book",
+          "name": "minecraft:book",
           "weight": 4,
           "functions": [
             {
@@ -52026,7 +56440,7 @@ final class UndergroundBlueprints {
         },
         {
           "type": "minecraft:item",
-          "name": "minecraft:enchanted_book",
+          "name": "minecraft:book",
           "weight": 6,
           "functions": [
             {

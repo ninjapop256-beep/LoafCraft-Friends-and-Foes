@@ -157,7 +157,22 @@ public abstract class NeutralBrain extends LoafBrain {
 
 	/** With her friend: mostly the same quiet routine, but staying close. */
 	protected void tickCalmWithFriend() {
-		this.lookAround(8.0);
+		this.idleWithOwner();
+	}
+
+	/** Players she trusts (her gifts system) count as liked, too: she greets them. */
+	@Override
+	public boolean likesPlayer(Player player) {
+		return super.likesPlayer(player) || this.trustsPlayer(player);
+	}
+
+	/** Stepping in for a friend: angry at whoever hurt them (without the trust reset that hitting her causes). */
+	@Override
+	protected void defendAgainst(LivingEntity attacker) {
+		this.anger = this.angerTicksOnHit();
+		this.setTarget(attacker);
+		this.drawWeapon();
+		this.sitting = false;
 	}
 
 	private void drawWeapon() {
@@ -169,7 +184,10 @@ public abstract class NeutralBrain extends LoafBrain {
 				this.player.getInventory().setItem(WEAPON_SLOT, this.createFightWeapon());
 			}
 		}
-		this.controls.selectSlot(WEAPON_SLOT);
+		// Only from the calm item (book, flower...): once she has a weapon or bow out, the fight code picks what to hold.
+		if (this.player.getInventory().getSelectedSlot() == CALM_SLOT) {
+			this.controls.switchSlot(WEAPON_SLOT, this.skill().hotbarSwitchTicks);
+		}
 	}
 
 	private void holsterWeapon() {
@@ -195,10 +213,16 @@ public abstract class NeutralBrain extends LoafBrain {
 		}
 	}
 
-	/** The nearest real player within {@code range} she doesn't trust, or null. */
+	/**
+	 * The nearest real player within {@code range} she doesn't trust, or null. She remembers who hurt her: those count
+	 * from twice as far away, and everyone counts from a bit farther when she's scared.
+	 */
 	protected @Nullable Player nearestStranger(double range) {
-		return this.player.level().getNearestPlayer(this.player.getX(), this.player.getY(), this.player.getZ(), range,
-				p -> p != this.player && p instanceof Player pl && LoafIds.isRealPlayer(pl) && !pl.isSpectator() && !this.trustsPlayer(pl));
+		double near = this.mood.mood() == com.itzbreadloaf.brain.ai.Mood.SCARED ? range * 1.3 : range;
+		long gameTime = this.player.level().getGameTime();
+		return this.player.level().getNearestPlayer(this.player.getX(), this.player.getY(), this.player.getZ(), range * 2.0,
+				p -> p != this.player && p instanceof Player pl && LoafIds.isRealPlayer(pl) && !pl.isSpectator() && !this.trustsPlayer(pl)
+						&& (pl.distanceTo(this.player) <= near || this.memory.isFeared(pl.getUUID(), gameTime)));
 	}
 
 	/** Walks to a spot {@code distance} blocks away from {@code from}, trying angled escapes if straight away is blocked. */

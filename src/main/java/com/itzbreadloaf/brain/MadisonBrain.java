@@ -428,7 +428,7 @@ public class MadisonBrain extends NeutralBrain {
 			this.stopJob();
 			return;
 		}
-		if (this.tickJob() || this.tickIdle()) {
+		if (this.tickRoutine() || this.tickJob() || this.tickIdle() || this.tickIdleActions()) {
 			return;
 		}
 		this.wander(this.variant == CharacterVariant.BAKER ? 3.0 : HOME_RADIUS);
@@ -438,7 +438,7 @@ public class MadisonBrain extends NeutralBrain {
 	@Override
 	protected void tickCalmWithFriend() {
 		if (!this.tickJob()) {
-			this.lookAround(6.0);
+			this.idleWithOwner();
 		}
 	}
 
@@ -573,14 +573,50 @@ public class MadisonBrain extends NeutralBrain {
 		return this.fishing.tick(this.workCenter(), CALM_SLOT);
 	}
 
+	/**
+	 * Work hours: her job (farming, honey, fishing), the baker works at her oven, and otherwise she tends the garden
+	 * and organizes her pantry. Merchants stay at their stall.
+	 */
+	@Override
+	protected boolean doWork() {
+		if (this.tickJob()) {
+			return true;
+		}
+		return switch (this.variant) {
+			case MERCHANT -> false;
+			case BAKER -> this.activities.useStation(state -> state.is(Blocks.FURNACE) || state.is(Blocks.SMOKER)
+					|| state.is(Blocks.CRAFTING_TABLE), 6);
+			default -> this.tickIdle(this.random.nextBoolean() ? Idle.TEND_GARDEN : Idle.CHECK_PANTRY);
+		};
+	}
+
+	/** Friends time: cousin Lily first, any other friend otherwise. */
+	@Override
+	protected boolean socialize() {
+		return this.tickIdle(Idle.VISIT_LILY) || this.activities.visitFriend();
+	}
+
 	/** Tend the garden, check the pantry, visit cousin Lily, or walk up to her friend. True while busy. */
 	private boolean tickIdle() {
+		return this.tickIdle(null);
+	}
+
+	/** With {@code forced}: start that one (the routine asked for it) instead of a random one now and then. */
+	private boolean tickIdle(@Nullable Idle forced) {
 		if (this.idle == Idle.NONE) {
-			if (this.random.nextInt(200) != 0) {
-				return false;
+			if (forced != null) {
+				if (forced != Idle.VISIT_LILY && this.random.nextInt(40) != 0) {
+					this.lookAround(6.0);
+					return true;
+				}
+				this.idle = forced;
+			} else {
+				if (this.random.nextInt(200) != 0) {
+					return false;
+				}
+				Idle[] options = {Idle.TEND_GARDEN, Idle.CHECK_PANTRY, Idle.VISIT_LILY, Idle.VISIT_FRIEND};
+				this.idle = options[this.random.nextInt(options.length)];
 			}
-			Idle[] options = {Idle.TEND_GARDEN, Idle.CHECK_PANTRY, Idle.VISIT_LILY, Idle.VISIT_FRIEND};
-			this.idle = options[this.random.nextInt(options.length)];
 			this.spot = null;
 			this.buddy = null;
 			switch (this.idle) {
@@ -705,5 +741,40 @@ public class MadisonBrain extends NeutralBrain {
 		this.pantryPos = tag.read("Pantry", BlockPos.CODEC).orElse(null);
 		this.foodBeforeTheft = tag.getIntOr("FoodBeforeTheft", -1);
 		this.thief = tag.read("Thief", UUIDUtil.CODEC).orElse(null);
+	}
+
+	// ---------------------------------------------------------------- personality (AI overhaul part 6)
+
+	/** Madison: cheerful, energetic, protective farmer. */
+	@Override
+	protected String[] lines(com.itzbreadloaf.brain.ai.Situation situation) {
+		return switch (situation) {
+			case GREET_PLAYER -> new String[]{"hey hey! welcome back!", "hiii! how's it going?", "oh, it's you! hi!"};
+			case GREET_FRIEND -> new String[]{"hey %s!", "%s!! hi hi!", "look who it is, %s!"};
+			case FIGHT_START -> new String[]{"back off!", "you're in big trouble!", "not on my farm!"};
+			case RIVAL -> new String[]{"hey!"};
+			case FIGHT_WON -> new String[]{"and don't come back!", "hmph! that'll teach you"};
+			case LOW_HEALTH -> new String[]{"ouch! okay, okay!", "I need a snack, fast!"};
+			case DEFEND_FRIEND -> new String[]{"hey! leave my cousin alone!", "nobody hurts my friends!"};
+			case SCARED_FOR_FRIEND -> new String[]{"hey, are you okay?!", "oh no!"};
+			case REST -> new String[]{"*wipes her forehead* phew", "need a minute..."};
+			case MORNING -> new String[]{"morning! the chickens are up!", "time to feed the animals!"};
+			case NIGHT -> new String[]{"night already? gotta lock up the barn", "*yawns* bedtime"};
+			case RAIN -> new String[]{"good for the crops!", "rain! the garden will love this"};
+			case ITEM -> new String[]{"ooh, %s! nice!", "want to trade that %s?", "where'd you get the %s?"};
+			case WATCH -> new String[]{"need any help?", "looking good!"};
+		};
+	}
+
+	@Override
+	protected String[] moodLines(com.itzbreadloaf.brain.ai.Mood mood) {
+		return switch (mood) {
+			case HAPPY -> new String[]{"*hums a farm song*", "what a day!"};
+			case BORED -> new String[]{"the pantry needs sorting...", "*drums her fingers*"};
+			case TIRED -> new String[]{"*yawns* long day", "my feet hurt..."};
+			case CURIOUS -> new String[]{"ooh, what's this?", "huh?"};
+			case SCARED -> new String[]{"yikes!", "eep!"};
+			case ANGRY -> new String[]{"okay, now I'm mad!", "that's it!"};
+		};
 	}
 }
